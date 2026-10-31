@@ -100,34 +100,46 @@
   /* ---------------- Interface commune ---------------- */
   function entete() {
     const m = moi();
-    const nav = CATS.map((c) => `<a href="#/c/${c.id}"><span class="ic">${c.icone}</span>${esc(c.nom)}</a>`).join("");
+    const route = (location.hash.replace(/^#/, "") || "/").split("?")[0];
+    const onglet =
+      route === "/" ? "accueil" :
+      /^\/(wiki|c|f|nouveau|editer)/.test(route) ? "wiki" :
+      route.startsWith("/recherche") ? "recherche" :
+      /^\/(joueurs|joueur)/.test(route) ? "joueurs" :
+      route.startsWith("/admin") ? "admin" : "moi";
     $("#entete").innerHTML = `
-      ${api.mode === "demo" ? `<div class="bandeau-demo">Mode démo : tout reste dans ton navigateur. Remplis <code>assets/config.js</code> pour ouvrir le site aux joueurs. <button class="lien" id="reset-demo">Réinitialiser</button></div>` : ""}
+      ${api.mode === "demo" ? `<div class="bandeau-demo">Mode démo : rien n'est partagé tant que <code>config.js</code> n'est pas rempli. <button class="lien" id="reset-demo">Tout effacer</button></div>` : ""}
       <div class="barre">
-        <button class="burger" id="burger" aria-label="Menu">☰</button>
         <a class="logo" href="#/"><span class="logo-etoile">✧</span>${esc(CFG.NOM_SITE)}</a>
-        <form class="recherche-rapide" id="form-recherche" role="search">
-          <input type="search" name="q" placeholder="Rechercher…" aria-label="Rechercher">
-        </form>
         <div class="compte">
-          ${m && m.profil
-            ? `${estMembre() ? `<a class="btn btn-or petit" href="#/nouveau">+ Fiche</a>` : ""}
-               <a class="pseudo" href="#/compte" title="Mon compte">${esc(m.profil.pseudo)}${estAdmin() ? ' <span class="badge-admin">admin</span>' : ""}</a>`
-            : m ? `<a class="pseudo" href="#/compte">Mon compte</a>` : `<a class="btn petit" href="#/connexion">Connexion</a>`}
+          ${estMembre() ? `<a class="btn btn-or petit" href="#/nouveau">+ Fiche</a>` : !m ? `<a class="btn petit" href="#/connexion">Connexion</a>` : ""}
         </div>
-      </div>
-      <nav class="menu" id="menu">
-        <a href="#/"><span class="ic">✧</span>Accueil</a>
-        ${nav}
-        <a href="#/joueurs"><span class="ic">☺</span>Joueurs</a>
-        ${estAdmin() ? `<a href="#/admin" class="menu-admin"><span class="ic">⚙</span>Administration</a>` : ""}
-      </nav>`;
-    $("#burger").onclick = () => $("#menu").classList.toggle("ouvert");
-    $("#form-recherche").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); location.hash = "#/recherche?q=" + encodeURIComponent(q); e.target.q.blur(); };
+      </div>`;
+    const tabs = [
+      ["accueil", "#/", "🏠", "Accueil"],
+      ["wiki", "#/wiki", "📚", "Wiki"],
+      ["recherche", "#/recherche", "🔍", "Recherche"],
+      ["joueurs", "#/joueurs", "👥", "Joueurs"],
+      ...(estAdmin() ? [["admin", "#/admin", "⚙️", "Admin"]] : []),
+      ["moi", m ? "#/compte" : "#/connexion", "👤", m && m.profil ? "Moi" : "Connexion"],
+    ];
+    $("#onglets").innerHTML = tabs.map(([id, href, ic, nom]) => `<a href="${href}" class="${id === onglet ? "actif" : ""}"><span class="o-ic">${ic}</span><span class="o-nom">${esc(nom)}</span></a>`).join("");
     const r = $("#reset-demo");
     if (r) r.onclick = () => { if (confirm("Effacer tout ce que tu as fait en démo ?")) { api.reinitialiser(); location.hash = "#/"; location.reload(); } };
-    const actuel = location.hash.split("?")[0] || "#/";
-    $$("#menu a").forEach((a) => a.classList.toggle("actif", a.getAttribute("href") === actuel || (actuel.startsWith("#/c/") && a.getAttribute("href") === actuel)));
+  }
+
+  /* Menu déroulant des catégories */
+  function choixCategorie(actuelle, fiches) {
+    const nb = (id) => fiches.filter((f) => f.categorie === id).length;
+    return `<label class="choix-cat"><span>Catégorie</span>
+      <select id="choix-cat">
+        ${actuelle ? "" : `<option value="" selected disabled>Choisir une catégorie…</option>`}
+        ${CATS.map((c) => `<option value="${c.id}" ${c.id === actuelle ? "selected" : ""}>${c.icone}  ${esc(c.nom)} (${nb(c.id)})</option>`).join("")}
+      </select></label>`;
+  }
+  function brancherChoixCategorie() {
+    const s = $("#choix-cat");
+    if (s) s.onchange = () => (location.hash = "#/c/" + s.value);
   }
 
   function carte(f, auteurs) {
@@ -181,7 +193,6 @@
 
   pages.accueil = async () => {
     const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
-    const compte = (id) => fiches.filter((f) => f.categorie === id).length;
     const recents = [...fiches].sort((a, b) => (b.cree_le || "").localeCompare(a.cree_le || "")).slice(0, 6);
     const m = moi();
     return `
@@ -189,23 +200,32 @@
         <div class="hero-etoiles"></div>
         <h1>${esc(CFG.NOM_SITE)}</h1>
         <p class="hero-sous">${esc(CFG.SOUS_TITRE)}</p>
-        <div class="hero-stats"><span><b>${fiches.length}</b> fiches</span><span><b>${auteurs.size}</b> joueurs</span><span><b>${CATS.length}</b> catégories</span></div>
+        <div class="hero-stats"><span><b>${fiches.length}</b> fiche${fiches.length > 1 ? "s" : ""}</span><span><b>${auteurs.size}</b> joueur${auteurs.size > 1 ? "s" : ""}</span></div>
         <div class="hero-actions">
           ${estMembre() ? `<a class="btn btn-or" href="#/nouveau">Créer une fiche</a>` : !m ? `<a class="btn btn-or" href="#/connexion">Se connecter</a>` : ""}
-          <a class="btn" href="#/c/regles">Lire les règles</a>
         </div>
       </section>
       <h2 class="titre-section">Explorer le monde</h2>
-      <div class="grille-cats">
-        ${CATS.map((c) => `<a class="cat" href="#/c/${c.id}"><span class="cat-ic">${c.icone}</span><span class="cat-nom">${esc(c.nom)}</span><span class="cat-desc">${esc(c.description)}</span><span class="cat-nb">${compte(c.id)} fiche${compte(c.id) > 1 ? "s" : ""}</span></a>`).join("")}
-      </div>
+      ${choixCategorie(null, fiches)}
       <h2 class="titre-section">Derniers ajouts</h2>
-      ${recents.length ? `<div class="grille">${recents.map((f) => carte(f, auteurs)).join("")}</div>` : vide("Aucune fiche pour l'instant. Le monde attend ses premières légendes.")}`;
+      ${recents.length ? `<div class="grille">${recents.map((f) => carte(f, auteurs)).join("")}</div>` : vide("Aucune fiche pour l'instant.")}`;
   };
+  pages.accueil.apres = brancherChoixCategorie;
+
+  pages.wiki = async () => {
+    const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
+    return `
+      <div class="entete-page"><div><h1><span class="ic-titre">📚</span>Wiki</h1><p class="discret">${fiches.length} fiche${fiches.length > 1 ? "s" : ""} au total</p></div></div>
+      ${choixCategorie(null, fiches)}
+      <h2 class="titre-section">Toutes les fiches</h2>
+      ${fiches.length ? `<div class="grille">${fiches.map((f) => carte(f, auteurs)).join("")}</div>` : vide("Aucune fiche pour l'instant.")}`;
+  };
+  pages.wiki.apres = brancherChoixCategorie;
 
   pages.categorie = async (id) => {
     const c = catParId(id);
     const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
+    fichesPourMenu = fiches;
     const liste = fiches.filter((f) => f.categorie === id);
     const bouton = peutPublier(id) ? `<a class="btn btn-or" href="#/nouveau?cat=${id}">+ Ajouter</a>` : "";
     if (c.chronologie) {
@@ -216,9 +236,10 @@
     return `${enteteCat(c, liste.length, bouton)}
       ${liste.length > 3 ? `<div class="filtres"><input type="search" id="filtre" placeholder="Filtrer ${esc(c.nom.toLowerCase())}…"><select id="tri"><option value="az">A → Z</option><option value="recent">Plus récents</option><option value="modif">Modifiés récemment</option></select></div>` : ""}
       <div class="grille" id="liste">${liste.map((f) => carte(f, auteurs)).join("")}</div>
-      ${liste.length ? "" : vide("Rien ici pour l'instant.", bouton)}`;
+      ${liste.length ? "" : vide("Aucune fiche dans cette catégorie pour l'instant.")}`;
   };
   pages.categorie.apres = (id) => {
+    brancherChoixCategorie();
     const filtre = $("#filtre"), tri = $("#tri");
     if (!filtre) return;
     const maj = async () => {
@@ -232,10 +253,11 @@
     filtre.oninput = maj; tri.onchange = maj;
   };
 
+  let fichesPourMenu = [];
   const enteteCat = (c, n, bouton) => `
+    ${choixCategorie(c.id, fichesPourMenu)}
     <div class="entete-page">
-      <div><div class="fil"><a href="#/">Accueil</a> › ${esc(c.nom)}</div>
-      <h1><span class="ic-titre">${c.icone}</span>${esc(c.nom)}</h1>
+      <div><h1><span class="ic-titre">${c.icone}</span>${esc(c.nom)}</h1>
       <p class="discret">${esc(c.description || "")} · ${n} fiche${n > 1 ? "s" : ""}</p></div>
       ${bouton}
     </div>`;
@@ -250,7 +272,7 @@
     document.title = f.titre + " — " + CFG.NOM_SITE;
     return `
       <article class="fiche">
-        <div class="fil"><a href="#/">Accueil</a> › <a href="#/c/${c.id}">${esc(c.nom)}</a></div>
+        <div class="fil"><a href="#/wiki">Wiki</a> › <a href="#/c/${c.id}">${esc(c.nom)}</a></div>
         <header class="fiche-entete">
           <div>
             <h1>${esc(f.titre)}</h1>
@@ -510,7 +532,7 @@
       .sort((a, b) => (normal(b.titre).includes(nq) ? 1 : 0) - (normal(a.titre).includes(nq) ? 1 : 0)) : [];
     return `
       <div class="entete-page"><div><h1>Recherche</h1></div></div>
-      <form class="filtres" id="form-r"><input type="search" name="q" value="${esc(q)}" placeholder="Nom, lieu, créature…" autofocus><button class="btn">Chercher</button></form>
+      <form class="filtres" id="form-r"><input type="search" name="q" value="${esc(q)}" placeholder="Nom, lieu, créature…"><button class="btn">Chercher</button></form>
       ${q ? `<p class="discret">${res.length} résultat${res.length > 1 ? "s" : ""} pour « ${esc(q)} »</p>` : ""}
       <div class="grille">${res.map((f) => carte(f, auteurs)).join("")}</div>
       ${q && !res.length ? vide("Aucune fiche trouvée.", peutPublier("personnages") ? `<a class="btn" href="#/nouveau?titre=${encodeURIComponent(q)}">Créer « ${esc(q)} »</a>` : "") : ""}`;
@@ -611,12 +633,13 @@
     const m = moi();
     if (!m) { location.hash = "#/connexion"; return ""; }
     return `
-      <div class="entete-page"><div><h1>Mon compte</h1><p class="discret">${esc(m.user.email)}</p></div></div>
+      <div class="entete-page"><div><h1>${m.profil ? esc(m.profil.pseudo) : "Mon compte"}</h1><p class="discret">${api.mode === "demo" ? "Mode démo" : esc(m.user.email)}</p></div></div>
       <div class="colonnes">
         ${m.profil ? `
         <form class="panneau" id="form-pseudo"><h2>Pseudo</h2><input name="pseudo" value="${esc(m.profil.pseudo)}" minlength="2" maxlength="30" required><button class="btn">Changer</button></form>
         ${api.mode === "demo" ? "" : `<form class="panneau" id="form-mdp"><h2>Mot de passe</h2><input name="mdp" type="password" minlength="8" placeholder="Nouveau mot de passe" required autocomplete="new-password"><button class="btn">Changer</button></form>`}
-        <div class="panneau"><h2>Mes fiches</h2><a class="btn" href="#/joueur/${encodeURIComponent(m.user.id)}">Voir mes fiches</a></div>`
+        <div class="panneau"><h2>Mes fiches</h2><a class="btn" href="#/joueur/${encodeURIComponent(m.user.id)}">Voir mes fiches</a></div>
+        ${estAdmin() ? `<div class="panneau"><h2>Administration</h2><a class="btn" href="#/admin">Inviter des joueurs / gérer les membres</a></div>` : ""}`
         : `<form class="panneau" id="form-code"><h2>Activer mon compte</h2>
             ${m.erreurProfil ? `<p class="note">${esc(m.erreurProfil)}</p>` : ""}
             <p class="discret">Colle le lien ou le code d'invitation reçu d'un admin.</p>
@@ -719,7 +742,7 @@
     const params = new URLSearchParams(qs || "");
     const morceaux = chemin.split("/").filter(Boolean).map(decodeURIComponent);
     const routes = {
-      "": [pages.accueil], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
+      "": [pages.accueil], wiki: [pages.wiki], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
       recherche: [pages.recherche], joueurs: [pages.joueurs], joueur: [pages.joueur], connexion: [pages.connexion],
       inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin],
     };
@@ -728,7 +751,6 @@
     window.onbeforeunload = null;
     document.title = CFG.NOM_SITE;
     entete();
-    $("#menu").classList.remove("ouvert");
     if (!page) { app.innerHTML = vide("Page introuvable.", `<a class="btn" href="#/">Accueil</a>`); return; }
     app.classList.add("chargement");
     try {
@@ -755,7 +777,7 @@
 
   (async () => {
     try { await api.init(); }
-    catch (e) { console.error(e); app.innerHTML = vide("Impossible de se connecter à la base de données. Vérifie <code>assets/config.js</code>."); return; }
+    catch (e) { console.error(e); app.innerHTML = vide("Impossible de se connecter à la base de données. Vérifie <code>config.js</code>."); return; }
     api.onChange(() => entete());
     router();
   })();

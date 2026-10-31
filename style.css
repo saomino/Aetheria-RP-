@@ -307,3 +307,43 @@ a.wiki.manquant { color: var(--rouge); border-bottom-color: var(--rouge); }
   .carte-visuel { aspect-ratio: 16 / 7; }
 }
 @media (max-width: 340px) { .grille, .grille-cats { grid-template-columns: 1fr; } }
+
+/* ---------- Barre d'onglets en bas (comme une appli) ---------- */
+body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+.onglets-bas {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; justify-content: center; gap: 2px;
+  background: rgba(13, 16, 36, 0.96); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--bord);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+}
+.onglets-bas a {
+  flex: 1; max-width: 110px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 2px; border-radius: 12px; color: var(--texte-doux);
+  font: 600 0.7rem system-ui, sans-serif;
+}
+.onglets-bas .o-ic { font-size: 1.35rem; line-height: 1; filter: grayscale(0.4); }
+.onglets-bas a.actif { background: var(--nuit-3); color: var(--or-vif); }
+.onglets-bas a.actif .o-ic { filter: none; }
+.barre { justify-content: space-between; }
+
+/* ---------- Menu déroulant des catégories ---------- */
+.choix-cat { display: block; margin: 0 0 20px; }
+.choix-cat span { display: block; font: 600 0.75rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; color: var(--texte-doux); margin-bottom: 6px; }
+.choix-cat select {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: 600 1rem system-ui, sans-serif; padding: 14px 44px 14px 16px; border-radius: 14px;
+  background: var(--nuit-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%23e3b866' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 16px center;
+  border: 1px solid var(--bord);
+}
+.choix-cat select:hover { border-color: var(--or); }
+.choix-cat select option { background: var(--nuit-2); color: var(--texte); }
+
+.liste-cats { display: flex; flex-direction: column; gap: 8px; }
+.ligne-cat { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: var(--nuit-2); border: 1px solid var(--bord); color: var(--texte); }
+.ligne-cat:hover { border-color: var(--or); color: var(--texte); }
+.lc-ic { font-size: 1.3rem; width: 28px; text-align: center; color: var(--or); }
+.lc-nom { flex: 1; font-family: var(--titres); font-size: 1rem; }
+.lc-nb { font: 600 0.8rem system-ui, sans-serif; color: var(--ether); background: var(--nuit-3); border-radius: 20px; padding: 2px 10px; }
+.lc-fl { color: var(--texte-doux); font-size: 1.3rem; }
+.toast { bottom: calc(86px + env(safe-area-inset-bottom)); }
