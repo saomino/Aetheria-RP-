@@ -7,8 +7,8 @@
    ===================================================================== */
 
 window.AETHERIA_CONFIG = {
-  SUPABASE_URL: "",        // ex : "https://abcdefgh.supabase.co"
-  SUPABASE_ANON_KEY: "",   // ex : "eyJhbGciOi..."  (clé publique, sans danger)
+  SUPABASE_URL: "https://jipcoqcbjvhtaqrbgsud.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppcGNvcWNianZodGFxcmJnc3VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0ODE4MTIsImV4cCI6MjEwOTA1NzgxMn0.DqwtapVPqqA6lyt4UhpUOzqdLa4AAY7Y9SfdVE59RWw",   // clé publique "anon", sans danger
 
   NOM_SITE: "Aetheria",
   SOUS_TITRE: "Encyclopédie du monde & des légendes",
