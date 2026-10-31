@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aetheria</title>
+  <meta name="description" content="Aetheria — encyclopédie collaborative d'un univers de RP.">
+  <meta name="theme-color" content="#0d1024">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23e3b866'>✧</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header id="entete"></header>
+  <main id="app" class="chargement"><div class="vide"><div class="vide-ic">✧</div><p>Chargement…</p></div></main>
+  <footer class="pied">Aetheria · encyclopédie collaborative · <a href="#/c/regles">Règles</a> · <a href="#/joueurs">Joueurs</a></footer>
+
+  <script src="assets/config.js"></script>
+  <script>
+    // Charge Supabase seulement si le site est configuré
+    (function () {
+      var c = window.AETHERIA_CONFIG;
+      var s = function (src) { document.write('<script src="' + src + '"><\/script>'); };
+      if (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) s("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
+      else s("assets/demo-data.js");
+    })();
+  </script>
+  <script src="assets/api.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
