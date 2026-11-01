@@ -213,7 +213,7 @@
       if (ficheId) q = q.contains("fiches", [ficheId]);
       if (limite) q = q.limit(limite);
       const { data, error } = await q;
-      erreur(error);
+      if (error) { console.warn("Moments indisponibles (relance schema.sql dans Supabase) :", error.message); return []; }
       return data;
     }
     async creerMoment({ texte, quand, fiches }) {
