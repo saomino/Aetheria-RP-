@@ -347,3 +347,23 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .lc-nb { font: 600 0.8rem system-ui, sans-serif; color: var(--ether); background: var(--nuit-3); border-radius: 20px; padding: 2px 10px; }
 .lc-fl { color: var(--texte-doux); font-size: 1.3rem; }
 .toast { bottom: calc(86px + env(safe-area-inset-bottom)); }
+
+/* ---------- Moments marquants ---------- */
+.moments { margin-top: 10px; }
+.moments > .btn { margin-bottom: 16px; }
+.form-moment { margin-bottom: 18px; }
+.etiquette { display: block; font: 0.85rem system-ui, sans-serif; color: var(--texte-doux); margin-bottom: 8px; }
+.puces { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.puce { display: inline-flex; align-items: center; gap: 6px; background: var(--nuit-3); border: 1px solid var(--or); color: var(--or-vif); border-radius: 20px; padding: 4px 10px; font: 0.85rem system-ui, sans-serif; }
+.puce button { background: none; border: none; color: var(--texte-doux); cursor: pointer; padding: 0 0 0 2px; font-size: 0.8rem; }
+.suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.suggestions button { background: var(--nuit-2); border: 1px solid var(--bord); color: var(--texte); border-radius: 20px; padding: 6px 12px; font: 0.85rem system-ui, sans-serif; cursor: pointer; }
+.suggestions button:hover { border-color: var(--or); }
+.journal { list-style: none; margin: 0; padding: 0 0 0 22px; border-left: 2px solid var(--bord); }
+.moment { position: relative; margin-bottom: 18px; }
+.moment::before { content: ""; position: absolute; left: -29px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: var(--nuit); border: 2px solid var(--or); }
+.moment-quand { font: 600 0.78rem system-ui, sans-serif; color: var(--or); text-transform: uppercase; letter-spacing: 0.05em; }
+.moment-texte { font-size: 1.08rem; margin: 2px 0 4px; }
+.moment-liens { font: 0.85rem system-ui, sans-serif; color: var(--texte-doux); }
+.moment-pied { font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); opacity: 0.8; }
+.moment-pied .lien { font-size: inherit; color: var(--rouge); }

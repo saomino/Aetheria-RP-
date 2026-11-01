@@ -39,6 +39,7 @@
 
   /* ---------------- Markdown (sécurisé : tout est échappé d'abord) ---------------- */
   let indexTitres = new Map();
+  let indexParId = new Map();
 
   function inline(t) {
     t = t.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
@@ -94,6 +95,7 @@
   async function majIndexTitres() {
     const fiches = await api.listerFiches();
     indexTitres = new Map(fiches.map((f) => [normal(f.titre), f]));
+    indexParId = new Map(fiches.map((f) => [f.id, f]));
     return fiches;
   }
 
@@ -188,11 +190,31 @@
     document.body.appendChild(v);
   }
 
+  /* Moments marquants */
+  const texteMoment = (t) => esc(t).split("\n").map(inline).join("<br>");
+  function htmlMoment(m, auteurs, ficheActuelle) {
+    const a = auteurs.get(m.auteur_id);
+    const autres = m.fiches.filter((id) => id !== ficheActuelle).map((id) => indexParId.get(id)).filter(Boolean);
+    const peutSuppr = estAdmin() || (estMembre() && m.auteur_id === moi().user.id);
+    return `<li class="moment">
+      <div class="moment-quand">${esc(m.quand || dateFr(m.cree_le))}</div>
+      <div class="moment-texte">${texteMoment(m.texte)}</div>
+      ${autres.length ? `<div class="moment-liens">${ficheActuelle ? "Avec" : "Concerne"} : ${autres.map((f) => `<a href="#/f/${encodeURIComponent(f.id)}">${esc(f.titre)}</a>`).join(", ")}</div>` : ""}
+      <div class="moment-pied">${a ? "noté par " + esc(a.pseudo) : ""}${m.quand ? " · " + dateFr(m.cree_le) : ""}${peutSuppr ? ` · <button class="lien" data-suppr-moment="${esc(m.id)}">supprimer</button>` : ""}</div>
+    </li>`;
+  }
+  function brancherSuppressionMoments() {
+    $$("[data-suppr-moment]").forEach((b) => (b.onclick = async () => {
+      if (!confirm("Supprimer ce moment ? Il disparaîtra de toutes les fiches concernées.")) return;
+      try { await api.supprimerMoment(b.dataset.supprMoment); toast("Moment supprimé."); router(); } catch (e) { toast(e.message, "erreur"); }
+    }));
+  }
+
   /* ---------------- Pages ---------------- */
   const pages = {};
 
   pages.accueil = async () => {
-    const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
+    const [fiches, auteurs, moments] = await Promise.all([majIndexTitres(), auteursMap(), api.listerMoments({ limite: 5 })]);
     const recents = [...fiches].sort((a, b) => (b.cree_le || "").localeCompare(a.cree_le || "")).slice(0, 6);
     const m = moi();
     return `
@@ -207,10 +229,11 @@
       </section>
       <h2 class="titre-section">Explorer le monde</h2>
       ${choixCategorie(null, fiches)}
+      ${moments.length ? `<h2 class="titre-section">Derniers moments marquants</h2><ol class="journal">${moments.map((m) => htmlMoment(m, auteurs, null)).join("")}</ol>` : ""}
       <h2 class="titre-section">Derniers ajouts</h2>
       ${recents.length ? `<div class="grille">${recents.map((f) => carte(f, auteurs)).join("")}</div>` : vide("Aucune fiche pour l'instant.")}`;
   };
-  pages.accueil.apres = brancherChoixCategorie;
+  pages.accueil.apres = () => { brancherChoixCategorie(); brancherSuppressionMoments(); };
 
   pages.wiki = async () => {
     const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
@@ -264,7 +287,7 @@
 
   pages.fiche = async (id) => {
     await majIndexTitres();
-    const [f, auteurs] = await Promise.all([api.lireFiche(id), auteursMap()]);
+    const [f, auteurs, moments] = await Promise.all([api.lireFiche(id), auteursMap(), api.listerMoments({ ficheId: id })]);
     if (!f) return vide("Cette fiche n'existe pas (ou plus).", `<a class="btn" href="#/">Retour à l'accueil</a>`);
     const c = catParId(f.categorie);
     const a = auteurs.get(f.auteur_id);
@@ -299,12 +322,62 @@
             <figure data-voir="${i}"><img src="${esc(g.url)}" alt="${esc(g.legende || "")}" loading="lazy">${g.legende ? `<figcaption>${esc(g.legende)}</figcaption>` : ""}</figure>`).join("")}
           </div>
         </section>` : ""}
+        <section class="moments">
+          <h2 class="titre-section">Moments marquants ${moments.length ? `<span class="discret petit-texte">${moments.length}</span>` : ""}</h2>
+          ${estMembre() ? `
+          <button class="btn btn-or" id="ouvrir-moment">+ Ajouter un moment marquant</button>
+          <form class="form-moment panneau" id="form-moment" hidden>
+            <label>Que s'est-il passé ?<textarea name="texte" rows="3" maxlength="2000" required placeholder="Ex : ${esc(f.titre)} a perdu son bras gauche face à la Raie des Brumes."></textarea></label>
+            <label>Quand ? <span class="discret">(facultatif)</span><input name="quand" maxlength="60" placeholder="Ex : Session 4, An 812, Printemps…"></label>
+            <div class="concernes">
+              <span class="etiquette">Fiches concernées <span class="discret">(le moment s'affichera sur chacune)</span></span>
+              <div class="puces" id="puces"></div>
+              <input id="cherche-fiche" placeholder="+ Ajouter un autre personnage, un lieu…" autocomplete="off">
+              <div class="suggestions" id="suggestions"></div>
+            </div>
+            <div class="rangee fin"><button type="button" class="btn" id="annuler-moment">Annuler</button><button class="btn btn-or">Enregistrer</button></div>
+          </form>` : ""}
+          ${moments.length ? `<ol class="journal">${moments.map((m) => htmlMoment(m, auteurs, f.id)).join("")}</ol>` : `<p class="discret">Aucun moment marquant pour l'instant.</p>`}
+        </section>
+
         <footer class="fiche-pied">
           ${a ? `Créée par <a href="#/joueur/${encodeURIComponent(a.id)}">${esc(a.pseudo)}</a> · ` : ""}le ${dateFr(f.cree_le)}${f.modifie_le && f.modifie_le !== f.cree_le ? ` · modifiée le ${dateFr(f.modifie_le)}` : ""}
         </footer>
       </article>`;
   };
   pages.fiche.apres = async (id) => {
+    brancherSuppressionMoments();
+    const fm = $("#form-moment");
+    if (fm) {
+      const choisies = [id];
+      const puces = () => {
+        $("#puces").innerHTML = choisies.map((fid) => { const x = indexParId.get(fid); return x ? `<span class="puce">${catParId(x.categorie).icone} ${esc(x.titre)}${fid === id ? "" : ` <button type="button" data-retirer="${esc(fid)}" aria-label="Retirer">✕</button>`}</span>` : ""; }).join("");
+        $$("[data-retirer]", fm).forEach((b) => (b.onclick = () => { choisies.splice(choisies.indexOf(b.dataset.retirer), 1); puces(); }));
+      };
+      puces();
+      const cherche = $("#cherche-fiche"), sugg = $("#suggestions");
+      const proposer = () => {
+        const q = normal(cherche.value);
+        const res = [...indexParId.values()]
+          .filter((x) => !choisies.includes(x.id) && (q ? normal(x.titre).includes(q) : x.categorie === "personnages"))
+          .slice(0, 8);
+        sugg.innerHTML = res.map((x) => `<button type="button" data-ajout="${esc(x.id)}">${catParId(x.categorie).icone} ${esc(x.titre)}</button>`).join("") || (q ? `<span class="discret petit-texte">Aucune fiche trouvée.</span>` : "");
+        $$("[data-ajout]", sugg).forEach((b) => (b.onclick = () => { if (choisies.length < 30) choisies.push(b.dataset.ajout); cherche.value = ""; sugg.innerHTML = ""; puces(); }));
+      };
+      cherche.oninput = proposer;
+      cherche.onfocus = proposer;
+      $("#ouvrir-moment").onclick = () => { fm.hidden = false; $("#ouvrir-moment").hidden = true; fm.texte.focus(); };
+      $("#annuler-moment").onclick = () => { fm.hidden = true; $("#ouvrir-moment").hidden = false; };
+      fm.onsubmit = async (e) => {
+        e.preventDefault();
+        const b = $("button.btn-or", fm); b.disabled = true;
+        try {
+          await api.creerMoment({ texte: fm.texte.value, quand: fm.quand.value, fiches: choisies });
+          toast(choisies.length > 1 ? `Moment ajouté sur ${choisies.length} fiches.` : "Moment ajouté.");
+          router();
+        } catch (err) { toast(err.message, "erreur"); b.disabled = false; }
+      };
+    }
     const figures = $$("[data-voir]");
     if (figures.length) {
       const f = await api.lireFiche(id);

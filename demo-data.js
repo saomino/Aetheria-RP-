@@ -6,5 +6,6 @@ window.AETHERIA_DEMO_DATA = function () {
     profils: [{ id: "admin-demo", pseudo: "Toi (admin)", role: "admin", cree_le: new Date().toISOString() }],
     invitations: [],
     fiches: [],
+    moments: [],
   };
 };

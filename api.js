@@ -207,6 +207,24 @@
       return this.sb.storage.from("images").getPublicUrl(chemin).data.publicUrl;
     }
 
+    /* ---- Moments marquants ---- */
+    async listerMoments({ ficheId, limite } = {}) {
+      let q = this.sb.from("moments").select("*").order("cree_le", { ascending: false });
+      if (ficheId) q = q.contains("fiches", [ficheId]);
+      if (limite) q = q.limit(limite);
+      const { data, error } = await q;
+      erreur(error);
+      return data;
+    }
+    async creerMoment({ texte, quand, fiches }) {
+      const { error } = await this.sb.from("moments").insert({ texte: texte.trim(), quand: (quand || "").trim() || null, fiches, auteur_id: this.moi.user.id });
+      erreur(error);
+    }
+    async supprimerMoment(id) {
+      const { error } = await this.sb.from("moments").delete().eq("id", id);
+      erreur(error);
+    }
+
     /* ---- Membres ---- */
     async listerProfils(forcer) {
       if (this.cacheProfils && !forcer) return this.cacheProfils;
@@ -321,6 +339,20 @@
       fichier = await compresser(fichier, 250 * 1024, 1000);   // la démo stocke dans le navigateur : petites images
       return await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(fichier); });
     }
+
+    async listerMoments({ ficheId, limite } = {}) {
+      const d = this._lire();
+      let l = [...(d.moments || [])].sort((a, b) => b.cree_le.localeCompare(a.cree_le));
+      if (ficheId) l = l.filter((m) => m.fiches.includes(ficheId));
+      return limite ? l.slice(0, limite) : l;
+    }
+    async creerMoment({ texte, quand, fiches }) {
+      const d = this._lire();
+      d.moments = d.moments || [];
+      d.moments.push({ id: "m" + Date.now(), texte: texte.trim(), quand: (quand || "").trim() || null, fiches, auteur_id: this.moi.user.id, cree_le: new Date().toISOString() });
+      this._ecrire();
+    }
+    async supprimerMoment(id) { const d = this._lire(); d.moments = (d.moments || []).filter((m) => m.id !== id); this._ecrire(); }
 
     async listerProfils() { return [...this._lire().profils].sort((a, b) => a.pseudo.localeCompare(b.pseudo, "fr")); }
     async changerRole(id, role) { this._lire().profils.find((p) => p.id === id).role = role; this._ecrire(); }

@@ -46,6 +46,18 @@ alter table public.fiches add constraint galerie_max check (jsonb_typeof(galerie
 create index if not exists fiches_categorie_idx on public.fiches (categorie);
 create index if not exists fiches_auteur_idx on public.fiches (auteur_id);
 
+-- Moments marquants : un événement écrit une fois, affiché sur la fiche
+-- de chaque personnage / lieu concerné.
+create table if not exists public.moments (
+  id         uuid primary key default gen_random_uuid(),
+  texte      text not null check (char_length(trim(texte)) between 1 and 2000),
+  quand      text check (char_length(quand) <= 60),       -- "Session 4", "An 812"… (facultatif)
+  fiches     uuid[] not null check (cardinality(fiches) between 1 and 30),
+  auteur_id  uuid references public.profils(id) on delete set null default auth.uid(),
+  cree_le    timestamptz not null default now()
+);
+create index if not exists moments_fiches_idx on public.moments using gin (fiches);
+
 -- ---------- Fonctions utilitaires ------------------------------------
 
 create or replace function public.est_admin() returns boolean
@@ -192,6 +204,26 @@ create policy "fiches modification" on public.fiches for update to authenticated
 
 drop policy if exists "fiches suppression" on public.fiches;
 create policy "fiches suppression" on public.fiches for delete to authenticated
+  using ((auteur_id = auth.uid() and public.est_membre()) or public.est_admin());
+
+-- MOMENTS : lecture publique, tout membre peut en ajouter,
+-- seul l'auteur (ou un admin) peut le supprimer
+alter table public.moments enable row level security;
+
+drop policy if exists "moments lecture" on public.moments;
+create policy "moments lecture" on public.moments for select using (true);
+
+drop policy if exists "moments ajout" on public.moments;
+create policy "moments ajout" on public.moments for insert to authenticated
+  with check (public.est_membre() and auteur_id = auth.uid());
+
+drop policy if exists "moments modification" on public.moments;
+create policy "moments modification" on public.moments for update to authenticated
+  using ((auteur_id = auth.uid() and public.est_membre()) or public.est_admin())
+  with check ((auteur_id = auth.uid() and public.est_membre()) or public.est_admin());
+
+drop policy if exists "moments suppression" on public.moments;
+create policy "moments suppression" on public.moments for delete to authenticated
   using ((auteur_id = auth.uid() and public.est_membre()) or public.est_admin());
 
 -- ---------- Images (Supabase Storage) ---------------------------------
