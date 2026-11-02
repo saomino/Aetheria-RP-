@@ -41,8 +41,17 @@
   let indexTitres = new Map();
   let indexParId = new Map();
 
+  const COULEURS = [
+    ["rouge", "#ff6b6b"], ["orange", "#ffa94d"], ["jaune", "#ffd43b"], ["vert", "#69db7c"], ["bleu", "#4dabf7"],
+    ["violet", "#b197fc"], ["rose", "#f783ac"], ["or", "#e3b866"], ["gris", "#adb5bd"], ["blanc", "#ffffff"], ["noir", "#111111"],
+  ];
+  const RE_COULEUR = new RegExp(`\\[(${COULEURS.map((c) => c[0]).join("|")})\\]([\\s\\S]*?)\\[\\/\\1\\]`, "g");
+  const sansMarkdown = (t) => String(t || "").replace(RE_COULEUR, "$2").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_~`#>]+/g, "").replace(/\s+/g, " ").trim();
+
   function inline(t) {
     t = t.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+    for (let i = 0; i < 3; i++) t = t.replace(RE_COULEUR, (_, c, x) => `<span class="c-${c}">${x}</span>`);
     t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, u) => (urlSure(u) ? `<img src="${u}" alt="${alt}" loading="lazy">` : m));
     t = t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, titre, texte) => {
       const brut = titre.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
@@ -210,6 +219,176 @@
     }));
   }
 
+  /* ---------------- Partage d'une fiche ---------------- */
+  const lienFiche = (f) => location.origin + location.pathname + "#/f/" + encodeURIComponent(f.id);
+  const nomFichier = (f) => (normal(f.titre).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fiche") + "-aetheria.png";
+
+  function chargerImage(url) {
+    return new Promise((ok) => {
+      if (!urlSure(url)) return ok(null);
+      const img = new Image();
+      if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
+      img.onload = () => ok(img);
+      img.onerror = () => ok(null);
+      img.src = url;
+    });
+  }
+
+  function lignes(ctx, texte, largeur, max) {
+    const mots = String(texte).split(/\s+/), res = [];
+    let l = "";
+    for (const m of mots) {
+      const essai = l ? l + " " + m : m;
+      if (ctx.measureText(essai).width > largeur && l) { res.push(l); l = m; } else l = essai;
+      if (res.length === max) break;
+    }
+    if (res.length < max && l) res.push(l);
+    if (res.length === max && mots.join(" ").length > res.join(" ").length + 1) {
+      let d = res[max - 1];
+      while (ctx.measureText(d + "…").width > largeur && d.length) d = d.slice(0, -1);
+      res[max - 1] = d.replace(/[\s,.;:]+$/, "") + "…";
+    }
+    return res;
+  }
+
+  function rectArrondi(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  /* Dessine une "carte" de la fiche (1080 × 1350, format idéal pour Discord / Insta) */
+  async function imageFiche(f, auteur) {
+    try { await document.fonts.ready; } catch (e) {}
+    const W = 1080, H = 1350, c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+    const cat = catParId(f.categorie);
+    const TITRES = '"Cinzel", Georgia, serif', CORPS = '"EB Garamond", Georgia, serif', SANS = "system-ui, sans-serif";
+
+    const fond = ctx.createLinearGradient(0, 0, 0, H);
+    fond.addColorStop(0, "#1b2148"); fond.addColorStop(1, "#0b0e20");
+    ctx.fillStyle = fond; ctx.fillRect(0, 0, W, H);
+    const halo = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, 700);
+    halo.addColorStop(0, "rgba(127,200,248,0.18)"); halo.addColorStop(1, "rgba(127,200,248,0)");
+    ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+    let graine = f.titre.length * 97 + 13;
+    const alea = () => ((graine = (graine * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 90; i++) { ctx.fillStyle = `rgba(255,255,255,${0.15 + alea() * 0.5})`; ctx.fillRect(alea() * W, alea() * H, 2, 2); }
+    ctx.strokeStyle = "rgba(227,184,102,0.55)"; ctx.lineWidth = 3; rectArrondi(ctx, 28, 28, W - 56, H - 56, 28); ctx.stroke();
+    ctx.strokeStyle = "rgba(227,184,102,0.2)"; ctx.lineWidth = 1; rectArrondi(ctx, 40, 40, W - 80, H - 80, 22); ctx.stroke();
+
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#e3b866"; ctx.font = `700 34px ${TITRES}`;
+    ctx.fillText("✧  " + CFG.NOM_SITE.toUpperCase() + "  ✧", W / 2, 112);
+    ctx.fillStyle = "#7fc8f8"; ctx.font = `600 26px ${SANS}`;
+    ctx.fillText((cat.icone + "  " + cat.nom).toUpperCase(), W / 2, 162);
+
+    let y = 250;
+    ctx.fillStyle = "#ffffff"; ctx.font = `500 76px ${TITRES}`;
+    let lt = lignes(ctx, f.titre, W - 180, 2);
+    if (lt.length > 1) { ctx.font = `500 60px ${TITRES}`; lt = lignes(ctx, f.titre, W - 180, 2); }
+    lt.forEach((l) => { ctx.fillText(l, W / 2, y); y += lt.length > 1 ? 70 : 80; });
+
+    const img = await chargerImage(f.image_url || ((f.galerie || [])[0] || {}).url);
+    const infos = (f.infos || []).filter((i) => i.valeur && i.valeur.trim());
+    if (img) {
+      const zw = W - 180, zh = infos.length > 4 ? 400 : infos.length > 2 ? 450 : 560, zx = 90, zy = y + 10;
+      ctx.save(); rectArrondi(ctx, zx, zy, zw, zh, 22); ctx.clip();
+      const r = Math.max(zw / img.naturalWidth, zh / img.naturalHeight);
+      const iw = img.naturalWidth * r, ih = img.naturalHeight * r;
+      ctx.drawImage(img, zx + (zw - iw) / 2, zy + (zh - ih) / 3, iw, ih);
+      ctx.restore();
+      ctx.strokeStyle = "rgba(227,184,102,0.6)"; ctx.lineWidth = 2; rectArrondi(ctx, zx, zy, zw, zh, 22); ctx.stroke();
+      y = zy + zh + 60;
+    } else y += 30;
+
+    const resume = f.resume || sansMarkdown(f.contenu);
+    if (resume) {
+      ctx.fillStyle = "#c9c6dc"; ctx.font = `italic 38px ${CORPS}`;
+      const lr = lignes(ctx, resume, W - 200, img ? 2 : 4);
+      lr.forEach((l) => { ctx.fillText(l, W / 2, y); y += 48; });
+      y += 24;
+    }
+
+    const bas = H - 130;
+    if (infos.length && y < bas - 60) {
+      ctx.strokeStyle = "rgba(227,184,102,0.35)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(140, y - 10); ctx.lineTo(W - 140, y - 10); ctx.stroke();
+      y += 34;
+      const col = infos.length > 3 && W > 0 ? 2 : 1;
+      const largCol = (W - 200) / col;
+      let i = 0;
+      while (i < infos.length && y + 45 < bas) {
+        for (let k = 0; k < col && i < infos.length; k++, i++) {
+          const x = col === 1 ? W / 2 : 100 + largCol * k + largCol / 2;
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#9a9cbb"; ctx.font = `600 22px ${SANS}`;
+          ctx.fillText(lignes(ctx, infos[i].cle.toUpperCase(), largCol - 30, 1)[0], x, y);
+          ctx.fillStyle = "#f2efe6"; ctx.font = `34px ${CORPS}`;
+          ctx.fillText(lignes(ctx, sansMarkdown(infos[i].valeur), largCol - 30, 1)[0], x, y + 40);
+        }
+        y += 92;
+      }
+    }
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e3b866"; ctx.font = `600 24px ${SANS}`;
+    ctx.fillText(auteur ? "Fiche de " + auteur.pseudo : CFG.NOM_SITE, W / 2, H - 92);
+    ctx.fillStyle = "#8c8fae"; ctx.font = `22px ${SANS}`;
+    ctx.fillText((location.host + location.pathname).replace(/\/$/, ""), W / 2, H - 60);
+
+    return await new Promise((ok, ko) => {
+      try { c.toBlob((b) => (b ? ok(b) : ko(new Error("Impossible de créer l'image."))), "image/png"); }
+      catch (e) { ko(new Error("L'image principale vient d'un autre site qui bloque la copie. Envoie l'image directement depuis le formulaire.")); }
+    });
+  }
+
+  async function fenetrePartage(f, auteur) {
+    const lien = lienFiche(f);
+    const fond = document.createElement("div");
+    fond.className = "feuille-fond";
+    fond.innerHTML = `
+      <div class="feuille" role="dialog" aria-label="Partager la fiche">
+        <div class="feuille-poignee"></div>
+        <h2>Partager « ${esc(f.titre)} »</h2>
+        <div class="feuille-apercu" id="apercu-carte"><span class="discret">Création de l'image…</span></div>
+        <div class="feuille-boutons">
+          ${navigator.share ? `<button class="btn btn-or" id="p-lien">📤 Envoyer le lien</button>` : ""}
+          <button class="btn ${navigator.share ? "" : "btn-or"}" id="p-image" disabled>🖼 Partager l'image</button>
+          <button class="btn" id="p-dl" disabled>⬇️ Télécharger l'image</button>
+          <button class="btn" id="p-copier">🔗 Copier le lien</button>
+        </div>
+        <button class="lien feuille-fermer" id="p-fermer">Fermer</button>
+      </div>`;
+    document.body.appendChild(fond);
+    requestAnimationFrame(() => fond.classList.add("ouvert"));
+    const fermer = () => { fond.classList.remove("ouvert"); setTimeout(() => fond.remove(), 250); window.removeEventListener("hashchange", fermer); };
+    fond.onclick = (e) => { if (e.target === fond) fermer(); };
+    window.addEventListener("hashchange", fermer);
+    $("#p-fermer", fond).onclick = fermer;
+    $("#p-copier", fond).onclick = () => copier(lien);
+    const bl = $("#p-lien", fond);
+    if (bl) bl.onclick = () => navigator.share({ title: f.titre + " — " + CFG.NOM_SITE, text: f.resume || f.titre, url: lien }).catch(() => {});
+
+    let blob;
+    try {
+      blob = await imageFiche(f, auteur);
+      const url = URL.createObjectURL(blob);
+      $("#apercu-carte", fond).innerHTML = `<img src="${url}" alt="Aperçu de l'image de la fiche">`;
+      const fichier = new File([blob], nomFichier(f), { type: "image/png" });
+      const bi = $("#p-image", fond), bd = $("#p-dl", fond);
+      bi.disabled = false; bd.disabled = false;
+      bd.onclick = () => { const a = document.createElement("a"); a.href = url; a.download = fichier.name; document.body.appendChild(a); a.click(); a.remove(); };
+      bi.onclick = async () => {
+        if (navigator.canShare && navigator.canShare({ files: [fichier] })) {
+          try { await navigator.share({ files: [fichier], title: f.titre, text: f.titre + " — " + lien }); } catch (e) {}
+        } else { bd.onclick(); toast("Image téléchargée : tu peux l'envoyer où tu veux."); }
+      };
+    } catch (e) {
+      $("#apercu-carte", fond).innerHTML = `<p class="note">${esc(e.message)}</p>`;
+    }
+  }
+
   /* ---------------- Pages ---------------- */
   const pages = {};
 
@@ -301,7 +480,10 @@
             <h1>${esc(f.titre)}</h1>
             ${f.resume ? `<p class="fiche-resume">${esc(f.resume)}</p>` : ""}
           </div>
-          ${peutModifier(f) ? `<div class="fiche-actions"><a class="btn petit" href="#/editer/${encodeURIComponent(f.id)}">Modifier</a><button class="btn petit btn-danger" id="suppr">Supprimer</button></div>` : ""}
+          <div class="fiche-actions">
+            <button class="btn petit btn-or" id="partager">📤 Partager</button>
+            ${peutModifier(f) ? `<a class="btn petit" href="#/editer/${encodeURIComponent(f.id)}">Modifier</a><button class="btn petit btn-danger" id="suppr">Supprimer</button>` : ""}
+          </div>
         </header>
         <div class="fiche-grille">
           ${urlSure(f.image_url) || infos.length || f.annee != null ? `
@@ -347,6 +529,10 @@
   };
   pages.fiche.apres = async (id) => {
     brancherSuppressionMoments();
+    $("#partager").onclick = async () => {
+      const [f, auteurs] = await Promise.all([api.lireFiche(id), auteursMap()]);
+      fenetrePartage(f, auteurs.get(f.auteur_id));
+    };
     const fm = $("#form-moment");
     if (fm) {
       const choisies = [id];
@@ -448,6 +634,11 @@
             <button type="button" data-md="\n> |" title="Citation">❝</button>
             <button type="button" data-md="[[|]]" title="Lien vers une autre fiche">[[Lien]]</button>
             <label class="btn-outil" title="Insérer une image dans le texte">🖼 Image<input type="file" id="image-texte" accept="image/*" hidden></label>
+            <button type="button" id="bouton-couleurs" title="Couleur du texte">🎨 Couleur</button>
+          </div>
+          <div class="palette" id="palette" hidden>
+            <span class="discret petit-texte">Sélectionne du texte, puis choisis une couleur :</span>
+            <div class="pastilles">${COULEURS.map(([nom, hex]) => `<button type="button" class="pastille" data-couleur="${nom}" title="${nom}" style="background:${hex}"></button>`).join("")}</div>
           </div>
           <textarea name="contenu" id="contenu" rows="16" placeholder="Raconte tout ici…">${esc(f.contenu || "")}</textarea>
           <div class="contenu apercu" id="apercu" hidden></div>
@@ -461,6 +652,7 @@
               <li><code>[texte](https://…)</code> — lien externe</li>
               <li>Bouton <b>🖼 Image</b> — envoie une image et la place dans le texte, là où est le curseur</li>
               <li><code>---</code> — une ligne de séparation</li>
+              <li><code>[rouge]texte[/rouge]</code> — texte en couleur (bouton 🎨). Couleurs : ${COULEURS.map((c) => `<span class="c-${c[0]}">${c[0]}</span>`).join(", ")}</li>
             </ul>
           </details>
         </fieldset>
@@ -564,10 +756,18 @@
       ta.selectionStart = ta.selectionEnd = s + avant.length + sel.length;
       ta.focus();
     }));
+    $("#bouton-couleurs").onclick = () => ($("#palette").hidden = !$("#palette").hidden);
+    $$("[data-couleur]").forEach((b) => (b.onclick = () => {
+      const c = b.dataset.couleur;
+      const s0 = ta.selectionStart, e0 = ta.selectionEnd, sel = ta.value.slice(s0, e0) || "texte";
+      ta.setRangeText(`[${c}]${sel}[/${c}]`, s0, e0, "end");
+      ta.selectionStart = s0 + c.length + 2; ta.selectionEnd = ta.selectionStart + sel.length;
+      ta.focus(); modifie = true;
+    }));
     $$(".onglet").forEach((o) => (o.onclick = () => {
       $$(".onglet").forEach((x) => x.classList.toggle("actif", x === o));
       const ap = o.dataset.o === "apercu";
-      ta.hidden = ap; $(".outils").hidden = ap; $("#apercu").hidden = !ap;
+      ta.hidden = ap; $(".outils").hidden = ap; $("#apercu").hidden = !ap; if (ap) $("#palette").hidden = true;
       if (ap) $("#apercu").innerHTML = markdown(ta.value) || `<p class="discret">Rien à afficher.</p>`;
     }));
 

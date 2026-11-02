@@ -367,3 +367,28 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .moment-liens { font: 0.85rem system-ui, sans-serif; color: var(--texte-doux); }
 .moment-pied { font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); opacity: 0.8; }
 .moment-pied .lien { font-size: inherit; color: var(--rouge); }
+
+/* ---------- Couleurs dans le texte ---------- */
+.c-rouge { color: #ff6b6b; } .c-orange { color: #ffa94d; } .c-jaune { color: #ffd43b; } .c-vert { color: #69db7c; }
+.c-bleu { color: #4dabf7; } .c-violet { color: #b197fc; } .c-rose { color: #f783ac; } .c-or { color: #e3b866; }
+.c-gris { color: #adb5bd; } .c-blanc { color: #ffffff; }
+.c-noir { color: #111; background: #e8e4d8; padding: 0 0.25em; border-radius: 3px; }
+.palette { margin: 0 0 8px; padding: 10px; border: 1px solid var(--bord); border-radius: 10px; background: var(--nuit-3); }
+.pastilles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pastille { width: 34px; height: 34px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); cursor: pointer; }
+.pastille:hover { transform: scale(1.12); border-color: #fff; }
+
+/* ---------- Fenêtre de partage ---------- */
+.fiche-actions { flex-wrap: wrap; }
+.feuille-fond { position: fixed; inset: 0; z-index: 150; background: rgba(5, 6, 15, 0); display: flex; align-items: flex-end; justify-content: center; transition: background 0.25s; }
+.feuille-fond.ouvert { background: rgba(5, 6, 15, 0.75); }
+.feuille { width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; background: var(--nuit-2); border: 1px solid var(--bord); border-bottom: none;
+  border-radius: 22px 22px 0 0; padding: 10px 20px calc(20px + env(safe-area-inset-bottom)); transform: translateY(100%); transition: transform 0.25s; }
+.feuille-fond.ouvert .feuille { transform: none; }
+.feuille-poignee { width: 44px; height: 5px; border-radius: 3px; background: var(--bord); margin: 0 auto 12px; }
+.feuille h2 { font-size: 1.15rem; margin: 0 0 14px; text-align: center; color: var(--or); }
+.feuille-apercu { display: grid; place-items: center; min-height: 160px; margin-bottom: 16px; }
+.feuille-apercu img { width: 100%; max-width: 300px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+.feuille-boutons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.feuille-boutons .btn { padding: 12px 8px; }
+.feuille-fermer { display: block; margin: 14px auto 0; font-family: system-ui, sans-serif; }
