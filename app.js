@@ -117,7 +117,7 @@
       /^\/(wiki|c|f|nouveau|editer)/.test(route) ? "wiki" :
       route.startsWith("/recherche") ? "recherche" :
       /^\/(joueurs|joueur)/.test(route) ? "joueurs" :
-      route.startsWith("/admin") ? "admin" : "moi";
+      route.startsWith("/roue") ? "roue" : "moi";
     $("#entete").innerHTML = `
       ${api.mode === "demo" ? `<div class="bandeau-demo">Mode démo : rien n'est partagé tant que <code>config.js</code> n'est pas rempli. <button class="lien" id="reset-demo">Tout effacer</button></div>` : ""}
       <div class="barre">
@@ -130,8 +130,8 @@
       ["accueil", "#/", "🏠", "Accueil"],
       ["wiki", "#/wiki", "📚", "Wiki"],
       ["recherche", "#/recherche", "🔍", "Recherche"],
+      ["roue", "#/roue", "🎡", "Roue"],
       ["joueurs", "#/joueurs", "👥", "Joueurs"],
-      ...(estAdmin() ? [["admin", "#/admin", "⚙️", "Admin"]] : []),
       ["moi", m ? "#/compte" : "#/connexion", "👤", m && m.profil ? "Moi" : "Connexion"],
     ];
     $("#onglets").innerHTML = tabs.map(([id, href, ic, nom]) => `<a href="${href}" class="${id === onglet ? "actif" : ""}"><span class="o-ic">${ic}</span><span class="o-nom">${esc(nom)}</span></a>`).join("");
@@ -836,6 +836,170 @@
       ${parCat.map(([c, l]) => `<h2 class="titre-section">${c.icone} ${esc(c.nom)}</h2><div class="grille">${l.map((f) => carte(f, auteurs)).join("")}</div>`).join("") || vide("Ce joueur n'a encore rien publié.")}`;
   };
 
+  /* ---------- Roue de la chance ---------- */
+  const COULEURS_ROUE = ["#e3b866", "#3b4a8c", "#7fc8f8", "#6a4c93", "#c9706b", "#2f6f6a", "#f5d08a", "#4b3b78", "#8fb8de", "#9c5a7a"];
+  const lireRoue = () => { try { return JSON.parse(localStorage.getItem("aetheria_roue") || "[]"); } catch (e) { return []; } };
+  const ecrireRoue = (l) => { try { localStorage.setItem("aetheria_roue", JSON.stringify(l)); } catch (e) {} };
+
+  pages.roue = async () => {
+    await majIndexTitres();
+    return `
+      <div class="entete-page"><div><h1><span class="ic-titre">🎡</span>Roue de la chance</h1>
+        <p class="discret">Touche les personnages pour les mettre dans la roue, puis lance-la.</p></div></div>
+      <section class="panneau roue-choix">
+        <div class="rangee roue-outils">
+          <input id="roue-filtre" type="search" placeholder="Chercher un personnage…">
+          <button class="btn petit" id="roue-tous">Tout ajouter</button>
+          <button class="btn petit btn-danger" id="roue-vider">Vider</button>
+        </div>
+        <div class="roue-noms" id="roue-noms"></div>
+        <form class="rangee roue-ajout" id="roue-ajout">
+          <input name="nom" maxlength="40" placeholder="Ajouter un autre nom (PNJ, joueur…)">
+          <button class="btn petit">Ajouter</button>
+        </form>
+      </section>
+      <div class="roue-zone">
+        <div class="roue-cadre">
+          <div class="roue-fleche"></div>
+          <canvas id="roue" width="840" height="840"></canvas>
+          <button class="roue-centre" id="roue-lancer" aria-label="Lancer la roue">Lancer</button>
+        </div>
+        <p class="discret roue-compte" id="roue-compte"></p>
+      </div>`;
+  };
+
+  pages.roue.apres = () => {
+    const persos = [...indexParId.values()].filter((f) => f.categorie === "personnages").sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
+    let roue = lireRoue().filter((e) => !e.id || indexParId.has(e.id)).map((e) => (e.id ? { id: e.id, nom: indexParId.get(e.id).titre } : e));
+    let rotation = 0, enCours = false;
+    const canvas = $("#roue"), ctx = canvas.getContext("2d");
+    const dansRoue = (id) => roue.some((e) => e.id === id);
+
+    const dessinerNoms = () => {
+      const q = normal($("#roue-filtre").value);
+      const visibles = persos.filter((f) => !q || normal(f.titre).includes(q));
+      const libres = roue.filter((e) => !e.id);
+      $("#roue-noms").innerHTML =
+        (visibles.map((f) => `<button type="button" class="nom-roue ${dansRoue(f.id) ? "actif" : ""}" data-id="${esc(f.id)}">${dansRoue(f.id) ? "✓ " : ""}${esc(f.titre)}</button>`).join("") +
+        libres.map((e, i) => `<button type="button" class="nom-roue actif libre" data-libre="${esc(e.nom)}">✓ ${esc(e.nom)} <span aria-hidden="true">✕</span></button>`).join("")) ||
+        `<p class="discret">${persos.length ? "Aucun personnage trouvé." : "Aucune fiche de personnage pour l'instant. Tu peux ajouter des noms à la main ci-dessous."}</p>`;
+      $$("[data-id]", $("#roue-noms")).forEach((b) => (b.onclick = () => {
+        if (enCours) return;
+        const id = b.dataset.id;
+        roue = dansRoue(id) ? roue.filter((e) => e.id !== id) : [...roue, { id, nom: indexParId.get(id).titre }];
+        majTout();
+      }));
+      $$("[data-libre]", $("#roue-noms")).forEach((b) => (b.onclick = () => {
+        if (enCours) return;
+        roue = roue.filter((e) => e.id || e.nom !== b.dataset.libre);
+        majTout();
+      }));
+    };
+
+    const dessinerRoue = () => {
+      const W = canvas.width, R = W / 2 - 10, cx = W / 2, cy = W / 2;
+      ctx.clearRect(0, 0, W, W);
+      ctx.save(); ctx.translate(cx, cy);
+      ctx.beginPath(); ctx.arc(0, 0, R + 6, 0, Math.PI * 2); ctx.fillStyle = "#e3b866"; ctx.fill();
+      if (!roue.length) {
+        ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fillStyle = "#151a36"; ctx.fill();
+        ctx.restore(); return;
+      }
+      const n = roue.length, a = (Math.PI * 2) / n;
+      roue.forEach((e, i) => {
+        const debut = -Math.PI / 2 + i * a;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, debut, debut + a); ctx.closePath();
+        let coul = COULEURS_ROUE[i % COULEURS_ROUE.length];
+        if (n > 1 && i === n - 1 && coul === COULEURS_ROUE[0]) coul = COULEURS_ROUE[2];
+        ctx.fillStyle = coul; ctx.fill();
+        ctx.strokeStyle = "rgba(13,16,36,0.6)"; ctx.lineWidth = 3; ctx.stroke();
+        ctx.save();
+        ctx.rotate(debut + a / 2);
+        ctx.textAlign = "right"; ctx.textBaseline = "middle";
+        const clair = ["#e3b866", "#7fc8f8", "#f5d08a", "#8fb8de"].includes(coul);
+        ctx.fillStyle = clair ? "#0d1024" : "#ffffff";
+        const taille = Math.max(18, Math.min(44, 520 / n + 12));
+        ctx.font = `600 ${taille}px "Cinzel", Georgia, serif`;
+        let t = e.nom;
+        const max = R - 90;
+        while (ctx.measureText(t).width > max && t.length > 2) t = t.slice(0, -1);
+        if (t !== e.nom) t = t.slice(0, -1) + "…";
+        if (n <= 60) ctx.fillText(t, R - 24, 0);
+        ctx.restore();
+      });
+      ctx.restore();
+    };
+
+    const majTout = () => {
+      ecrireRoue(roue);
+      dessinerNoms();
+      dessinerRoue();
+      const n = roue.length;
+      $("#roue-compte").textContent = n ? `${n} nom${n > 1 ? "s" : ""} dans la roue` : "La roue est vide";
+      $("#roue-lancer").disabled = n < 2;
+    };
+
+    $("#roue-filtre").oninput = dessinerNoms;
+    $("#roue-tous").onclick = () => {
+      if (enCours) return;
+      persos.forEach((f) => { if (!dansRoue(f.id)) roue.push({ id: f.id, nom: f.titre }); });
+      majTout();
+    };
+    $("#roue-vider").onclick = () => { if (!enCours && roue.length && confirm("Retirer tous les noms de la roue ?")) { roue = []; majTout(); } };
+    $("#roue-ajout").onsubmit = (e) => {
+      e.preventDefault();
+      const nom = e.target.nom.value.trim();
+      if (!nom || enCours) return;
+      if (roue.some((x) => normal(x.nom) === normal(nom))) { toast("Ce nom est déjà dans la roue.", "erreur"); return; }
+      roue.push({ nom }); e.target.nom.value = ""; majTout();
+    };
+
+    $("#roue-lancer").onclick = () => {
+      if (enCours || roue.length < 2) return;
+      enCours = true;
+      $("#roue-lancer").disabled = true;
+      const n = roue.length, seg = 360 / n;
+      const hasard = crypto.getRandomValues(new Uint32Array(2));
+      const gagnant = hasard[0] % n;
+      const decalage = (hasard[1] / 4294967296 - 0.5) * seg * 0.7;
+      const cible = (360 - ((gagnant + 0.5) * seg + decalage) + 3600) % 360;
+      const actuel = ((rotation % 360) + 360) % 360;
+      rotation += 360 * 6 + ((cible - actuel + 360) % 360);
+      canvas.style.transition = "transform 5.5s cubic-bezier(0.12, 0.7, 0.1, 1)";
+      canvas.style.transform = `rotate(${rotation}deg)`;
+      setTimeout(() => { enCours = false; resultat(gagnant); }, 5700);
+    };
+
+    const resultat = (i) => {
+      const e = roue[i];
+      const fond = document.createElement("div");
+      fond.className = "feuille-fond resultat-roue";
+      fond.innerHTML = `
+        <div class="carte-resultat">
+          <div class="cr-titre">✧ La roue a choisi ✧</div>
+          <div class="cr-nom">${esc(e.nom)}</div>
+          ${e.id ? `<a class="lien" href="#/f/${encodeURIComponent(e.id)}">Voir sa fiche</a>` : ""}
+          <div class="cr-boutons">
+            <button class="btn btn-danger" id="cr-retirer">🗑 Retirer de la roue</button>
+            <button class="btn btn-or" id="cr-garder">✔ Garder</button>
+          </div>
+        </div>`;
+      document.body.appendChild(fond);
+      requestAnimationFrame(() => fond.classList.add("ouvert"));
+      const fermer = () => { fond.remove(); window.removeEventListener("hashchange", fermer); majTout(); };
+      window.addEventListener("hashchange", fermer);
+      $("#cr-garder", fond).onclick = fermer;
+      $("#cr-retirer", fond).onclick = () => {
+        roue.splice(i, 1);
+        canvas.style.transition = "none";
+        rotation = 0; canvas.style.transform = "rotate(0deg)";
+        fermer();
+      };
+    };
+
+    majTout();
+  };
+
   /* ---------- Connexion / inscription / compte ---------- */
   pages.connexion = async () => {
     if (moi()) { location.hash = "#/compte"; return ""; }
@@ -1017,7 +1181,7 @@
     const routes = {
       "": [pages.accueil], wiki: [pages.wiki], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
       recherche: [pages.recherche], joueurs: [pages.joueurs], joueur: [pages.joueur], connexion: [pages.connexion],
-      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin],
+      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue],
     };
     const [page] = routes[morceaux[0] || ""] || [null];
     const arg = morceaux[0] === "nouveau" ? null : morceaux[1];
