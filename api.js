@@ -241,6 +241,17 @@
       const { error } = await this.sb.from("des").delete().eq("fiche_id", ficheId);
       erreur(error);
     }
+    async listerDesRaces() {
+      const { data, error } = await this.sb.from("races_des").select("*");
+      if (error) { console.warn("Dés des races indisponibles (relance schema.sql dans Supabase) :", error.message); return {}; }
+      return Object.fromEntries(data.map((d) => [d.cle, d]));
+    }
+    async majDesRace(cle, nom, attaque, defense, soutien) {
+      const { error } = await this.sb.from("races_des").upsert(
+        { cle, nom, bonus_attaque: attaque | 0, bonus_defense: defense | 0, bonus_soutien: soutien | 0, maj_par: this.moi.user.id, maj_le: new Date().toISOString() },
+        { onConflict: "cle" });
+      erreur(error);
+    }
     async lancerDes(mode, a, d) {
       const { data, error } = await this.sb.rpc("lancer_des", { p_mode: mode, p_a: a, p_d: d || null });
       erreur(error);
@@ -392,6 +403,12 @@
       this._ecrire();
     }
     async supprimerDes(ficheId) { const d = this._lire(); if (d.des) delete d.des[ficheId]; this._ecrire(); }
+    async listerDesRaces() { return { ...(this._lire().races_des || {}) }; }
+    async majDesRace(cle, nom, attaque, defense, soutien) {
+      const d = this._lire(); d.races_des = d.races_des || {};
+      d.races_des[cle] = { cle, nom, bonus_attaque: attaque | 0, bonus_defense: defense | 0, bonus_soutien: soutien | 0, maj_le: new Date().toISOString() };
+      this._ecrire();
+    }
     async lancerDes(mode, a, d) {
       const tirer = (c, sens) => {
         const x = { nom: c.nom || "", fiche_id: c.fiche_id || null, race: c.race || "", sens, bonus_race: c.bonus_race | 0, bonus_perso: c.bonus_perso | 0, bonus_extra: c.bonus_extra | 0, de: 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 15) };

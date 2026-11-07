@@ -7,5 +7,8 @@ window.AETHERIA_DEMO_DATA = function () {
     invitations: [],
     fiches: [],
     moments: [],
+    des: {},
+    races_des: {},
+    lancers: [],
   };
 };
