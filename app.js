@@ -704,7 +704,7 @@
 
   pages.fiche = async (id) => {
     await majIndexTitres();
-    const [f, auteurs, moments, des] = await Promise.all([api.lireFiche(id), auteursMap(), api.listerMoments({ ficheId: id }), api.listerDes()]);
+    const [f, auteurs, moments, des, desRaces] = await Promise.all([api.lireFiche(id), auteursMap(), api.listerMoments({ ficheId: id }), api.listerDes(), api.listerDesRaces()]);
     if (!f) return vide("Cette fiche n'existe pas (ou plus).", `<a class="btn" href="#/">Retour à l'accueil</a>`);
     const c = catParId(f.categorie);
     const a = auteurs.get(f.auteur_id);
@@ -744,7 +744,7 @@
         </section>` : ""}
         ${estRace(f) || estPerso(f) ? (() => {
           if (estRace(f)) {
-            const d = deDe(des, f.id);
+            const d = deRace(desRaces, cleRace(f.titre));
             return `<section class="boite-de">
               <div class="bd-titre">🎲 Dé de la race</div>
               <div class="bd-valeurs">${TYPES_DES.map((t) => `<span>${infoType(t).icone} ${infoType(t).nom} : <b>1d${DE} ${signe(d[CLE_RACE[t]] | 0)}</b></span>`).join("")}</div>
@@ -752,13 +752,14 @@
               <a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>
             </section>`;
           }
-          const race = raceDuPerso(f), dr = race ? deDe(des, race.id) : null, an = bonusFiche(f, des);
+          const race = raceDuPerso(f), dr = race ? deRace(desRaces, race.cle) : null, an = bonusFiche(f, des);
+          const ficheRace = race && [...indexParId.values()].find((x) => estRace(x) && cleRace(x.titre) === race.cle);
           return `<section class="boite-de">
             <div class="bd-titre">🎲 Dés du personnage</div>
             <div class="bd-lignes">${TYPES_DES.map((t) => { const br = dr ? dr[CLE_RACE[t]] | 0 : 0, bf = an[t].bonus; return `
               <div class="bd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(br + bf)}</b>
               <small class="discret">${race ? `race ${signe(br)}` : "race ?"} · fiche ${signe(bf)}${an[t].manuel ? " (réglé à la main)" : an[t].mots.length ? ` (${an[t].mots.slice(0, 4).map(esc).join(", ")})` : ""}</small></div>`; }).join("")}</div>
-            <div class="discret petit-texte">${race ? `Race : <a href="#/f/${encodeURIComponent(race.id)}">${esc(race.titre)}</a>` : "Race non reconnue : mets le nom exact d'une fiche de race dans la case « Race / Peuple »."} · ${TYPES_DES.some((t) => an[t].manuel) ? "Bonus de fiche réglé à la main par le joueur ou un admin." : `Le bonus de fiche est calculé à partir des mots de la fiche (max +${CFG_DES.BONUS_MAX}).`}</div>
+            <div class="discret petit-texte">${race ? `Race : ${ficheRace ? `<a href="#/f/${encodeURIComponent(ficheRace.id)}">${esc(race.nom)}</a>` : esc(race.nom)}${dr.nouveau ? " (dé pas encore réglé)" : ""}` : "Aucune race : remplis la case « Race / Peuple » de la fiche."} · ${TYPES_DES.some((t) => an[t].manuel) ? "Bonus de fiche réglé à la main par le joueur ou un admin." : `Le bonus de fiche est calculé à partir des mots de la fiche (max +${CFG_DES.BONUS_MAX}).`}</div>
             <a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>
           </section>`;
         })() : ""}
@@ -850,6 +851,7 @@
     if (!id) f.infos = catParId(f.categorie).champs.map((cle) => ({ cle, valeur: "" }));
     pages.editeur.fiche = f;
     pages.editeur.des = id ? deDe(await api.listerDes(), id) : null;
+    pages.editeur.desRaces = await api.listerDesRaces();
     const cats = CATS.filter((c) => peutPublier(c.id) || c.id === f.categorie);
     return `
       <div class="entete-page"><div><div class="fil"><a href="#/">Accueil</a> › ${id ? "Modifier" : "Nouvelle fiche"}</div><h1>${id ? "Modifier la fiche" : "Nouvelle fiche"}</h1></div></div>
@@ -884,6 +886,7 @@
 
         <fieldset id="champ-de" ${estRace(f) ? "" : "hidden"}><legend>🎲 Dé de la race</legend>
           <p class="discret">Chaque membre de cette race lance 1d${DE} + ces bonus.</p>
+          <div class="proposition" id="proposition-race"></div>
           <div class="de-ligne">
             ${TYPES_DES.map((t) => `<label>${infoType(t).icone} ${infoType(t).nom}<input name="de_${t}" type="number" inputmode="numeric" value="0"></label>`).join("")}
           </div>
@@ -946,7 +949,14 @@
     const form = $("#editeur");
     if (!form) return;
     const f = pages.editeur.fiche;
-    if (pages.editeur.des && !pages.editeur.des.nouveau) TYPES_DES.forEach((t) => (form["de_" + t].value = pages.editeur.des[CLE_RACE[t]] | 0));
+    if (f.categorie === "peuples") { const dr = deRace(pages.editeur.desRaces, cleRace(f.titre)); if (!dr.nouveau) TYPES_DES.forEach((t) => (form["de_" + t].value = dr[CLE_RACE[t]] | 0)); }
+    const majPropositionRace = () => {
+      const z = $("#proposition-race"); if (!z) return;
+      const p = form.categorie.value === "peuples" && cleRace(form.titre.value) ? proposerRace(cleRace(form.titre.value), { titre: form.titre.value, resume: form.resume.value, infos: lireInfos(), contenu: $("#contenu").value }) : null;
+      z.innerHTML = p ? `💡 ${p.source === "fiche" ? "D'après la fiche" : "Proposé pour cette race"} : ${htmlProposition(p)} <button type="button" class="lien" id="utiliser-proposition">utiliser</button>` : "";
+      const u = $("#utiliser-proposition");
+      if (u) u.onclick = () => { TYPES_DES.forEach((t) => (form["de_" + t].value = p[t])); deTouche = true; };
+    };
     let deTouche = false;
     const dejaManuel = !!(pages.editeur.des && !pages.editeur.des.nouveau && f.categorie === "personnages");
     if (dejaManuel) { $("#de-manuel").checked = true; $("#de-manuel-zone").hidden = false; TYPES_DES.forEach((t) => (form["dm_" + t].value = pages.editeur.des[CLE_RACE[t]] | 0)); }
@@ -1135,8 +1145,8 @@
       $("#analyse-live").innerHTML = htmlAnalyse(an);
     };
     let attente;
-    form.oninput = () => { modifie = true; clearTimeout(attente); attente = setTimeout(majAnalyse, 400); };
-    majAnalyse();
+    form.oninput = () => { modifie = true; clearTimeout(attente); attente = setTimeout(() => { majAnalyse(); majPropositionRace(); }, 400); };
+    majAnalyse(); majPropositionRace();
     window.onbeforeunload = () => (modifie ? true : undefined);
 
     form.onsubmit = async (e) => {
@@ -1154,7 +1164,7 @@
           } catch (err) { toast("Fiche enregistrée, mais le bonus n'a pas pu l'être : " + err.message, "erreur"); }
         }
         if (data.categorie === "peuples" && deTouche) {
-          try { await api.majDes(nouvelId, ...TYPES_DES.map((t) => parseInt(form["de_" + t].value, 10) || 0)); }
+          try { await api.majDesRace(cleRace(data.titre), data.titre.trim().slice(0, 80), ...TYPES_DES.map((t) => parseInt(form["de_" + t].value, 10) || 0)); }
           catch (err) { toast("Fiche enregistrée, mais le dé n'a pas pu l'être : " + err.message, "erreur"); }
         }
         modifie = false; window.onbeforeunload = null;
@@ -1221,15 +1231,44 @@
   const estRace = (f) => f && f.categorie === "peuples";
   const estPerso = (f) => f && f.categorie === "personnages";
 
-  // Trouve la fiche de race d'un personnage à partir de sa case "Race / Peuple"
+  // Les races viennent de la case « Race / Peuple » de chaque personnage (et des fiches de race)
+  const cleRace = (v) => normal(sansMarkdown(v)).replace(/\s+/g, " ").trim().slice(0, 80);
   function raceDuPerso(perso) {
     if (!perso) return null;
     const info = (perso.infos || []).find((i) => /race|peuple|espece/.test(normal(i.cle)));
-    if (!info || !info.valeur) return null;
-    const v = normal(sansMarkdown(info.valeur));
-    const races = [...indexParId.values()].filter(estRace);
-    return races.find((r) => normal(r.titre) === v) || races.find((r) => v.includes(normal(r.titre)) || normal(r.titre).includes(v)) || null;
+    if (!info || !info.valeur || !cleRace(info.valeur)) return null;
+    const nom = sansMarkdown(info.valeur).replace(/\s+/g, " ").trim().slice(0, 80);
+    return { cle: cleRace(nom), nom };
   }
+  // Toutes les races connues : celles des personnages + les fiches de race
+  function toutesLesRaces(fiches, desRaces) {
+    const m = new Map();
+    for (const f of fiches) {
+      if (estPerso(f)) { const r = raceDuPerso(f); if (r && !m.has(r.cle)) m.set(r.cle, { ...r, persos: [] }); if (r) m.get(r.cle).persos.push(f); }
+    }
+    for (const f of fiches) if (estRace(f)) { const c = cleRace(f.titre); if (c && !m.has(c)) m.set(c, { cle: c, nom: f.titre.trim(), persos: [] }); if (c) m.get(c).fiche = f; }
+    for (const [c, d] of Object.entries(desRaces || {})) if (!m.has(c)) m.set(c, { cle: c, nom: d.nom, persos: [] });
+    return [...m.values()].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+  }
+  // Dé proposé pour une race : liste de races connues (mots-des.js), sinon analyse de sa fiche de race
+  function proposerRace(cle, ficheRace) {
+    const table = CFG_DES.RACES_PROPOSEES || {};
+    const c = " " + cle.replace(/[-_'’]/g, " ").replace(/\s+/g, " ").trim() + " ";
+    let best = null;
+    for (const [nom, v] of Object.entries(table)) {
+      const n = normal(nom).replace(/[-_'’]/g, " ").trim();
+      const trouve = c.includes(" " + n + " ") || c.includes(" " + n + "s ") || c.includes(" " + n + "x ");
+      if (trouve && (!best || n.length > best.n.length)) best = { n, v };
+    }
+    if (best) return { attaque: best.v[0], defense: best.v[1], soutien: best.v[2], source: "liste" };
+    if (ficheRace && (ficheRace.contenu || ficheRace.resume)) {
+      const an = analyserFiche(ficheRace);
+      if (TYPES_DES.some((t) => an[t].bonus)) return { attaque: an.attaque.bonus, defense: an.defense.bonus, soutien: an.soutien.bonus, source: "fiche" };
+    }
+    return null;
+  }
+  const htmlProposition = (p) => `${TYPES_DES.map((t) => `${infoType(t).icone} ${signe(p[t])}`).join(" · ")}`;
+  const deRace = (desRaces, cle) => (desRaces && desRaces[cle]) || { bonus_attaque: 0, bonus_defense: 0, bonus_soutien: 0, nouveau: true };
   const deDe = (des, id) => des[id] || { bonus_attaque: 0, bonus_defense: 0, bonus_soutien: 0, nouveau: true };
 
   /* Analyse d'une fiche de personnage : cherche les mots-clés de mots-des.js.
@@ -1294,12 +1333,14 @@
   }
 
   pages.des = async () => {
-    const [fiches, auteurs, des, lancers] = await Promise.all([majIndexTitres(), auteursMap(), api.listerDes(), api.listerLancers(30)]);
-    pages.des.etat = { des, completes: new Map() };
+    const [fiches, auteurs, des, desRaces, lancers] = await Promise.all([majIndexTitres(), auteursMap(), api.listerDes(), api.listerDesRaces(), api.listerLancers(30)]);
     const persos = fiches.filter(estPerso);
-    const races = fiches.filter(estRace);
+    const races = toutesLesRaces(fiches, desRaces);
+    const fichesRaces = new Map((await Promise.all(races.filter((r) => r.fiche).map((r) => api.lireFiche(r.fiche.id).catch(() => null)))).filter(Boolean).map((f) => [f.id, f]));
+    pages.des.etat = { des, desRaces, fichesRaces, completes: new Map(), races: new Map(races.map((r) => [r.cle, r])) };
+    const aRegler = races.filter((r) => deRace(desRaces, r.cle).nouveau && proposerRace(r.cle, r.fiche && fichesRaces.get(r.fiche.id)));
     const optPersos = `<option value="">— Aucun personnage —</option>` + persos.map((f) => `<option value="${esc(f.id)}">${esc(f.titre)}</option>`).join("");
-    const optRaces = `<option value="">— Aucune race —</option>` + races.map((f) => `<option value="${esc(f.id)}">${esc(f.titre)}</option>`).join("");
+    const optRaces = `<option value="">— Aucune race —</option>` + races.map((r) => `<option value="${esc(r.cle)}">${esc(r.nom)}</option>`).join("");
     const cote = (id, titre, ic) => `
       <div class="cote" id="${id}">
         <div class="cote-titre">${ic} ${titre}</div>
@@ -1327,16 +1368,18 @@
       <ol class="lancers" id="liste-lancers">${lancers.map((l) => htmlLancer(l, auteurs)).join("") || `<p class="discret">Aucun lancer pour l'instant.</p>`}</ol>
 
       <h2 class="titre-section">Dés des races</h2>
-      <p class="discret">Chaque race du wiki a son dé : <b>1d${DE} + bonus</b>. Une nouvelle race apparaît ici automatiquement.${estMembre() ? " Modifie les bonus puis appuie sur 💾." : ""}</p>
+      <p class="discret">Chaque race écrite dans la case « Race / Peuple » d'un personnage a son dé : <b>1d${DE} + bonus</b>. Une nouvelle race apparaît ici automatiquement.${estMembre() ? " Modifie les bonus puis appuie sur 💾." : ""}</p>
+      ${estMembre() && aRegler.length ? `<button class="btn btn-or" id="appliquer-propositions">💡 Utiliser les dés proposés pour les ${aRegler.length} race${aRegler.length > 1 ? "s" : ""} à régler</button>` : ""}
       ${races.length ? `<div class="table-wrap"><table class="table table-des">
         <thead><tr><th>Race</th>${TYPES_DES.map((t) => `<th>${infoType(t).icone} ${infoType(t).nom}</th>`).join("")}${estMembre() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${races.map((r) => { const d = deDe(des, r.id); return `<tr>
-          <td><a href="#/f/${encodeURIComponent(r.id)}">${esc(r.titre)}</a>${d.nouveau ? ' <span class="badge-nouveau">à régler</span>' : ""}</td>
+        <tbody>${races.map((r) => { const d = deRace(desRaces, r.cle); return `<tr>
+          <td>${r.fiche ? `<a href="#/f/${encodeURIComponent(r.fiche.id)}">${esc(r.nom)}</a>` : esc(r.nom)}${d.nouveau ? ' <span class="badge-nouveau">à régler</span>' : ""}<br><small class="discret">${r.persos.length} perso${r.persos.length > 1 ? "s" : ""}</small>
+            ${(() => { const p = proposerRace(r.cle, r.fiche && pages.des.etat.fichesRaces.get(r.fiche.id)); return p && estMembre() && (d.nouveau || TYPES_DES.some((t) => (d[CLE_RACE[t]] | 0) !== p[t])) ? `<div class="proposition">💡 ${p.source === "fiche" ? "D'après sa fiche" : "Proposé"} : ${htmlProposition(p)} <button class="lien" data-proposer="${esc(r.cle)}">utiliser</button></div>` : ""; })()}</td>
           ${TYPES_DES.map((t) => estMembre()
-            ? `<td><input type="number" inputmode="numeric" class="r-${t}" data-race="${esc(r.id)}" value="${d[CLE_RACE[t]] | 0}"></td>`
+            ? `<td><input type="number" inputmode="numeric" class="r-${t}" data-race="${esc(r.cle)}" value="${d[CLE_RACE[t]] | 0}"></td>`
             : `<td>${signe(d[CLE_RACE[t]] | 0)}</td>`).join("")}
-          ${estMembre() ? `<td><button class="btn petit" data-sauver-race="${esc(r.id)}">💾</button></td>` : ""}</tr>`; }).join("")}</tbody>
-      </table></div>` : vide("Aucune race pour l'instant. Crée une fiche dans « Peuples & Races » : son dé apparaîtra ici.", peutPublier("peuples") ? `<a class="btn" href="#/nouveau?cat=peuples">+ Ajouter une race</a>` : "")}`;
+          ${estMembre() ? `<td><button class="btn petit" data-sauver-race="${esc(r.cle)}">💾</button></td>` : ""}</tr>`; }).join("")}</tbody>
+      </table></div>` : vide("Aucune race pour l'instant. Remplis la case « Race / Peuple » d'un personnage : son dé apparaîtra ici.")}`;
   };
 
   pages.des.apres = (_, params) => {
@@ -1359,15 +1402,15 @@
     const sensDe = (el) => (el.id === "cote-d" ? "defense" : el.id === "cote-s" ? sens : "attaque");
     const lireCote = (el) => {
       const s = sensDe(el);
-      const perso = indexParId.get($(".c-perso", el).value), race = indexParId.get($(".c-race", el).value);
+      const perso = indexParId.get($(".c-perso", el).value), race = etat.races.get($(".c-race", el).value);
       const complet = perso && etat.completes.get(perso.id);
       const an = complet ? bonusFiche(complet, etat.des) : null;
       return {
-        nom: perso ? perso.titre : race ? race.titre : "",
+        nom: perso ? perso.titre : race ? race.nom : "",
         fiche_id: perso ? perso.id : null,
-        race: race ? race.titre : "",
+        race: race ? race.nom : "",
         sens: s,
-        bonus_race: race ? deDe(etat.des, race.id)[CLE_RACE[s]] | 0 : 0,
+        bonus_race: race ? deRace(etat.desRaces, race.cle)[CLE_RACE[s]] | 0 : 0,
         bonus_perso: an ? an[s].bonus : 0,
         bonus_extra: 0,
         _mots: an ? an[s].mots : [],
@@ -1385,21 +1428,38 @@
     const majFormules = () => $$(".cote").forEach((el) => ($(".c-formule", el).innerHTML = formule(lireCote(el))));
 
     $$("[data-sauver-race]").forEach((b) => (b.onclick = async () => {
-      const id = b.dataset.sauverRace;
-      const v = (t) => parseInt($(`.r-${t}[data-race="${id}"]`).value, 10) || 0;
+      const cle = b.dataset.sauverRace, r = etat.races.get(cle);
+      const v = (t) => parseInt($(`.r-${t}[data-race="${CSS.escape(cle)}"]`).value, 10) || 0;
       try {
-        await api.majDes(id, v("attaque"), v("defense"), v("soutien"));
-        etat.des[id] = { bonus_attaque: v("attaque"), bonus_defense: v("defense"), bonus_soutien: v("soutien") };
+        await api.majDesRace(cle, r.nom, v("attaque"), v("defense"), v("soutien"));
+        etat.desRaces[cle] = { cle, nom: r.nom, bonus_attaque: v("attaque"), bonus_defense: v("defense"), bonus_soutien: v("soutien") };
         const badge = b.closest("tr").querySelector(".badge-nouveau"); if (badge) badge.remove();
-        toast("Dé de « " + indexParId.get(id).titre + " » enregistré.");
+        toast("Dé de « " + r.nom + " » enregistré.");
         if ($("#bouton-lancer")) majFormules();
       } catch (e) { toast(e.message, "erreur"); }
     }));
 
+    const propositionDe = (cle) => { const r = etat.races.get(cle); return proposerRace(cle, r && r.fiche && etat.fichesRaces.get(r.fiche.id)); };
+    $$("[data-proposer]").forEach((b) => (b.onclick = () => {
+      const cle = b.dataset.proposer, p = propositionDe(cle);
+      TYPES_DES.forEach((t) => ($(`.r-${t}[data-race="${CSS.escape(cle)}"]`).value = p[t]));
+      toast("Proposition placée : appuie sur 💾 pour l'enregistrer.");
+    }));
+    const ap = $("#appliquer-propositions");
+    if (ap) ap.onclick = async () => {
+      const cles = [...etat.races.keys()].filter((c) => deRace(etat.desRaces, c).nouveau && propositionDe(c));
+      if (!confirm(`Enregistrer les dés proposés pour ${cles.length} race(s) ? Tu pourras toujours les modifier.`)) return;
+      ap.disabled = true;
+      try {
+        for (const c of cles) { const p = propositionDe(c); await api.majDesRace(c, etat.races.get(c).nom, p.attaque, p.defense, p.soutien); }
+        toast("Dés enregistrés !"); router();
+      } catch (e) { toast(e.message, "erreur"); ap.disabled = false; }
+    };
+
     if (!$("#bouton-lancer")) return;
     const choisirPerso = async (el, id) => {
       const r = raceDuPerso(indexParId.get(id));
-      if (r) $(".c-race", el).value = r.id;
+      $(".c-race", el).value = r && etat.races.has(r.cle) ? r.cle : "";
       if (id && !etat.completes.has(id)) {
         $(".c-formule", el).innerHTML = `<span class="discret">Analyse de la fiche…</span>`;
         try { etat.completes.set(id, await api.lireFiche(id)); } catch (e) {}
@@ -1422,7 +1482,7 @@
     if (pre && indexParId.get(pre)) {
       const f = indexParId.get(pre);
       if (estPerso(f)) for (const el of [$("#cote-a"), $("#cote-s")]) { $(".c-perso", el).value = f.id; choisirPerso(el, f.id); }
-      else if (estRace(f)) { for (const el of [$("#cote-a"), $("#cote-s")]) $(".c-race", el).value = f.id; majFormules(); }
+      else if (estRace(f)) { for (const el of [$("#cote-a"), $("#cote-s")]) $(".c-race", el).value = cleRace(f.titre); majFormules(); }
     }
 
     $("#bouton-lancer").onclick = async () => {

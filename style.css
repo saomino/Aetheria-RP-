@@ -476,3 +476,6 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .de-ligne { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .case-manuel { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; color: var(--texte); font-size: 0.9rem; }
 .case-manuel input { width: auto; margin: 0; }
+.proposition { margin-top: 6px; font: 0.8rem system-ui, sans-serif; color: var(--ether); }
+.proposition .lien { font-size: inherit; margin-left: 4px; }
+#appliquer-propositions { margin-bottom: 14px; }

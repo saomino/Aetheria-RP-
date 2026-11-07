@@ -319,6 +319,45 @@ end $$;
 
 grant execute on function public.lancer_des(text, jsonb, jsonb) to authenticated;
 
+drop policy if exists "des suppression" on public.des;
+create policy "des suppression" on public.des for delete to authenticated
+  using (public.est_admin() or exists (
+    select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid() and public.est_membre()));
+
+alter table public.des add column if not exists bonus_soutien int not null default 0;
+alter table public.des drop constraint if exists des_soutien_borne;
+alter table public.des add constraint des_soutien_borne check (bonus_soutien between -10000 and 1000000);
+
+-- Dés des RACES : une ligne par nom de race (tel qu'écrit dans la case
+-- « Race / Peuple » des personnages, ou titre d'une fiche de race).
+-- "cle" = nom en minuscules sans accents, pour reconnaître "Humain" = "humain".
+create table if not exists public.races_des (
+  cle            text primary key check (char_length(cle) between 1 and 80),
+  nom            text not null check (char_length(nom) between 1 and 80),
+  bonus_attaque  int not null default 0 check (bonus_attaque between -10000 and 1000000),
+  bonus_defense  int not null default 0 check (bonus_defense between -10000 and 1000000),
+  bonus_soutien  int not null default 0 check (bonus_soutien between -10000 and 1000000),
+  maj_par        uuid references public.profils(id) on delete set null default auth.uid(),
+  maj_le         timestamptz not null default now()
+);
+alter table public.races_des enable row level security;
+drop policy if exists "races_des lecture" on public.races_des;
+create policy "races_des lecture" on public.races_des for select using (true);
+drop policy if exists "races_des ajout" on public.races_des;
+create policy "races_des ajout" on public.races_des for insert to authenticated with check (public.est_membre());
+drop policy if exists "races_des modification" on public.races_des;
+create policy "races_des modification" on public.races_des for update to authenticated using (public.est_membre()) with check (public.est_membre());
+drop policy if exists "races_des suppression" on public.races_des;
+create policy "races_des suppression" on public.races_des for delete to authenticated using (public.est_admin());
+
+-- Reprise des dés déjà réglés sur des fiches de race (ancienne version)
+insert into public.races_des (cle, nom, bonus_attaque, bonus_defense, bonus_soutien)
+select regexp_replace(translate(lower(trim(f.titre)), 'àáâäãåçèéêëìíîïñòóôöõùúûüýÿ', 'aaaaaaceeeeiiiinooooouuuuyy'), '\s+', ' ', 'g'),
+       trim(f.titre), d.bonus_attaque, d.bonus_defense, d.bonus_soutien
+from public.des d join public.fiches f on f.id = d.fiche_id
+where f.categorie = 'peuples'
+on conflict (cle) do nothing;
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
