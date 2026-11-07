@@ -420,3 +420,10 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .cr-nom { font: 700 clamp(2rem, 9vw, 2.8rem) var(--titres); margin: 10px 0 8px; background: linear-gradient(180deg, #fff, var(--or)); -webkit-background-clip: text; background-clip: text; color: transparent; word-break: break-word; }
 .cr-boutons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
 .cr-boutons .btn { padding: 12px 6px; }
+
+/* ---------- Import de fichier ---------- */
+.import-zone { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; margin-bottom: 18px;
+  border: 1px dashed var(--or); border-radius: var(--rayon); background: rgba(227, 184, 102, 0.06); }
+.import-bouton { margin: 0; color: var(--or-vif); border-color: var(--or); }
+.import-bouton.occupe { opacity: 0.6; pointer-events: none; }
+.import-zone .discret { flex: 1; min-width: 180px; }

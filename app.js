@@ -219,6 +219,238 @@
     }));
   }
 
+  /* ---------------- Import d'un fichier (Word, PDF, texte) ---------------- */
+
+  // Lecture d'un .zip (un .docx est un zip) sans bibliothèque externe
+  async function lireZip(buffer) {
+    const dv = new DataView(buffer), u8 = new Uint8Array(buffer);
+    let fin = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { fin = i; break; }
+    if (fin < 0) throw new Error("Fichier Word illisible ou abîmé.");
+    const nb = dv.getUint16(fin + 10, true);
+    let p = dv.getUint32(fin + 16, true);
+    const fichiers = {};
+    const dec = new TextDecoder();
+    for (let k = 0; k < nb; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const methode = dv.getUint16(p + 10, true), taille = dv.getUint32(p + 20, true);
+      const ln = dv.getUint16(p + 28, true), le = dv.getUint16(p + 30, true), lc = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      const nom = dec.decode(u8.subarray(p + 46, p + 46 + ln));
+      fichiers[nom] = async () => {
+        const debut = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+        const brut = u8.subarray(debut, debut + taille);
+        if (methode === 0) return brut;
+        if (methode !== 8) throw new Error("Compression non prise en charge.");
+        if (typeof DecompressionStream === "undefined") throw new Error("Ton navigateur est trop ancien pour lire les fichiers Word. Mets-le à jour ou utilise un fichier .txt.");
+        const flux = new Blob([brut]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return new Uint8Array(await new Response(flux).arrayBuffer());
+      };
+      p += 46 + ln + le + lc;
+    }
+    return fichiers;
+  }
+
+  // Couleur Word → couleur du site la plus proche (le noir/blanc par défaut sont ignorés)
+  function couleurProche(hex) {
+    if (!/^[0-9a-f]{6}$/i.test(hex || "")) return null;
+    const rgb = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16));
+    const lum = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+    const sat = Math.max(...rgb) - Math.min(...rgb);
+    if (lum < 0.2 || (lum > 0.93 && sat < 30)) return null;
+    let best = null, d = Infinity;
+    for (const [nom, h] of COULEURS) {
+      if (nom === "noir" || nom === "blanc") continue;
+      const c = [0, 2, 4].map((i) => parseInt(h.substr(1 + i, 2), 16));
+      const dist = c.reduce((t, v, i) => t + (v - rgb[i]) ** 2, 0);
+      if (dist < d) { d = dist; best = nom; }
+    }
+    return best;
+  }
+
+  async function docxVersTexte(buffer) {
+    const zip = await lireZip(buffer);
+    if (!zip["word/document.xml"]) throw new Error("Ce n'est pas un fichier Word (.docx) valide.");
+    const dec = new TextDecoder();
+    const xml = (u8) => new DOMParser().parseFromString(dec.decode(u8), "application/xml");
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const doc = xml(await zip["word/document.xml"]());
+    const rels = {};
+    if (zip["word/_rels/document.xml.rels"]) {
+      const r = xml(await zip["word/_rels/document.xml.rels"]());
+      [...r.getElementsByTagName("Relationship")].forEach((x) => (rels[x.getAttribute("Id")] = x.getAttribute("Target")));
+    }
+    const enfants = (el, nom) => [...el.childNodes].filter((n) => n.localName === nom);
+    const enfant = (el, nom) => el && enfants(el, nom)[0];
+    const val = (el) => el && (el.getAttributeNS(W, "val") || el.getAttribute("w:val"));
+    const actif = (el) => !!el && !["0", "false", "none"].includes(val(el) || "");
+    const images = [];
+
+    const runs = (p) => {
+      const segs = [];
+      const parcourir = (el) => {
+        for (const n of el.childNodes) {
+          if (n.localName === "r") {
+            const pr = enfant(n, "rPr");
+            const st = { b: actif(enfant(pr, "b")), i: actif(enfant(pr, "i")), c: couleurProche(val(enfant(pr, "color"))) };
+            for (const x of n.childNodes) {
+              if (x.localName === "t") segs.push({ ...st, t: x.textContent });
+              else if (x.localName === "tab") segs.push({ ...st, t: " " });
+              else if (x.localName === "br" || x.localName === "cr") segs.push({ t: "\n" });
+              else if (x.localName === "drawing" || x.localName === "pict") {
+                const blip = x.getElementsByTagNameNS("*", "blip")[0] || x.getElementsByTagNameNS("*", "imagedata")[0];
+                const id = blip && (blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || blip.getAttribute("r:embed") || blip.getAttribute("r:id"));
+                if (id && rels[id]) { images.push(rels[id]); segs.push({ t: `\n%%IMG${images.length - 1}%%\n` }); }
+              }
+            }
+          } else if (["hyperlink", "ins", "smartTag", "sdt", "sdtContent", "fldSimple"].includes(n.localName)) parcourir(n);
+        }
+      };
+      parcourir(p);
+      // fusionner les morceaux qui ont la même mise en forme
+      const fus = [];
+      for (const x of segs) {
+        const der = fus[fus.length - 1];
+        if (der && der.b === x.b && der.i === x.i && der.c === x.c && !x.t.includes("%%") && !der.t.includes("%%")) der.t += x.t;
+        else fus.push({ ...x });
+      }
+      return fus.map((x) => {
+        if (!x.t.trim() || x.t.includes("%%")) return x.t;
+        const m = x.t.match(/^(\s*)([\s\S]*?)(\s*)$/);
+        let t = m[2];
+        if (x.i) t = `*${t}*`;
+        if (x.b) t = `**${t}**`;
+        if (x.c) t = `[${x.c}]${t}[/${x.c}]`;
+        return m[1] + t + m[3];
+      }).join("");
+    };
+
+    const lignes = [];
+    let titre = null;
+    const corps = doc.getElementsByTagNameNS(W, "body")[0] || doc.documentElement;
+    const traiter = (el) => {
+      for (const n of el.childNodes) {
+        if (n.localName === "p") {
+          const pPr = enfant(n, "pPr");
+          const style = (val(enfant(pPr, "pStyle")) || "").toLowerCase();
+          const texte = runs(n);
+          const net = texte.replace(/%%IMG\d+%%/g, "").trim();
+          const niv = style.match(/^(?:heading|titre|title|berschrift|kop)\s*(\d)?$/);
+          if (niv && net && !texte.includes("%%IMG")) {
+            const sansForme = sansMarkdown(net);
+            if (!titre && (style.startsWith("title") || style === "titre" || niv[1] === "1")) { titre = sansForme; lignes.push(""); continue; }
+            lignes.push("", (niv[1] && +niv[1] >= 3 ? "### " : "## ") + sansForme, "");
+          } else if ((enfant(pPr, "numPr") || /list|liste|puce|bullet/.test(style)) && net) lignes.push("- " + texte.trim());
+          else lignes.push(texte.trim() ? texte : "");
+        } else if (n.localName === "tbl") {
+          lignes.push("");
+          for (const tr of enfants(n, "tr")) {
+            const cases = enfants(tr, "tc").map((tc) => enfants(tc, "p").map(runs).join(" ").replace(/\s+/g, " ").trim()).filter(Boolean);
+            if (cases.length === 2 && cases[0].length <= 40) lignes.push(`**${sansMarkdown(cases[0]).replace(/\s*:$/, "")}** : ${cases[1]}`);
+            else if (cases.length) lignes.push(cases.join(" — "));
+            lignes.push("");
+          }
+        } else if (n.localName === "sdt" || n.localName === "sdtContent") traiter(n);
+      }
+    };
+    traiter(corps);
+
+    const fichiersImg = [];
+    for (let i = 0; i < images.length; i++) {
+      const chemin = "word/" + images[i].replace(/^\.?\//, "").replace(/^\/word\//, "");
+      const ext = chemin.split(".").pop().toLowerCase();
+      const type = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext];
+      if (zip[chemin] && type) fichiersImg[i] = new File([await zip[chemin]()], "image-" + (i + 1) + "." + ext, { type });
+    }
+    return { texte: lignes.join("\n"), titre, images: fichiersImg };
+  }
+
+  async function chargerScript(url) {
+    await new Promise((ok, ko) => { const s = document.createElement("script"); s.src = url; s.onload = ok; s.onerror = () => ko(new Error("Impossible de charger le lecteur PDF (vérifie ta connexion).")); document.head.appendChild(s); });
+  }
+
+  async function pdfVersTexte(buffer) {
+    const BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+    if (!window.pdfjsLib) await chargerScript(BASE + "pdf.min.js");
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = BASE + "pdf.worker.min.js";
+    const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const pages = [];
+    for (let n = 1; n <= Math.min(pdf.numPages, 80); n++) {
+      const contenu = await (await pdf.getPage(n)).getTextContent();
+      let lignes = [], ligne = "", dernierY = null, ecart = 0;
+      for (const it of contenu.items) {
+        if (!("str" in it)) continue;
+        const y = it.transform[5], h = Math.abs(it.transform[3]) || 10;
+        if (dernierY !== null && Math.abs(y - dernierY) > h * 0.5 && ligne) {
+          lignes.push(ligne); ligne = "";
+          if (Math.abs(y - dernierY) > h * 1.8) lignes.push("");
+        }
+        ligne += it.str;
+        if (it.hasEOL) { lignes.push(ligne); ligne = ""; }
+        dernierY = y; ecart = h;
+      }
+      if (ligne) lignes.push(ligne);
+      // recoller les lignes d'un même paragraphe
+      const paras = [];
+      for (const l of lignes.map((x) => x.replace(/\s+/g, " ").trim())) {
+        const der = paras[paras.length - 1];
+        if (l && der && !/[.!?:»"]$/.test(der) && /^[a-zà-ÿ(«"-]/.test(l) && !/^[-•]/.test(l)) paras[paras.length - 1] = der.replace(/-$/, "") + (der.endsWith("-") ? "" : " ") + l;
+        else paras.push(l);
+      }
+      pages.push(paras.join("\n").replace(/\n{3,}/g, "\n\n").trim());
+    }
+    const texte = pages.filter(Boolean).join("\n\n");
+    if (!texte.trim()) throw new Error("Ce PDF ne contient pas de texte lisible (c'est peut-être une image scannée).");
+    return { texte: devinerTitres(texte), titre: null, images: [] };
+  }
+
+  // Dans un texte brut, une ligne courte isolée suivie d'un paragraphe devient un intertitre
+  function devinerTitres(texte) {
+    const l = texte.split("\n");
+    return l.map((x, i) => {
+      const t = x.trim();
+      const avant = i === 0 || !l[i - 1].trim(), apres = l[i + 1] && l[i + 1].trim();
+      if (avant && apres && t.length >= 3 && t.length <= 40 && /^[A-ZÀ-ÝÉÈ0-9IVX]/.test(t) && !/[.,;:!?…»)]$/.test(t) && !/^#|^[-•*]/.test(t) && !t.includes(":") && t.split(" ").length <= 6)
+        return "## " + t.replace(/^\d+[.)]\s*/, "");
+      return x;
+    }).join("\n");
+  }
+
+  async function lireFichierFiche(fichier) {
+    const ext = (fichier.name.split(".").pop() || "").toLowerCase();
+    if (fichier.size > 25 * 1024 * 1024) throw new Error("Fichier trop lourd (25 Mo maximum).");
+    if (["txt", "md", "markdown", "text"].includes(ext) || fichier.type.startsWith("text/")) return { texte: devinerTitres((await fichier.text()).replace(/\r\n?/g, "\n")), titre: null, images: [] };
+    if (ext === "docx") return docxVersTexte(await fichier.arrayBuffer());
+    if (ext === "pdf") return pdfVersTexte(await fichier.arrayBuffer());
+    if (ext === "doc") throw new Error("Ancien format Word (.doc) : ouvre-le et enregistre-le en .docx, puis réessaie.");
+    if (ext === "odt" || ext === "pages" || ext === "rtf") throw new Error(`Format .${ext} non pris en charge : enregistre-le en .docx ou en PDF.`);
+    throw new Error("Format non pris en charge. Utilise un fichier Word (.docx), PDF ou texte (.txt).");
+  }
+
+  // Repère les lignes "Clé : valeur" du début du texte pour remplir le titre et les infos
+  const ALIAS_NOM = ["nom", "prenom", "nom complet", "prenom et nom", "nom et prenom", "name", "identite"];
+  function extraireInfos(texte, champs) {
+    const trouvees = [];
+    let titre = null;
+    const garder = [];
+    const lignes = texte.split("\n");
+    let enTete = true;
+    lignes.forEach((l, idx) => {
+      const estKV = /^\s*(?:[-•]\s*)?\**\s*[^:*\n]{2,35}?\s*\**\s*:\s*\S/.test(l);
+      if (l.trim() && !estKV) enTete = false;
+      const m = idx < 60 && l.match(/^\s*(?:[-•]\s*)?\**\s*([^:*\n]{2,35}?)\s*\**\s*:\s*\**\s*(.{1,150}?)\s*$/);
+      if (m) {
+        const cle = normal(sansMarkdown(m[1])), valeur = m[2].replace(/^\*+|\*+$/g, "").trim();
+        if (ALIAS_NOM.includes(cle) && !titre) { titre = sansMarkdown(valeur); return; }
+        const champ = champs.find((c) => { const n = normal(c); return n === cle || n.split(/\s*[\/,]\s*|\s+ou\s+/).some((t) => t && t === cle) || (cle.length > 3 && n.startsWith(cle)); });
+        if (champ && valeur && !trouvees.some((t) => t.cle === champ)) { trouvees.push({ cle: champ, valeur }); return; }
+        if (enTete && valeur && !/^https?:/.test(valeur)) { trouvees.push({ cle: sansMarkdown(m[1]).trim().replace(/^./, (c) => c.toUpperCase()), valeur }); return; }
+      }
+      garder.push(l);
+    });
+    return { titre, infos: trouvees, texte: garder.join("\n").replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n") };
+  }
+
   /* ---------------- Partage d'une fiche ---------------- */
   const lienFiche = (f) => location.origin + location.pathname + "#/f/" + encodeURIComponent(f.id);
   const nomFichier = (f) => (normal(f.titre).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fiche") + "-aetheria.png";
@@ -594,6 +826,10 @@
     return `
       <div class="entete-page"><div><div class="fil"><a href="#/">Accueil</a> › ${id ? "Modifier" : "Nouvelle fiche"}</div><h1>${id ? "Modifier la fiche" : "Nouvelle fiche"}</h1></div></div>
       <form class="editeur" id="editeur" autocomplete="off">
+        <div class="import-zone" id="import-zone">
+          <label class="btn import-bouton">📄 Remplir depuis un fichier<input type="file" id="fichier-import" accept=".docx,.pdf,.txt,.md,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></label>
+          <span class="discret petit-texte" id="import-etat">Word (.docx), PDF ou texte : le texte complet est ajouté à la fiche.</span>
+        </div>
         <div class="ligne2">
           <label>Catégorie<select name="categorie">${cats.map((c) => `<option value="${c.id}" ${c.id === f.categorie ? "selected" : ""}>${c.icone} ${esc(c.nom)}</option>`).join("")}</select></label>
           <label>Titre *<input name="titre" required maxlength="120" value="${esc(f.titre)}" placeholder="Nom du personnage, du lieu…"></label>
@@ -737,6 +973,67 @@
     };
 
     const ta = $("#contenu");
+
+    /* Import d'un fichier */
+    $("#fichier-import").onchange = async (e) => {
+      const fichier = e.target.files[0];
+      e.target.value = "";
+      if (!fichier) return;
+      const etat = $("#import-etat"), etatInitial = etat.textContent;
+      const bouton = $(".import-bouton"); bouton.classList.add("occupe");
+      try {
+        etat.textContent = "Lecture de « " + fichier.name + " »…";
+        const res = await lireFichierFiche(fichier);
+        const champs = [...new Set([...catParId(form.categorie.value).champs, ...lireInfos().map((i) => i.cle)])];
+        const ext = extraireInfos(res.texte, champs);
+        let texte = ext.texte.trim();
+        // images contenues dans le fichier Word
+        const imgs = res.images || [];
+        let envoyees = 0;
+        for (let i = 0; i < imgs.length; i++) {
+          let rempl = "";
+          if (imgs[i] && envoyees < 30) {
+            etat.textContent = `Envoi des images ${envoyees + 1} / ${Math.min(imgs.filter(Boolean).length, 30)}…`;
+            try {
+              const url = await api.envoyerImage(imgs[i]); envoyees++;
+              if (!form.image_url.value) { form.image_url.value = url; apercuImg(); }   // 1re image = image principale (pas répétée dans le texte)
+              else rempl = `![](${url})`;
+            }
+            catch (err) { console.warn(err); }
+          }
+          texte = texte.split(`%%IMG${i}%%`).join(rempl);
+        }
+        texte = texte.replace(/%%IMG\d+%%/g, "").replace(/\n{3,}/g, "\n\n").trim();
+        if (!texte && !ext.infos.length) throw new Error("Le fichier semble vide.");
+
+        if (ta.value.trim()) {
+          if (confirm("Ta fiche contient déjà du texte.\n\nOK = remplacer le texte actuel\nAnnuler = ajouter le fichier à la fin")) ta.value = texte;
+          else ta.value = ta.value.trimEnd() + "\n\n" + texte;
+        } else ta.value = texte;
+
+        const titre = res.titre || ext.titre;
+        let remplis = 0;
+        if (titre && !form.titre.value.trim()) { form.titre.value = titre.slice(0, 120); remplis++; }
+        if (!form.titre.value.trim()) form.titre.value = fichier.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 120);
+        const actuelles = lireInfos();
+        for (const inf of ext.infos) {
+          const l = $$(".info-ligne", zoneInfos).find((x) => normal($(".cle", x).value) === normal(inf.cle));
+          if (l) { if (!$(".valeur", l).value.trim()) { $(".valeur", l).value = inf.valeur; remplis++; } }
+          else { zoneInfos.insertAdjacentHTML("beforeend", ligneInfo(inf)); const n = zoneInfos.lastElementChild; $(".retirer", n).onclick = () => n.remove(); remplis++; }
+        }
+        modifie = true;
+        $$(".onglet")[0].click();
+        const morceaux = [`texte importé`];
+        if (remplis) morceaux.push(`${remplis} case${remplis > 1 ? "s" : ""} remplie${remplis > 1 ? "s" : ""}`);
+        if (envoyees) morceaux.push(`${envoyees} image${envoyees > 1 ? "s" : ""}`);
+        etat.textContent = "✓ " + fichier.name + " : " + morceaux.join(", ") + ". Vérifie puis publie.";
+        toast("Fichier importé !");
+      } catch (err) {
+        etat.textContent = etatInitial;
+        toast(err.message, "erreur");
+      } finally { bouton.classList.remove("occupe"); }
+    };
+
     $("#image-texte").onchange = async (e) => {
       const fi = e.target.files[0];
       e.target.value = "";
