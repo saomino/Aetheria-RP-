@@ -427,3 +427,52 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .import-bouton { margin: 0; color: var(--or-vif); border-color: var(--or); }
 .import-bouton.occupe { opacity: 0.6; pointer-events: none; }
 .import-zone .discret { flex: 1; min-width: 180px; }
+
+/* ---------- Dés ---------- */
+.modes { display: flex; gap: 6px; background: var(--nuit); border: 1px solid var(--bord); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
+.modes.petit { max-width: 320px; }
+.mode, .sens { flex: 1; background: none; border: none; color: var(--texte-doux); padding: 10px; border-radius: 10px; font: 600 0.9rem system-ui, sans-serif; cursor: pointer; }
+.mode.actif, .sens.actif { background: var(--nuit-3); color: var(--or-vif); }
+.cotes { display: flex; gap: 12px; align-items: stretch; margin-bottom: 16px; }
+.cote { flex: 1; background: var(--nuit); border: 1px solid var(--bord); border-radius: 14px; padding: 14px; min-width: 0; }
+.cote label { margin-bottom: 10px; }
+.cote-titre { font-family: var(--titres); color: var(--or); margin-bottom: 10px; }
+.c-formule { font: 0.95rem system-ui, sans-serif; padding: 10px; border-radius: 10px; background: var(--nuit-3); text-align: center; }
+.contre { align-self: center; font: 700 1.2rem var(--titres); color: var(--or); }
+.de-roule { font-size: 3.2rem; text-align: center; padding: 20px; animation: rouler 0.45s linear infinite; }
+@keyframes rouler { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+#resultat-des { margin-top: 16px; }
+.lancers { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.lancer { background: var(--nuit-2); border: 1px solid var(--bord); border-radius: 14px; padding: 12px 16px; }
+.resultat-frais .lancer { border-color: var(--or); box-shadow: 0 0 30px rgba(227, 184, 102, 0.25); animation: apparaitre 0.4s ease-out; }
+@keyframes apparaitre { from { transform: scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
+.lancer-ligne { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.l-qui { font-family: var(--titres); font-size: 1.05rem; }
+.l-total { font: 700 1.7rem var(--titres); color: var(--texte); min-width: 2ch; text-align: right; }
+.l-total.gagne { color: var(--or-vif); text-shadow: 0 0 14px rgba(227, 184, 102, 0.6); }
+.l-formule { font: 0.8rem system-ui, sans-serif; color: var(--texte-doux); margin: -2px 0 8px; }
+.l-verdict { border-top: 1px solid var(--bord); padding-top: 8px; margin-top: 4px; font: 0.95rem system-ui, sans-serif; }
+.lancer-pied { font: 0.72rem system-ui, sans-serif; color: var(--texte-doux); margin-top: 6px; }
+.lancer-pied .lien { font-size: inherit; color: var(--rouge); }
+.table-des input { width: 90px; padding: 6px 8px; }
+.badge-nouveau { background: rgba(127, 200, 248, 0.15); color: var(--ether); border-radius: 10px; padding: 1px 7px; font: 600 0.7rem system-ui, sans-serif; }
+.boite-de { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 26px 0 6px; padding: 14px 16px; border: 1px solid var(--or); border-radius: var(--rayon); background: rgba(227, 184, 102, 0.06); }
+.bd-titre { font-family: var(--titres); color: var(--or); width: 100%; }
+.bd-valeurs { display: flex; flex-wrap: wrap; gap: 6px 20px; flex: 1; font: 0.95rem system-ui, sans-serif; }
+.boite-de > .discret { width: 100%; }
+@media (max-width: 760px) {
+  .cotes { flex-direction: column; }
+  .contre { margin: -4px 0; }
+}
+
+.bd-lignes { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.bd-ligne { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; padding: 8px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); font: 0.95rem system-ui, sans-serif; }
+.bd-ligne b { font: 700 1.05rem var(--titres); color: var(--or-vif); text-align: right; }
+.bd-ligne small { grid-column: 1 / -1; font-size: 0.78rem; }
+.analyse { display: flex; flex-direction: column; gap: 6px; }
+.analyse-type { font: 0.9rem system-ui, sans-serif; padding: 8px 10px; background: var(--nuit-3); border-radius: 8px; }
+.analyse-type b { color: var(--or-vif); }
+.c-mots { margin-top: 6px; font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); }
+.de-ligne { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.case-manuel { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; color: var(--texte); font-size: 0.9rem; }
+.case-manuel input { width: auto; margin: 0; }

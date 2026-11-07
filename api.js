@@ -225,6 +225,37 @@
       erreur(error);
     }
 
+    /* ---- Dés ---- */
+    async listerDes() {
+      const { data, error } = await this.sb.from("des").select("*");
+      if (error) { console.warn("Dés indisponibles (relance schema.sql dans Supabase) :", error.message); return {}; }
+      return Object.fromEntries(data.map((d) => [d.fiche_id, d]));
+    }
+    async majDes(ficheId, attaque, defense, soutien) {
+      const { error } = await this.sb.from("des").upsert(
+        { fiche_id: ficheId, bonus_attaque: attaque | 0, bonus_defense: defense | 0, bonus_soutien: soutien | 0, maj_par: this.moi.user.id, maj_le: new Date().toISOString() },
+        { onConflict: "fiche_id" });
+      erreur(error);
+    }
+    async supprimerDes(ficheId) {
+      const { error } = await this.sb.from("des").delete().eq("fiche_id", ficheId);
+      erreur(error);
+    }
+    async lancerDes(mode, a, d) {
+      const { data, error } = await this.sb.rpc("lancer_des", { p_mode: mode, p_a: a, p_d: d || null });
+      erreur(error);
+      return Array.isArray(data) ? data[0] : data;
+    }
+    async listerLancers(limite = 30) {
+      const { data, error } = await this.sb.from("lancers").select("*").order("cree_le", { ascending: false }).limit(limite);
+      if (error) return [];
+      return data;
+    }
+    async supprimerLancer(id) {
+      const { error } = await this.sb.from("lancers").delete().eq("id", id);
+      erreur(error);
+    }
+
     /* ---- Membres ---- */
     async listerProfils(forcer) {
       if (this.cacheProfils && !forcer) return this.cacheProfils;
@@ -353,6 +384,32 @@
       this._ecrire();
     }
     async supprimerMoment(id) { const d = this._lire(); d.moments = (d.moments || []).filter((m) => m.id !== id); this._ecrire(); }
+
+    async listerDes() { return { ...(this._lire().des || {}) }; }
+    async majDes(ficheId, attaque, defense, soutien) {
+      const d = this._lire(); d.des = d.des || {};
+      d.des[ficheId] = { fiche_id: ficheId, bonus_attaque: attaque | 0, bonus_defense: defense | 0, bonus_soutien: soutien | 0, maj_le: new Date().toISOString() };
+      this._ecrire();
+    }
+    async supprimerDes(ficheId) { const d = this._lire(); if (d.des) delete d.des[ficheId]; this._ecrire(); }
+    async lancerDes(mode, a, d) {
+      const tirer = (c, sens) => {
+        const x = { nom: c.nom || "", fiche_id: c.fiche_id || null, race: c.race || "", sens, bonus_race: c.bonus_race | 0, bonus_perso: c.bonus_perso | 0, bonus_extra: c.bonus_extra | 0, de: 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 15) };
+        x.total = x.de + x.bonus_race + x.bonus_perso + x.bonus_extra;
+        return x;
+      };
+      const donnees = { a: tirer(a, mode === "combat" ? "attaque" : a.sens || "attaque") };
+      if (mode === "combat") {
+        donnees.d = tirer(d, "defense");
+        donnees.degats = Math.max(0, donnees.a.total - donnees.d.total);
+        donnees.gagnant = donnees.a.total > donnees.d.total ? "attaquant" : donnees.a.total < donnees.d.total ? "defenseur" : "egalite";
+      }
+      const l = { id: "l" + Date.now(), auteur_id: this.moi.user.id, mode, donnees, cree_le: new Date().toISOString() };
+      const s = this._lire(); s.lancers = [l, ...(s.lancers || [])].slice(0, 100); this._ecrire();
+      return l;
+    }
+    async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
+    async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
 
     async listerProfils() { return [...this._lire().profils].sort((a, b) => a.pseudo.localeCompare(b.pseudo, "fr")); }
     async changerRole(id, role) { this._lire().profils.find((p) => p.id === id).role = role; this._ecrire(); }
