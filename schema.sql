@@ -226,6 +226,99 @@ drop policy if exists "moments suppression" on public.moments;
 create policy "moments suppression" on public.moments for delete to authenticated
   using ((auteur_id = auth.uid() and public.est_membre()) or public.est_admin());
 
+-- ---------- Dés ---------------------------------------------------------
+-- Bonus de dés : pour une race (fiche "Peuples & Races") ou un personnage.
+-- Tout le monde lance 1d15 + bonus de la race + bonus du perso + bonus du moment.
+create table if not exists public.des (
+  fiche_id       uuid primary key references public.fiches(id) on delete cascade,
+  bonus_attaque  int not null default 0 check (bonus_attaque between -10000 and 1000000),
+  bonus_defense  int not null default 0 check (bonus_defense between -10000 and 1000000),
+  maj_par        uuid references public.profils(id) on delete set null default auth.uid(),
+  maj_le         timestamptz not null default now()
+);
+
+alter table public.des enable row level security;
+
+drop policy if exists "des lecture" on public.des;
+create policy "des lecture" on public.des for select using (true);
+
+-- Dé d'une race : tout membre peut le régler. Bonus d'un personnage : son auteur ou un admin.
+drop policy if exists "des ajout" on public.des;
+create policy "des ajout" on public.des for insert to authenticated
+  with check (public.est_membre() and (public.est_admin() or exists (
+    select 1 from public.fiches f where f.id = fiche_id and (f.categorie = 'peuples' or f.auteur_id = auth.uid()))));
+
+drop policy if exists "des modification" on public.des;
+create policy "des modification" on public.des for update to authenticated
+  using (public.est_membre() and (public.est_admin() or exists (
+    select 1 from public.fiches f where f.id = fiche_id and (f.categorie = 'peuples' or f.auteur_id = auth.uid()))))
+  with check (public.est_membre());
+
+-- Historique des lancers : les dés sont tirés PAR LE SERVEUR (impossible de tricher)
+create table if not exists public.lancers (
+  id         uuid primary key default gen_random_uuid(),
+  auteur_id  uuid references public.profils(id) on delete set null default auth.uid(),
+  mode       text not null check (mode in ('simple', 'combat')),
+  donnees    jsonb not null,
+  cree_le    timestamptz not null default now()
+);
+create index if not exists lancers_date_idx on public.lancers (cree_le desc);
+
+alter table public.lancers enable row level security;
+drop policy if exists "lancers lecture" on public.lancers;
+create policy "lancers lecture" on public.lancers for select using (true);
+drop policy if exists "lancers suppression admin" on public.lancers;
+create policy "lancers suppression admin" on public.lancers for delete to authenticated using (public.est_admin());
+-- (pas de politique d'ajout : on passe obligatoirement par la fonction lancer_des)
+
+create or replace function public.lancer_des(p_mode text, p_a jsonb, p_d jsonb default null)
+returns public.lancers
+language plpgsql security definer set search_path = public as $$
+declare
+  cote_a jsonb; cote_d jsonb; res jsonb; ligne lancers;
+  borne int := 1000000;
+begin
+  if not public.est_membre() then raise exception 'Tu dois être membre pour lancer les dés.'; end if;
+  if p_mode not in ('simple', 'combat') then raise exception 'Mode inconnu.'; end if;
+
+  cote_a := jsonb_build_object(
+    'nom',         left(coalesce(p_a->>'nom', ''), 80),
+    'fiche_id',    p_a->>'fiche_id',
+    'race',        left(coalesce(p_a->>'race', ''), 80),
+    'sens',        case when p_mode = 'combat' then 'attaque' else coalesce(nullif(p_a->>'sens', ''), 'attaque') end,
+    'bonus_race',  greatest(-borne, least(borne, coalesce((p_a->>'bonus_race')::int, 0))),
+    'bonus_perso', greatest(-borne, least(borne, coalesce((p_a->>'bonus_perso')::int, 0))),
+    'bonus_extra', greatest(-borne, least(borne, coalesce((p_a->>'bonus_extra')::int, 0))),
+    'de',          1 + floor(random() * 15)::int);
+  cote_a := cote_a || jsonb_build_object('total',
+    (cote_a->>'de')::int + (cote_a->>'bonus_race')::int + (cote_a->>'bonus_perso')::int + (cote_a->>'bonus_extra')::int);
+  res := jsonb_build_object('a', cote_a);
+
+  if p_mode = 'combat' then
+    if p_d is null then raise exception 'Il manque le défenseur.'; end if;
+    cote_d := jsonb_build_object(
+      'nom',         left(coalesce(p_d->>'nom', ''), 80),
+      'fiche_id',    p_d->>'fiche_id',
+      'race',        left(coalesce(p_d->>'race', ''), 80),
+      'sens',        'defense',
+      'bonus_race',  greatest(-borne, least(borne, coalesce((p_d->>'bonus_race')::int, 0))),
+      'bonus_perso', greatest(-borne, least(borne, coalesce((p_d->>'bonus_perso')::int, 0))),
+      'bonus_extra', greatest(-borne, least(borne, coalesce((p_d->>'bonus_extra')::int, 0))),
+      'de',          1 + floor(random() * 15)::int);
+    cote_d := cote_d || jsonb_build_object('total',
+      (cote_d->>'de')::int + (cote_d->>'bonus_race')::int + (cote_d->>'bonus_perso')::int + (cote_d->>'bonus_extra')::int);
+    res := res || jsonb_build_object('d', cote_d,
+      'degats', greatest(0, (cote_a->>'total')::int - (cote_d->>'total')::int),
+      'gagnant', case when (cote_a->>'total')::int > (cote_d->>'total')::int then 'attaquant'
+                      when (cote_a->>'total')::int < (cote_d->>'total')::int then 'defenseur' else 'egalite' end);
+  end if;
+
+  insert into lancers (auteur_id, mode, donnees) values (auth.uid(), p_mode, res) returning * into ligne;
+  return ligne;
+end $$;
+
+grant execute on function public.lancer_des(text, jsonb, jsonb) to authenticated;
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
