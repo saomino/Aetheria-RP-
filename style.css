@@ -509,3 +509,13 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .idees { display: flex; flex-wrap: wrap; gap: 8px; }
 .idee { background: var(--nuit); border: 1px solid var(--bord); color: var(--texte); border-radius: 20px; padding: 8px 14px; font: 0.85rem system-ui, sans-serif; cursor: pointer; text-align: left; }
 .idee:hover { border-color: var(--ether); }
+
+.attente-ia { display: flex; align-items: center; gap: 14px; padding: 10px 0; }
+.orbe { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; position: relative;
+  background: radial-gradient(circle, rgba(127, 200, 248, 0.25), transparent 70%); }
+.orbe::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid rgba(127, 200, 248, 0.2); border-top-color: var(--ether); animation: tourner 0.9s linear infinite; }
+.orbe span { font-size: 1.3rem; animation: clignote 1.6s ease-in-out infinite; }
+@keyframes tourner { to { transform: rotate(360deg); } }
+.ai-etape { font: 600 0.9rem system-ui, sans-serif; color: var(--ether); }
+.ai-temps { font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); margin-top: 2px; }
+.erreur-note { border-left-color: var(--rouge); background: rgba(224, 112, 112, 0.1); }

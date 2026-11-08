@@ -16,6 +16,7 @@ const ANON = Deno.env.get("SUPABASE_ANON_KEY");
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const FOURNISSEUR = (Deno.env.get("IA_FOURNISSEUR") || "gemini").toLowerCase().trim();
 const CLE = (Deno.env.get("IA_CLE") || "").trim();
+// Par défaut : Gemini Flash (version complète, gratuite). Plus rapide mais moins fin : IA_MODELE = gemini-flash-lite-latest
 const MODELE = (Deno.env.get("IA_MODELE") || (FOURNISSEUR === "gemini" ? "gemini-flash-latest" : "")).trim();
 const LIMITE_JOUR = parseInt(Deno.env.get("IA_LIMITE_JOUR") || "20", 10);
 const MAX_CARACTERES = parseInt(Deno.env.get("IA_MAX_CARACTERES") || (FOURNISSEUR === "gemini" ? "500000" : "150000"), 10);
@@ -34,7 +35,7 @@ class ErreurIA extends Error {
 
 /* ---------- Accès à la base (clé serveur) ---------- */
 async function db(chemin, options = {}) {
-  const r = await fetch(`${URL_SB}/rest/v1/${chemin}`, {
+  const r = await fetchLimite(`${URL_SB}/rest/v1/${chemin}`, {
     ...options,
     headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "Content-Type": "application/json", ...(options.headers || {}) },
   });
@@ -46,7 +47,7 @@ async function db(chemin, options = {}) {
 async function utilisateur(req) {
   const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!jeton) throw new ErreurIA("Tu dois être connecté.", 401);
-  const r = await fetch(`${URL_SB}/auth/v1/user`, { headers: { apikey: ANON, Authorization: `Bearer ${jeton}` } });
+  const r = await fetchLimite(`${URL_SB}/auth/v1/user`, { headers: { apikey: ANON, Authorization: `Bearer ${jeton}` } });
   if (!r.ok) throw new ErreurIA("Session expirée : reconnecte-toi.", 401);
   const u = await r.json();
   const p = await db(`profils?id=eq.${u.id}&select=id,pseudo,role`);
@@ -145,18 +146,27 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 (format : [[Fiche]] : correction)`;
 
 /* ---------- Appel de l'IA ---------- */
+// Coupe la demande si l'IA met trop de temps (la fonction Supabase a une limite de temps)
+async function fetchLimite(url, options, ms = 120000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { ...options, signal: ctrl.signal }); }
+  catch (e) { if (e.name === "AbortError") throw new ErreurIA("L'IA a mis trop de temps à répondre (plus de 2 minutes). Réessaie un peu plus tard.", 504); throw e; }
+  finally { clearTimeout(t); }
+}
+
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
   if (!MODELE) throw new ErreurIA(`Il manque le secret IA_MODELE pour le fournisseur « ${FOURNISSEUR} ».`, 500);
   let r, d;
   if (FOURNISSEUR === "gemini") {
-    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELE)}:generateContent`, {
+    r = await fetchLimite(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELE)}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": CLE },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systeme }] },
         contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
       }),
     });
     d = await r.json().catch(() => ({}));
@@ -166,7 +176,7 @@ async function appelerIA(systeme, messages) {
     return texte;
   }
   if (FOURNISSEUR === "claude") {
-    r = await fetch("https://api.anthropic.com/v1/messages", {
+    r = await fetchLimite("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLE, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model: MODELE, max_tokens: 4096, system: systeme, messages }),
@@ -176,7 +186,7 @@ async function appelerIA(systeme, messages) {
     return (d.content || []).map((c) => c.text || "").join("");
   }
   const base = FOURNISSEUR === "xai" || FOURNISSEUR === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1";
-  r = await fetch(`${base}/chat/completions`, {
+  r = await fetchLimite(`${base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLE}` },
     body: JSON.stringify({ model: MODELE, messages: [{ role: "system", content: systeme }, ...messages] }),

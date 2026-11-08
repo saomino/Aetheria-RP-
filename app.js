@@ -1516,6 +1516,25 @@
     <div class="ia-meta">${dateFr(a.cree_le)}${auteurs && auteurs.get(a.auteur_id) ? " · demandé par " + esc(auteurs.get(a.auteur_id).pseudo) : ""}</div>
     <div class="contenu ia-texte">${markdown(a.contenu)}</div>`;
 
+  // Écran d'attente : animation, compteur de secondes, étapes
+  function attenteIA(el, etapes) {
+    const debut = Date.now();
+    el.innerHTML = `<div class="attente-ia"><div class="orbe"><span>🤖</span></div><div><div class="ai-etape"></div><div class="ai-temps"></div></div></div>`;
+    const maj = () => {
+      const s = Math.floor((Date.now() - debut) / 1000);
+      $(".ai-etape", el) && ($(".ai-etape", el).textContent = etapes[Math.min(Math.floor(s / 5), etapes.length - 1)]);
+      $(".ai-temps", el) && ($(".ai-temps", el).textContent = `${s} s${s > 40 ? " · c'est long aujourd'hui, l'IA est peut-être très demandée…" : ""}`);
+    };
+    maj();
+    const t = setInterval(maj, 1000);
+    return () => clearInterval(t);
+  }
+  const ETAPES_FICHE = ["Lecture de la fiche…", "Lecture du reste du wiki…", "Recherche d'incohérences…", "Préparation des suggestions…", "Rédaction de l'avis…"];
+  const ETAPES_GLOBAL = ["Lecture de toutes les fiches…", "Comparaison des fiches entre elles…", "Recherche des contradictions…", "Repérage des fiches manquantes…", "Rédaction du rapport…"];
+  const ETAPES_CHAT = ["L'archiviste lit ta question…", "Il cherche dans les fiches…", "Il rédige sa réponse…"];
+  // Abandonne côté site si aucune réponse au bout de 2 min 30
+  const avecDelai = (promesse) => Promise.race([promesse, new Promise((_, ko) => setTimeout(() => ko(new Error("Pas de réponse de l'IA au bout de 2 minutes. Réessaie plus tard.")), 150000))]);
+
   async function brancherAnalyseFiche(id) {
     const zone = $("#ia-contenu");
     if (!zone) return;
@@ -1528,12 +1547,13 @@
         <p class="discret petit-texte">${NOTE_IA}</p>`;
       const b = $("#lancer-ia");
       if (b) b.onclick = async () => {
-        b.disabled = true; b.textContent = "🤖 L'archiviste lit le wiki…";
+        const stop = attenteIA(zone, ETAPES_FICHE);
         try {
-          const r = await api.ia("fiche", { fiche_id: id });
+          const r = await avecDelai(api.ia("fiche", { fiche_id: id }));
+          stop();
           dessiner(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString(), auteur_id: moi().user.id });
           if (typeof r.restant === "number") toast(`Analyse terminée. Il te reste ${r.restant} utilisation${r.restant > 1 ? "s" : ""} aujourd'hui.`);
-        } catch (e) { toast(e.message, "erreur"); b.disabled = false; b.textContent = "🤖 Réessayer"; }
+        } catch (e) { stop(); dessiner(analyse, null); zone.insertAdjacentHTML("afterbegin", `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`); }
       };
     };
     dessiner(a);
@@ -1576,14 +1596,16 @@
       const f = $("#form-chat"); if (f) { f.q.value = ""; $("button", f).disabled = true; }
       if (!conversationIA.length) chat.innerHTML = "";
       conversationIA.push({ role: "user", content: q });
-      chat.insertAdjacentHTML("beforeend", bulle({ role: "user", content: q }) + `<div class="bulle bulle-ia attente" id="attente">🤖 L'archiviste réfléchit…</div>`);
+      chat.insertAdjacentHTML("beforeend", bulle({ role: "user", content: q }) + `<div class="bulle bulle-ia" id="attente"></div>`);
+      const stop = attenteIA($("#attente"), ETAPES_CHAT);
       defiler();
       try {
-        const r = await api.ia("question", { question: q, historique: conversationIA.slice(0, -1).slice(-8) });
+        const r = await avecDelai(api.ia("question", { question: q, historique: conversationIA.slice(0, -1).slice(-8) })).finally(stop);
         conversationIA.push({ role: "assistant", content: r.texte });
         $("#attente").outerHTML = bulle({ role: "assistant", content: r.texte });
       } catch (e) {
         conversationIA.pop();
+        stop();
         $("#attente").outerHTML = `<div class="bulle bulle-ia erreur-ia">⚠️ ${esc(e.message)}</div>`;
       }
       if (f) $("button", f).disabled = false;
@@ -1599,12 +1621,15 @@
     if (n) n.onclick = () => { conversationIA = []; router(); };
     const g = $("#lancer-globale");
     if (g) g.onclick = async () => {
-      g.disabled = true; g.textContent = "🔎 L'archiviste lit tout le wiki… (ça peut prendre une minute)";
+      g.disabled = true;
+      const zoneG = $("#ia-globale"), avant = zoneG.innerHTML;
+      const stop = attenteIA(zoneG, ETAPES_GLOBAL);
       try {
-        const r = await api.ia("global");
-        $("#ia-globale").innerHTML = htmlAnalyseIA(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString() }, pages.ia.auteurs);
+        const r = await avecDelai(api.ia("global"));
+        stop();
+        zoneG.innerHTML = htmlAnalyseIA(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString() }, pages.ia.auteurs);
         g.textContent = "🔎 Relancer l'analyse du wiki";
-      } catch (e) { toast(e.message, "erreur"); g.textContent = "🔎 Réessayer"; }
+      } catch (e) { stop(); zoneG.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>` + avant; g.textContent = "🔎 Réessayer"; }
       g.disabled = false;
     };
   };
