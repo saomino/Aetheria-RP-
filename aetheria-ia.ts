@@ -18,6 +18,9 @@ const FOURNISSEUR = (Deno.env.get("IA_FOURNISSEUR") || "gemini").toLowerCase().t
 const CLE = (Deno.env.get("IA_CLE") || "").trim();
 // Par défaut : Gemini Flash (version complète, gratuite). Plus rapide mais moins fin : IA_MODELE = gemini-flash-lite-latest
 const MODELE = (Deno.env.get("IA_MODELE") || (FOURNISSEUR === "gemini" ? "gemini-flash-latest" : "")).trim();
+// Modèles de secours si le modèle principal est surchargé (séparés par des virgules)
+const SECOURS = (Deno.env.get("IA_MODELES_SECOURS") || (FOURNISSEUR === "gemini" ? "gemini-2.5-flash,gemini-flash-lite-latest" : ""))
+  .split(",").map((x) => x.trim()).filter((x) => x && x !== MODELE);
 const LIMITE_JOUR = parseInt(Deno.env.get("IA_LIMITE_JOUR") || "20", 10);
 const MAX_CARACTERES = parseInt(Deno.env.get("IA_MAX_CARACTERES") || (FOURNISSEUR === "gemini" ? "500000" : "150000"), 10);
 
@@ -155,9 +158,32 @@ async function fetchLimite(url, options, ms = 120000) {
   finally { clearTimeout(t); }
 }
 
+const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms));
+// Surcharge / limite momentanée : on réessaie, puis on passe au modèle de secours
+const PASSAGER = (e) => [429, 500, 502, 503, 504].includes(e.code) || /overload|high demand|unavailable|try again|exhausted/i.test(e.message);
+
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
   if (!MODELE) throw new ErreurIA(`Il manque le secret IA_MODELE pour le fournisseur « ${FOURNISSEUR} ».`, 500);
+  const debut = Date.now();
+  let derniere;
+  for (const modele of [MODELE, ...SECOURS]) {
+    for (const pause of [0, 3000, 7000]) {
+      if (Date.now() - debut + pause > 100000) break; // la fonction Supabase a une limite de temps
+      if (pause) await attendre(pause);
+      try {
+        return { texte: await appelerModele(modele, systeme, messages), modele };
+      } catch (e) {
+        derniere = e;
+        if (!PASSAGER(e)) throw e;
+        console.warn(`${modele} indisponible (${e.code}) : nouvel essai…`);
+      }
+    }
+  }
+  throw new ErreurIA("L'IA est surchargée en ce moment (trop de monde l'utilise). Réessaie dans quelques minutes. Détail : " + (derniere ? derniere.message : ""), 503);
+}
+
+async function appelerModele(MODELE, systeme, messages) {
   let r, d;
   if (FOURNISSEUR === "gemini") {
     r = await fetchLimite(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELE)}:generateContent`, {
@@ -170,7 +196,7 @@ async function appelerIA(systeme, messages) {
       }),
     });
     d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new ErreurIA(`L'IA (Gemini) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502);
+    if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Gemini) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
     const texte = (((d.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
     if (!texte) throw new ErreurIA("L'IA n'a rien répondu (contenu peut-être bloqué par ses filtres). Réessaie.", 502);
     return texte;
@@ -182,7 +208,7 @@ async function appelerIA(systeme, messages) {
       body: JSON.stringify({ model: MODELE, max_tokens: 4096, system: systeme, messages }),
     });
     d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new ErreurIA(`L'IA (Claude) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502);
+    if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Claude) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
     return (d.content || []).map((c) => c.text || "").join("");
   }
   const base = FOURNISSEUR === "xai" || FOURNISSEUR === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1";
@@ -192,7 +218,7 @@ async function appelerIA(systeme, messages) {
     body: JSON.stringify({ model: MODELE, messages: [{ role: "system", content: systeme }, ...messages] }),
   });
   d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new ErreurIA(`L'IA (${FOURNISSEUR}) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502);
+  if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (${FOURNISSEUR}) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
   return ((d.choices || [])[0] || { message: {} }).message.content || "";
 }
 
@@ -240,7 +266,8 @@ Deno.serve(async (req) => {
     }
 
     const compter = await verifierLimite(profil);
-    const texte = (await appelerIA(SYSTEME, messages)).trim();
+    const rep = await appelerIA(SYSTEME, messages);
+    const texte = rep.texte.trim();
     const restant = await compter();
 
     let analyse = null;
@@ -248,11 +275,11 @@ Deno.serve(async (req) => {
       const r = await db("analyses_ia", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ cible: mode, fiche_id: cible ? cible.id : null, contenu: texte, modele: `${FOURNISSEUR}/${MODELE}`, auteur_id: profil.id }),
+        body: JSON.stringify({ cible: mode, fiche_id: cible ? cible.id : null, contenu: texte, modele: `${FOURNISSEUR}/${rep.modele}`, auteur_id: profil.id }),
       });
       analyse = r && r[0];
     }
-    return reponse({ texte, analyse, restant, modele: `${FOURNISSEUR}/${MODELE}` });
+    return reponse({ texte, analyse, restant, modele: `${FOURNISSEUR}/${rep.modele}` });
   } catch (e) {
     console.error(e);
     return reponse({ erreur: e.message || String(e) }, e.statut || 500);
