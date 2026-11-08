@@ -1,0 +1,23 @@
+name: Installer l'assistant IA sur Supabase
+on:
+  push:
+    branches: [main]
+    paths: ["aetheria-ia.ts", ".github/workflows/deploy-ia.yml"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Préparer la fonction
+        run: |
+          mkdir -p supabase/functions/aetheria-ia
+          cp aetheria-ia.ts supabase/functions/aetheria-ia/index.ts
+          [ -f supabase/config.toml ] || supabase init < /dev/null || true
+      - name: Installer sur Supabase
+        run: supabase functions deploy aetheria-ia --project-ref jipcoqcbjvhtaqrbgsud --no-verify-jwt --use-api
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
