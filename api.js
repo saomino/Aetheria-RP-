@@ -267,6 +267,28 @@
       erreur(error);
     }
 
+    /* ---- Assistant IA ---- */
+    async ia(mode, params = {}) {
+      const { data, error } = await this.sb.functions.invoke("aetheria-ia", { body: { mode, ...params } });
+      if (error) {
+        let msg = error.message || "Erreur inconnue";
+        const statut = error.context && error.context.status;
+        try { const j = await error.context.json(); if (j && j.erreur) msg = j.erreur; } catch (e) {}
+        if (statut === 404 || /Failed to send a request|Failed to fetch/i.test(msg))
+          msg = "L'assistant IA n'est pas encore installé sur Supabase (fonction « aetheria-ia » introuvable).";
+        throw new Error(msg);
+      }
+      if (data && data.erreur) throw new Error(data.erreur);
+      return data;
+    }
+    async derniereAnalyse(ficheId) {
+      let q = this.sb.from("analyses_ia").select("*").order("cree_le", { ascending: false }).limit(1);
+      q = ficheId ? q.eq("fiche_id", ficheId) : q.eq("cible", "global");
+      const { data, error } = await q;
+      if (error) return null;
+      return data[0] || null;
+    }
+
     /* ---- Membres ---- */
     async listerProfils(forcer) {
       if (this.cacheProfils && !forcer) return this.cacheProfils;
@@ -427,6 +449,11 @@
     }
     async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
     async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
+
+    async ia() {
+      throw new Error("L'assistant IA ne fonctionne qu'une fois le site branché sur Supabase (pas en mode démo).");
+    }
+    async derniereAnalyse() { return null; }
 
     async listerProfils() { return [...this._lire().profils].sort((a, b) => a.pseudo.localeCompare(b.pseudo, "fr")); }
     async changerRole(id, role) { this._lire().profils.find((p) => p.id === id).role = role; this._ecrire(); }

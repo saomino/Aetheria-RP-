@@ -479,3 +479,33 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .proposition { margin-top: 6px; font: 0.8rem system-ui, sans-serif; color: var(--ether); }
 .proposition .lien { font-size: inherit; margin-left: 4px; }
 #appliquer-propositions { margin-bottom: 14px; }
+
+/* ---------- Assistant IA ---------- */
+.boite-ia { margin: 22px 0 6px; padding: 14px 16px; border: 1px solid rgba(127, 200, 248, 0.5); border-radius: var(--rayon); background: rgba(127, 200, 248, 0.05); }
+.bi-titre { font-family: var(--titres); color: var(--ether); margin-bottom: 8px; }
+.ia-meta { font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); margin-bottom: 6px; }
+.ia-texte { font-size: 1rem; }
+.ia-texte h2 { font-size: 1.1rem; margin: 1em 0 0.4em; }
+.ia-texte ul { padding-left: 1.2em; margin: 0.3em 0; }
+.ia-texte li { margin-bottom: 0.3em; }
+.boite-ia .btn { margin: 8px 0 4px; }
+.carte-ia { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 16px; border-radius: var(--rayon); color: var(--texte);
+  border: 1px solid rgba(127, 200, 248, 0.5); background: linear-gradient(135deg, rgba(127, 200, 248, 0.12), rgba(127, 200, 248, 0.02)); }
+.carte-ia:hover { color: var(--texte); border-color: var(--ether); }
+.carte-ia > span:nth-child(2) { flex: 1; }
+.carte-ia small { color: var(--texte-doux); font-family: system-ui, sans-serif; }
+.ci-ic { font-size: 2rem; }
+.chat { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; margin-bottom: 12px; padding: 4px; }
+.bulle { max-width: 92%; padding: 10px 14px; border-radius: 16px; }
+.bulle-moi { align-self: flex-end; background: linear-gradient(180deg, var(--or-vif), var(--or)); color: #1a1405; border-bottom-right-radius: 4px; font: 0.95rem system-ui, sans-serif; }
+.bulle-ia { align-self: flex-start; background: var(--nuit-3); border: 1px solid var(--bord); border-bottom-left-radius: 4px; }
+.bulle-ia .ia-texte > :first-child { margin-top: 0; }
+.bulle-ia .ia-texte > :last-child { margin-bottom: 0; }
+.attente { color: var(--texte-doux); font-style: italic; animation: clignote 1.2s ease-in-out infinite; }
+@keyframes clignote { 50% { opacity: 0.5; } }
+.erreur-ia { border-color: var(--rouge); color: var(--rouge); font: 0.9rem system-ui, sans-serif; }
+.chat-saisie { display: flex; gap: 8px; align-items: flex-end; }
+.chat-saisie textarea { flex: 1; font-family: system-ui, sans-serif; font-size: 16px; }
+.idees { display: flex; flex-wrap: wrap; gap: 8px; }
+.idee { background: var(--nuit); border: 1px solid var(--bord); color: var(--texte); border-radius: 20px; padding: 8px 14px; font: 0.85rem system-ui, sans-serif; cursor: pointer; text-align: left; }
+.idee:hover { border-color: var(--ether); }
