@@ -709,6 +709,7 @@
     await majIndexTitres();
     const [f, auteurs, moments, des, desRaces] = await Promise.all([api.lireFiche(id), auteursMap(), api.listerMoments({ ficheId: id }), api.listerDes(), api.listerDesRaces()]);
     if (!f) return vide("Cette fiche n'existe pas (ou plus).", `<a class="btn" href="#/">Retour à l'accueil</a>`);
+    pages.fiche.des = des;
     const c = catParId(f.categorie);
     const a = auteurs.get(f.auteur_id);
     const infos = (f.infos || []).filter((i) => i.valeur);
@@ -752,7 +753,7 @@
             <div class="bd-lignes">${TYPES_DES.map((t) => `
               <div class="bd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(an[t].bonus)}</b>
               ${!an[t].manuel && an[t].mots.length ? `<small class="discret">estimé d'après : ${an[t].mots.slice(0, 4).map(esc).join(", ")}</small>` : ""}</div>`).join("")}</div>
-            <div class="discret petit-texte">${manuel ? "Bonus réglés par le joueur, un admin ou l'IA." : `Estimation automatique par mots-clés (max +${CFG_DES.BONUS_MAX}). Pour un vrai bonus, demande la proposition de l'IA.`}</div>
+            <div class="discret petit-texte">${manuel ? "Bonus réglés par le joueur, un admin ou l'IA." : `Estimation automatique : niveau de la race + mots-clés de la fiche (+${CFG_DES.BONUS_PERSO_MAX || 10} max). Pour un vrai bonus, demande la proposition de l'IA.`}</div>
             <div class="rangee"><a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>${estMembre() ? `<button class="btn petit ${manuel ? "" : "btn-or"}" id="ia-des-bouton">🤖 Proposition de l'IA</button>` : ""}</div>
             <div id="ia-des-zone" class="bd-ia"></div>
           </section>`;
@@ -794,7 +795,7 @@
       bd.disabled = true;
       const stop = attenteIA(z, ETAPES_DES);
       try {
-        const r = await avecDelai(api.ia("des", { fiche_id: id, max: CFG_DES.BONUS_MAX }));
+        const r = await avecDelai(api.ia("des", { fiche_id: id, max: CFG_DES.BONUS_MAX, reperes: CFG_DES.RACES_PROPOSEES, deja: bonusDeja(pages.fiche.des) }));
         stop();
         z.innerHTML = htmlPropositionDes(r.propositions[0], f && peutModifier(f));
         brancherUtiliserDes(z, r.propositions);
@@ -1304,7 +1305,17 @@
         const p = (imp ? 3 : 0) + Math.min(occ.length, 3);
         if (p) { points += p; trouves.push((imp || occ[0]).o); }
       }
-      res[t] = { bonus: Math.min(CFG_DES.BONUS_MAX, Math.round((points * CFG_DES.BONUS_MAX) / CFG_DES.POINTS_POUR_MAX)), mots: [...new Set(trouves)] };
+      const perso = Math.min(CFG_DES.BONUS_PERSO_MAX || 10, Math.round((points * (CFG_DES.BONUS_PERSO_MAX || 10)) / CFG_DES.POINTS_POUR_MAX));
+      res[t] = { bonus: perso, mots: [...new Set(trouves)] };
+    }
+    // niveau de base selon la race (repères de mots-des.js)
+    if (estPerso(f)) {
+      const r = raceDuPerso(f), base = r ? proposerRace(r.cle, null) : null;
+      for (const t of TYPES_DES) {
+        const b = base ? base[t] | 0 : 0;
+        res[t].bonus = Math.max(0, Math.min(CFG_DES.BONUS_MAX, b + res[t].bonus));
+        if (r) res[t].mots.unshift(`race ${r.nom} ${signe(b)}`);
+      }
     }
     return res;
   }
@@ -1464,7 +1475,7 @@
     if (bt) bt.onclick = async () => {
       const persos = [...indexParId.values()].filter(estPerso);
       const lots = [];
-      for (let i = 0; i < persos.length; i += 20) lots.push(persos.slice(i, i + 20));
+      for (let i = 0; i < persos.length; i += 40) lots.push(persos.slice(i, i + 40));
       if (lots.length > 1 && !confirm(`${persos.length} personnages : l'IA va les évaluer en ${lots.length} fois (${lots.length} utilisations de ta limite du jour). Continuer ?`)) return;
       const zone = $("#ia-des-tous");
       bt.disabled = true;
@@ -1472,7 +1483,7 @@
       try {
         for (const [i, lot] of lots.entries()) {
           const stop = attenteIA(zone, lots.length > 1 ? [`Lot ${i + 1} sur ${lots.length} : l'IA lit les fiches…`, `Lot ${i + 1} sur ${lots.length} : évaluation en cours…`] : ["L'IA lit toutes les fiches…", "Elle évalue chaque personnage…", "Elle rédige ses explications…"]);
-          try { const r = await avecDelai(api.ia("des", { fiche_ids: lot.map((f) => f.id), max: CFG_DES.BONUS_MAX })); toutes.push(...r.propositions); }
+          try { const r = await avecDelai(api.ia("des", { fiche_ids: lot.map((f) => f.id), max: CFG_DES.BONUS_MAX, reperes: CFG_DES.RACES_PROPOSEES, deja: [...bonusDeja(etat.des).filter((x) => !toutes.some((p) => p.titre === x.titre)), ...toutes.map((p) => ({ titre: p.titre, attaque: p.attaque, defense: p.defense, soutien: p.soutien }))] })); toutes.push(...r.propositions); }
           finally { stop(); }
         }
       } catch (e) { zone.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; if (!toutes.length) { bt.disabled = false; return; } }
@@ -1602,6 +1613,9 @@
       ${peut ? `<button class="btn btn-or petit" data-utiliser-des="${esc(p.fiche_id)}">✔ Utiliser ces bonus</button>` : `<p class="discret petit-texte">Seul l'auteur de la fiche ou un admin peut appliquer ces bonus.</p>`}
     </div>`;
   }
+  // Bonus déjà réglés (à la main ou via l'IA) de tous les personnages, pour que l'IA compare
+  const bonusDeja = (des) => [...indexParId.values()].filter((f) => estPerso(f) && des && des[f.id])
+    .map((f) => ({ titre: f.titre, attaque: des[f.id].bonus_attaque | 0, defense: des[f.id].bonus_defense | 0, soutien: des[f.id].bonus_soutien | 0 }));
   function brancherUtiliserDes(racine, propositions) {
     $$("[data-utiliser-des]", racine).forEach((b) => (b.onclick = async () => {
       const p = propositions.find((x) => x.fiche_id === b.dataset.utiliserDes);

@@ -148,20 +148,43 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 ## Petites corrections
 (format : [[Fiche]] : correction)`;
 
-const CONSIGNE_DES = (max, titres) => `Tu évalues des personnages pour le système de dés d'Aetheria.
+const CONSIGNE_DES = (max, titres, reperes, deja) => `Tu évalues des personnages pour le système de dés d'Aetheria.
 Chaque lancer = 1d15 + le bonus du personnage. C'est ce bonus que tu proposes, de 0 à ${max}, pour chacun des trois types :
 - attaque : combat, armes, magie offensive, force, férocité
 - defense : protection, armure, esquive, résistance, endurance, boucliers
 - soutien : soin, guérison, aide, bénédictions, renforcer les alliés
 Échelle : 0 = rien dans ce domaine (personne ordinaire), ${Math.round(max / 3)} = guerrier ou mage aguerri, ${Math.round((2 * max) / 3)} = très puissant, ${max} = légendaire, quasi divin.
 Règles :
-- Il n'y a PAS de bonus de race séparé : tiens compte de la race ET de tout ce qui rend ce personnage unique (âge, entraînement, pouvoirs, rang, histoire, faiblesses). Deux personnages de la même race peuvent être très éloignés : un jeune vampire n'a rien à voir avec un vampire millénaire.
-- Compare les personnages entre eux et avec le reste du wiki pour rester cohérent.
+- Il n'y a PAS de bonus de race séparé : ton chiffre doit donc inclure la puissance de la race ET ce qui rend ce personnage unique (âge, entraînement, pouvoirs, rang, histoire, faiblesses).
+- La RACE fixe le niveau de départ. Repères pour un membre ORDINAIRE de chaque race (attaque/défense/soutien) :
+${reperes}
+- Un individu peut s'écarter du niveau de sa race d'environ ${Math.round(max / 3)} (un jeune vampire faible est sous le repère, un vampire millénaire au-dessus), mais pas davantage sauf cas vraiment légendaire décrit dans la fiche.
+- Un HUMAIN, même le meilleur guerrier ou mage, dépasse rarement ${Math.round(max * 0.4)}. Une race absente des repères : déduis son niveau de sa fiche de race dans le wiki, ou compare-la aux races connues.
+- COMPARE avec tous les autres personnages du wiki : un personnage plus faible qu'un autre dans la fiche ou l'histoire doit avoir un bonus plus bas, et inversement.${deja ? `
+- Bonus déjà attribués aux autres personnages (attaque/défense/soutien) — place les nouveaux par rapport à eux :
+${deja}` : ""}
 - Si la fiche ne dit rien sur un domaine, reste bas. Ne gonfle pas les chiffres.
 - Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le chiffre.
 Personnages à évaluer : ${titres.map((t) => "« " + t + " »").join(", ")}.
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour, sous cette forme :
 [{"titre":"…","attaque":0,"defense":0,"soutien":0,"raisons":{"attaque":"…","defense":"…","soutien":"…"}}]`;
+
+// Repères de puissance par race envoyés par le site (mots-des.js)
+function texteReperes(r) {
+  if (!r || typeof r !== "object") return "- humain : 0/0/0 (aucun autre repère fourni)";
+  return Object.entries(r).slice(0, 120)
+    .filter(([, v]) => Array.isArray(v) && v.length === 3)
+    .map(([nom, v]) => `- ${String(nom).slice(0, 40)} : ${v.map((x) => Math.max(0, Math.min(100, parseInt(x, 10) || 0))).join("/")}`)
+    .join("\n");
+}
+
+function texteDeja(d, cibles) {
+  if (!Array.isArray(d)) return "";
+  const exclus = new Set(cibles.map((c) => c.titre));
+  return d.filter((x) => x && x.titre && !exclus.has(x.titre)).slice(0, 300)
+    .map((x) => `- ${String(x.titre).slice(0, 60)} : ${[x.attaque, x.defense, x.soutien].map((n) => Math.max(0, Math.min(100, parseInt(n, 10) || 0))).join("/")}`)
+    .join("\n");
+}
 
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
@@ -225,7 +248,7 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
     const corps = (avecReflexion) => JSON.stringify({
       systemInstruction: { parts: [{ text: systeme }] },
       contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, ...(avecReflexion ? { thinkingConfig: { thinkingBudget: 512 } } : {}) },
+      generationConfig: { temperature: 0.4, maxOutputTokens: 16384, ...(avecReflexion ? { thinkingConfig: { thinkingBudget: 512 } } : {}) },
     });
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`;
     const opts = (c) => ({ method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": cle }, body: c });
@@ -245,7 +268,7 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
     r = await fetchLimite("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": cle, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: modele, max_tokens: 4096, system: systeme, messages }),
+      body: JSON.stringify({ model: modele, max_tokens: 8192, system: systeme, messages }),
     }, delai);
     d = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Claude) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
@@ -291,7 +314,7 @@ Deno.serve(async (req) => {
       }];
     } else if (mode === "des") {
       // un ou plusieurs personnages (25 max par appel)
-      const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : [corps.fiche_id]).filter(Boolean).slice(0, 25);
+      const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : [corps.fiche_id]).filter(Boolean).slice(0, 40);
       var cibles = fiches.filter((f) => ids.includes(f.id));
       if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
       var maxDes = Math.max(1, Math.min(100, parseInt(corps.max, 10) || 30));
@@ -299,7 +322,7 @@ Deno.serve(async (req) => {
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cibles.length === 1 ? cibles[0].id : null })}` +
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
-          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre))}`,
+          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles))}`,
       }];
     } else if (mode === "global") {
       messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_GLOBALE}` }];
