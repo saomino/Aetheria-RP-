@@ -38,7 +38,7 @@ class ErreurIA extends Error {
 
 /* ---------- Accès à la base (clé serveur) ---------- */
 async function db(chemin, options = {}) {
-  const r = await fetchLimite(`${URL_SB}/rest/v1/${chemin}`, {
+  const r = await fetch(`${URL_SB}/rest/v1/${chemin}`, {
     ...options,
     headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "Content-Type": "application/json", ...(options.headers || {}) },
   });
@@ -50,7 +50,7 @@ async function db(chemin, options = {}) {
 async function utilisateur(req) {
   const jeton = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!jeton) throw new ErreurIA("Tu dois être connecté.", 401);
-  const r = await fetchLimite(`${URL_SB}/auth/v1/user`, { headers: { apikey: ANON, Authorization: `Bearer ${jeton}` } });
+  const r = await fetch(`${URL_SB}/auth/v1/user`, { headers: { apikey: ANON, Authorization: `Bearer ${jeton}` } });
   if (!r.ok) throw new ErreurIA("Session expirée : reconnecte-toi.", 401);
   const u = await r.json();
   const p = await db(`profils?id=eq.${u.id}&select=id,pseudo,role`);
@@ -149,76 +149,89 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 (format : [[Fiche]] : correction)`;
 
 /* ---------- Appel de l'IA ---------- */
-// Coupe la demande si l'IA met trop de temps (la fonction Supabase a une limite de temps)
-async function fetchLimite(url, options, ms = 120000) {
+// Coupe un appel trop long
+async function fetchLimite(url, options, ms) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try { return await fetch(url, { ...options, signal: ctrl.signal }); }
-  catch (e) { if (e.name === "AbortError") throw new ErreurIA("L'IA a mis trop de temps à répondre (plus de 2 minutes). Réessaie un peu plus tard.", 504); throw e; }
+  catch (e) { if (e.name === "AbortError") throw Object.assign(new ErreurIA("trop lent", 504), { code: 504 }); throw e; }
   finally { clearTimeout(t); }
 }
 
 const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms));
-// Surcharge / limite momentanée : on réessaie, puis on passe au modèle de secours
-const PASSAGER = (e) => [429, 500, 502, 503, 504].includes(e.code) || /overload|high demand|unavailable|try again|exhausted/i.test(e.message);
+// Surcharge / lenteur / limite momentanée : on passe au modèle suivant
+const PASSAGER = (e) => [429, 500, 502, 503, 504].includes(e.code) || /overload|high demand|unavailable|try again|exhausted|trop lent/i.test(e.message);
+
+// IA de secours d'une autre marque (facultatif) : IA_SECOURS_FOURNISSEUR, IA_SECOURS_CLE, IA_SECOURS_MODELE
+const SECOURS_F = (Deno.env.get("IA_SECOURS_FOURNISSEUR") || "").toLowerCase().trim();
+const SECOURS_CLE = (Deno.env.get("IA_SECOURS_CLE") || "").trim();
+const SECOURS_MODELE = (Deno.env.get("IA_SECOURS_MODELE") || (SECOURS_F === "gemini" ? "gemini-flash-latest" : "")).trim();
+const BUDGET_TOTAL = 110000;   // la fonction Supabase est coupée vers 150 s : on garde de la marge
+const BUDGET_ESSAI = 45000;    // un modèle qui ne répond pas en 45 s est abandonné
 
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
   if (!MODELE) throw new ErreurIA(`Il manque le secret IA_MODELE pour le fournisseur « ${FOURNISSEUR} ».`, 500);
+  const essais = [MODELE, ...SECOURS].map((m) => ({ f: FOURNISSEUR, cle: CLE, m }));
+  if (SECOURS_F && SECOURS_CLE && SECOURS_MODELE) essais.push({ f: SECOURS_F, cle: SECOURS_CLE, m: SECOURS_MODELE });
   const debut = Date.now();
   let derniere;
-  for (const modele of [MODELE, ...SECOURS]) {
-    for (const pause of [0, 3000, 7000]) {
-      if (Date.now() - debut + pause > 100000) break; // la fonction Supabase a une limite de temps
-      if (pause) await attendre(pause);
-      try {
-        return { texte: await appelerModele(modele, systeme, messages), modele };
-      } catch (e) {
-        derniere = e;
-        if (!PASSAGER(e)) throw e;
-        console.warn(`${modele} indisponible (${e.code}) : nouvel essai…`);
-      }
+  for (const [i, e] of essais.entries()) {
+    const reste = BUDGET_TOTAL - (Date.now() - debut);
+    if (reste < 8000) break;
+    if (i > 0) await attendre(1000);
+    try {
+      return { texte: await appelerModele(e.f, e.cle, e.m, systeme, messages, Math.min(BUDGET_ESSAI, reste)), modele: `${e.f}/${e.m}` };
+    } catch (err) {
+      derniere = err;
+      console.warn(`${e.f}/${e.m} : ${err.message}`);
+      if (!PASSAGER(err)) throw err;
     }
   }
-  throw new ErreurIA("L'IA est surchargée en ce moment (trop de monde l'utilise). Réessaie dans quelques minutes. Détail : " + (derniere ? derniere.message : ""), 503);
+  throw new ErreurIA("L'IA est surchargée en ce moment (trop lente ou trop demandée). Réessaie dans quelques minutes." +
+    (SECOURS_CLE ? "" : " Astuce : ajoute une IA de secours (Grok ou ChatGPT) dans les secrets Supabase."), 503);
 }
 
-async function appelerModele(MODELE, systeme, messages) {
+async function appelerModele(fournisseur, cle, modele, systeme, messages, delai) {
   let r, d;
-  if (FOURNISSEUR === "gemini") {
-    r = await fetchLimite(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODELE)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": CLE },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systeme }] },
-        contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-        generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
-      }),
+  if (fournisseur === "gemini") {
+    const corps = (avecReflexion) => JSON.stringify({
+      systemInstruction: { parts: [{ text: systeme }] },
+      contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, ...(avecReflexion ? { thinkingConfig: { thinkingBudget: 512 } } : {}) },
     });
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`;
+    const opts = (c) => ({ method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": cle }, body: c });
+    r = await fetchLimite(url, opts(corps(true)), delai);
     d = await r.json().catch(() => ({}));
+    // certains modèles n'acceptent pas le réglage de réflexion : on réessaie sans
+    if (r.status === 400 && /thinking/i.test((d.error && d.error.message) || "")) {
+      r = await fetchLimite(url, opts(corps(false)), delai);
+      d = await r.json().catch(() => ({}));
+    }
     if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Gemini) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
-    const texte = (((d.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
-    if (!texte) throw new ErreurIA("L'IA n'a rien répondu (contenu peut-être bloqué par ses filtres). Réessaie.", 502);
+    const texte = (((d.candidates || [])[0] || {}).content || { parts: [] }).parts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    if (!texte) throw Object.assign(new ErreurIA("L'IA n'a rien répondu (contenu peut-être bloqué par ses filtres).", 502), { code: 502 });
     return texte;
   }
-  if (FOURNISSEUR === "claude") {
+  if (fournisseur === "claude") {
     r = await fetchLimite("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": CLE, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODELE, max_tokens: 4096, system: systeme, messages }),
-    });
+      headers: { "Content-Type": "application/json", "x-api-key": cle, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: modele, max_tokens: 4096, system: systeme, messages }),
+    }, delai);
     d = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Claude) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
     return (d.content || []).map((c) => c.text || "").join("");
   }
-  const base = FOURNISSEUR === "xai" || FOURNISSEUR === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1";
+  const base = fournisseur === "xai" || fournisseur === "grok" ? "https://api.x.ai/v1" : "https://api.openai.com/v1";
   r = await fetchLimite(`${base}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLE}` },
-    body: JSON.stringify({ model: MODELE, messages: [{ role: "system", content: systeme }, ...messages] }),
-  });
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cle}` },
+    body: JSON.stringify({ model: modele, messages: [{ role: "system", content: systeme }, ...messages] }),
+  }, delai);
   d = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (${FOURNISSEUR}) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
+  if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (${fournisseur}) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
   return ((d.choices || [])[0] || { message: {} }).message.content || "";
 }
 
@@ -275,11 +288,11 @@ Deno.serve(async (req) => {
       const r = await db("analyses_ia", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ cible: mode, fiche_id: cible ? cible.id : null, contenu: texte, modele: `${FOURNISSEUR}/${rep.modele}`, auteur_id: profil.id }),
+        body: JSON.stringify({ cible: mode, fiche_id: cible ? cible.id : null, contenu: texte, modele: rep.modele, auteur_id: profil.id }),
       });
       analyse = r && r[0];
     }
-    return reponse({ texte, analyse, restant, modele: `${FOURNISSEUR}/${rep.modele}` });
+    return reponse({ texte, analyse, restant, modele: rep.modele });
   } catch (e) {
     console.error(e);
     return reponse({ erreur: e.message || String(e) }, e.statut || 500);
