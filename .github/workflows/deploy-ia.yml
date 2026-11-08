@@ -18,6 +18,6 @@ jobs:
           cp aetheria-ia.ts supabase/functions/aetheria-ia/index.ts
           [ -f supabase/config.toml ] || supabase init < /dev/null || true
       - name: Installer sur Supabase
-        run: supabase functions deploy aetheria-ia --project-ref jipcoqcbjvhtaqrbgsud --no-verify-jwt --use-api
+        run: supabase functions deploy aetheria-ia --project-ref jipcoqcbjvhtaqrbgsud --no-verify-jwt --use-api --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
