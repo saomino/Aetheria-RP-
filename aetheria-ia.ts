@@ -148,34 +148,36 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 ## Petites corrections
 (format : [[Fiche]] : correction)`;
 
-const CONSIGNE_DES = (max, titres, reperes, deja, paliers) => `Tu évalues des personnages pour le système de dés d'Aetheria, en appliquant le « Système racial » officiel.
+const CONSIGNE_DES = (max, titres, reperes, deja, paliers, uniques) => `Tu évalues des personnages pour le système de dés d'Aetheria (document « Dés • Bonus raciaux • Expérience »).
 
-FORMULE : chaque lancer = 1d15 + BASE RACIALE + BONUS INDIVIDUEL, pour chacune des trois caractéristiques :
-- attaque (ATT) : force physique, magie offensive, maîtrise des armes, techniques de combat, capacités destructrices, transformations offensives
-- defense (DEF) : résistance corporelle, robustesse, réflexes défensifs, protections et barrières magiques, régénération, esquive
-- soutien : guérison, protection des alliés, renforcements, affaiblissement des adversaires, manipulation énergétique, enchantements, coordination (pas forcément guérisseur)
+FORMULE : résultat d'une caractéristique = 1d15 + BONUS RACIAL + BONUS D'EXPÉRIENCE. Les trois caractéristiques sont calculées séparément :
+- attaque (ATT) : force physique, puissance magique offensive, maîtrise des armes, techniques d'attaque, vitesse d'exécution offensive, précision, capacité de pénétration
+- defense (DEF) : résistance physique et magique, réflexes défensifs, esquive, endurance, armures, barrières, protection, régénération
+- soutien : soins, protection des alliés, renforcement, affaiblissement des adversaires, contrôle, assistance énergétique, enchantements, dissipation, coordination
+La vitesse n'est pas une caractéristique : elle compte en ATT quand elle sert à attaquer, en DEF quand elle sert à esquiver ou réagir, en SOUTIEN quand elle sert à rejoindre ou secourir un allié.
 
-1) BASE RACIALE (individu adulte de maîtrise standard) — choisis la classification EXACTE du personnage dans cette liste :
+1) BONUS RACIAL — choisis la race EXACTE du personnage dans cette liste (attaque/défense/soutien) :
 ${reperes}
 - « démon lié à un péché » si la fiche lie le démon à un péché (colère, orgueil, avarice, envie, luxure, gourmandise, paresse) ; « ange lié à une vertu » si l'ange est lié à une vertu (justice, courage, sagesse, tempérance, charité, espérance, foi).
-- « célesto démoniaque » : UNIQUEMENT Juthi (seul individu existant). Lucifer est un « archange déchu », pas un célesto-démoniaque.
-- Si la race n'est pas dans la liste, donne "race":"autre" et propose une base cohérente dans "base" en la comparant aux races connues et à sa fiche de race dans le wiki.
+- Lucifer est traité comme « archange dechu » (ange déchu), JAMAIS comme célesto-démoniaque.
+- Cas uniques sans bonus racial générique : ${uniques}. Juthi est l'unique hybride célesto-démoniaque : donne "race":"celesto demoniaque" et évalue SES valeurs individuellement dans "base" d'après sa fiche (elles ne servent de référence pour personne d'autre).
+- Race absente de la liste : donne "race":"autre" et propose un bonus racial cohérent dans "base", en la comparant aux races connues et à sa fiche de race dans le wiki.
 
-2) BONUS INDIVIDUEL (0 à ${max}, chaque caractéristique SÉPARÉMENT) selon ce barème :
+2) BONUS D'EXPÉRIENCE (0 à ${max} maximum, chaque caractéristique SÉPARÉMENT), selon la maîtrise réelle :
 ${paliers}
-- Il doit être JUSTIFIÉ par la fiche : âge et maturité, entraînement, expérience du combat, maîtrise magique, pouvoirs particuliers. Jamais automatique à cause de l'âge seul.
-- Les trois caractéristiques évoluent indépendamment : un personnage peut être Expert en attaque et Débutant en soutien. Un pouvoir améliore surtout ce pour quoi il est conçu, pas les trois.
-- Une transformation TEMPORAIRE ne compte pas (elle ne modifie pas la fiche). Les armes, armures et artefacts ne comptent pas (c'est l'équipement, pas le personnage).
-- Une blessure grave, une mutilation, une malédiction, un scellement ou une perte de pouvoir peut donner un bonus individuel NÉGATIF (jusqu'à -5), s'il est décrit dans la fiche.
-- Les races exceptionnelles restent exceptionnelles, et la race ne garantit pas la puissance : un démon inexpérimenté reste Débutant.
-- COMPARE avec tous les autres personnages du wiki pour rester cohérent : à niveau décrit égal, bonus individuel égal.${deja ? `
-- Bonus TOTAUX déjà attribués aux autres personnages (attaque/défense/soutien) — place les nouveaux de façon cohérente :
+- Un personnage peut être Maître en attaque mais seulement Entraîné en défense.
+- AUCUN bonus automatique en fonction de l'âge ou du sexe. Seule la maîtrise réelle décrite dans la fiche compte (entraînement, expérience, capacités, spécialités).
+- L'expérience améliore la maîtrise DANS LES LIMITES de la nature et du rang racial : elle ne comble pas l'écart entre les grands paliers de puissance (un humain très expérimenté reste un humain face à un dieu primordial).
+- Une victoire possible grâce à une stratégie, un artefact, des alliés ou des circonstances ne change pas les bonus.
+- Les exceptions individuelles doivent être justifiées par la fiche et ne deviennent jamais des règles pour toute la race.
+- COMPARE avec tous les autres personnages du wiki pour rester cohérent : à maîtrise décrite égale, bonus d'expérience égal. Ne donne pas mécaniquement le même bonus à tout le monde.${deja ? `
+- Bonus TOTAUX déjà attribués aux autres personnages (attaque/défense/soutien) — reste cohérent avec eux :
 ${deja}` : ""}
 
-Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le palier choisi.
+Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le niveau de maîtrise choisi.
 Personnages à évaluer : ${titres.map((t) => "« " + t + " »").join(", ")}.
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour, sous cette forme :
-[{"titre":"…","race":"clé exacte de la liste ou autre","base":{"attaque":0,"defense":0,"soutien":0},"individuel":{"attaque":0,"defense":0,"soutien":0},"palier":{"attaque":"Débutant","defense":"…","soutien":"…"},"raisons":{"attaque":"…","defense":"…","soutien":"…"},"note":"remarque éventuelle (blessure, transformation ignorée…) ou vide"}]`;
+[{"titre":"…","race":"clé exacte de la liste, celesto demoniaque ou autre","base":{"attaque":0,"defense":0,"soutien":0},"individuel":{"attaque":0,"defense":0,"soutien":0},"palier":{"attaque":"Débutant","defense":"…","soutien":"…"},"raisons":{"attaque":"…","defense":"…","soutien":"…"},"note":"point de vigilance éventuel (info manquante dans la fiche…) ou vide"}]`;
 
 // Repères de puissance par race envoyés par le site (mots-des.js)
 function texteReperes(r) {
@@ -187,7 +189,7 @@ function texteReperes(r) {
 }
 
 function textePaliers(p, max) {
-  const l = Array.isArray(p) && p.length ? p : [["Débutant", 0], ["Apprenti confirmé", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4], ["Maître", 5], ["Maître exceptionnel", 6], ["Hors norme", 8]];
+  const l = Array.isArray(p) && p.length ? p : [["Débutant", 0], ["Initié", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4], ["Maître", 5]];
   return l.slice(0, 20).map(([nom, v], i) => {
     const fin = l[i + 1] ? l[i + 1][1] - 1 : max;
     return `- ${String(nom).slice(0, 40)} : +${v}${fin > v ? " à +" + fin : ""}`;
@@ -334,12 +336,12 @@ Deno.serve(async (req) => {
       const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : [corps.fiche_id]).filter(Boolean).slice(0, 40);
       var cibles = fiches.filter((f) => ids.includes(f.id));
       if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
-      var maxDes = Math.max(1, Math.min(50, parseInt(corps.max, 10) || 10));
+      var maxDes = Math.max(1, Math.min(50, parseInt(corps.max, 10) || 5));
       messages = [{
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cibles.length === 1 ? cibles[0].id : null })}` +
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
-          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes))}`,
+          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes), (Array.isArray(corps.uniques) && corps.uniques.length ? corps.uniques.slice(0, 10).map((u) => String(u).slice(0, 40)).join(", ") : "celesto demoniaque"))}`,
       }];
     } else if (mode === "global") {
       messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_GLOBALE}` }];
@@ -365,7 +367,7 @@ Deno.serve(async (req) => {
     if (mode === "des") {
       let liste = extraireJSON(texte);
       if (!Array.isArray(liste)) liste = [liste];
-      const borneInd = (n) => Math.max(-5, Math.min(maxDes, Math.round(Number(n) || 0)));
+      const borneInd = (n) => Math.max(0, Math.min(maxDes, Math.round(Number(n) || 0)));
       const borneBase = (n) => Math.max(0, Math.min(60, Math.round(Number(n) || 0)));
       const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
       const table = {};
@@ -384,7 +386,8 @@ Deno.serve(async (req) => {
           palier[t] = String(lire(p.palier, t) || "").slice(0, 40);
           raisons[t] = String(lire(p.raisons, t) || "").slice(0, 300);
         });
-        return { fiche_id: f.id, titre: f.titre, race: officielle ? cle : (p.race ? String(p.race).slice(0, 60) + " (hors barème)" : "race inconnue"),
+        const unique = (Array.isArray(corps.uniques) ? corps.uniques : ["celesto demoniaque"]).map(cleRaceServeur).includes(cle);
+        return { fiche_id: f.id, titre: f.titre, race: officielle ? cle : unique ? cle + " (cas unique)" : (p.race ? String(p.race).slice(0, 60) + " (hors barème)" : "race inconnue"),
           base, individuel, palier, raisons, note: String(p.note || "").slice(0, 300), ...total };
       });
       return reponse({ propositions, restant, modele: rep.modele });

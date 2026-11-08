@@ -11,45 +11,46 @@
 
 window.AETHERIA_DES = {
   DE: 15,            // tout le monde lance 1d15
-  BONUS_MAX: 40,       // bonus total maximum (base raciale + individuel), garde-fou
-  BONUS_PERSO_MAX: 10, // bonus individuel maximum ("Hors norme" : +8 à +10)
-  POINTS_POUR_MAX: 18, // nombre de "points" de mots-clés pour atteindre ce +10
+  BONUS_MAX: 40,       // bonus total maximum (racial + expérience), garde-fou
+  BONUS_PERSO_MAX: 5,  // bonus d'expérience maximum (« Maître »)
+  POINTS_POUR_MAX: 18, // nombre de "points" de mots-clés pour atteindre ce maximum
 
-  /* BASE RACIALE OFFICIELLE (document « Système racial ») : [attaque, défense, soutien]
-     pour un individu adulte de maîtrise standard. Tous lancent 1d15 + base + bonus individuel.
+  /* BONUS RACIAUX (document « Dés • Bonus raciaux • Expérience ») : [attaque, défense, soutien].
+     Tous lancent 1d15 + bonus racial + bonus d'expérience, pour chaque caractéristique séparément.
      Le nom est cherché dans la case « Race / Peuple » de la fiche (sans accents ni majuscules).
-     Une race absente de cette liste : l'IA déduit sa base à partir de sa fiche de race. */
+     Une race absente de cette liste : l'IA déduit son bonus à partir de sa fiche de race. */
   RACES_PROPOSEES: {
-    "humain":                [2, 2, 3],
-    "hybride":               [4, 4, 5],
-    "hybride humain bete":   [7, 6, 4],
-    "sirene":                [6, 7, 9],
-    "elfe aile":             [5, 5, 8],
-    "elfe noir":             [8, 6, 4],
-    "oni":                   [11, 10, 5],
-    "vampire":               [8, 9, 7],
-    "demon":                 [10, 9, 6],
-    "demon lie a un peche":  [13, 11, 10],
-    "ange":                  [7, 9, 11],
-    "ange lie a une vertu":  [11, 13, 14],
-    "archange":              [15, 15, 16],
-    "archange dechu":        [17, 15, 13],
-    "celesto demoniaque":    [18, 17, 18],
-    "dieu primordial":       [22, 22, 22],
+    "humain":                [0, 0, 0],
+    "hybride":               [2, 1, 1],
+    "hybride humain bete":   [3, 2, 1],
+    "sirene":                [2, 2, 4],
+    "elfe aile":             [2, 2, 3],
+    "elfe noir":             [4, 2, 1],
+    "oni":                   [5, 5, 1],
+    "vampire":               [4, 5, 2],
+    "demon":                 [6, 5, 3],
+    "demon lie a un peche":  [9, 8, 6],
+    "ange":                  [4, 5, 6],
+    "ange lie a une vertu":  [7, 8, 9],
+    "archange":              [12, 12, 13],
+    "archange dechu":        [13, 12, 10],
+    "dieu primordial":       [25, 25, 25],
   },
+  // Cas uniques : pas de bonus racial générique, valeurs individuelles (Juthi)
+  CAS_UNIQUES: ["celesto demoniaque"],
   // Mots qui transforment "démon" en "démon lié à un péché" et "ange" en "ange lié à une vertu"
   PECHES: ["peche", "colere", "orgueil", "avarice", "envie", "luxure", "gourmandise", "paresse"],
   VERTUS: ["vertu", "justice", "courage", "sagesse", "temperance", "charite", "esperance", "foi"],
   // Autres façons d'écrire une race → nom officiel
   ALIAS_RACES: {
     "humain bete": "hybride humain bete", "homme bete": "hybride humain bete", "hybride bete": "hybride humain bete",
-    "celeste demoniaque": "celesto demoniaque", "dechu": "archange dechu", "dieu": "dieu primordial", "divinite primordiale": "dieu primordial",
+    "ange dechu": "archange dechu", "dechu": "archange dechu",
+    "celeste demoniaque": "celesto demoniaque", "dieu": "dieu primordial", "divinite primordiale": "dieu primordial",
   },
 
-  /* Barème de progression individuelle (par caractéristique, indépendamment) */
+  /* Bonus d'expérience (par caractéristique, indépendamment) : +5 maximum */
   PALIERS: [
-    ["Débutant", 0], ["Apprenti confirmé", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4],
-    ["Maître", 5], ["Maître exceptionnel", 6], ["Hors norme", 8],
+    ["Débutant", 0], ["Initié", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4], ["Maître", 5],
   ],
 
   TYPES: {
