@@ -748,12 +748,13 @@
         </section>` : ""}
         ${estPerso(f) ? (() => {
           const an = bonusFiche(f, des), manuel = TYPES_DES.some((t) => an[t].manuel);
+          const { race: rf, base: bf } = baseRaciale(f);
           return `<section class="boite-de">
             <div class="bd-titre">🎲 Dés du personnage</div>
             <div class="bd-lignes">${TYPES_DES.map((t) => `
               <div class="bd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(an[t].bonus)}</b>
-              ${!an[t].manuel && an[t].mots.length ? `<small class="discret">estimé d'après : ${an[t].mots.slice(0, 4).map(esc).join(", ")}</small>` : ""}</div>`).join("")}</div>
-            <div class="discret petit-texte">${manuel ? "Bonus réglés par le joueur, un admin ou l'IA." : `Estimation automatique : niveau de la race + mots-clés de la fiche (+${CFG_DES.BONUS_PERSO_MAX || 10} max). Pour un vrai bonus, demande la proposition de l'IA.`}</div>
+              <small class="discret">${bf ? `base ${esc(rf.nom)} ${signe(bf[t])} · individuel ${signe(an[t].bonus - bf[t])} (${nomPalier(an[t].bonus - bf[t])})` : "race absente du barème"}${!an[t].manuel && an[t].mots.length ? ` · d'après : ${an[t].mots.slice(0, 4).map(esc).join(", ")}` : ""}</small></div>`).join("")}</div>
+            <div class="discret petit-texte">${manuel ? "Bonus réglés par le joueur, un admin ou l'IA." : `Estimation automatique : base raciale officielle + mots-clés de la fiche (individuel +${CFG_DES.BONUS_PERSO_MAX || 10} max). Pour une vraie évaluation, demande la proposition de l'IA.`}</div>
             <div class="rangee"><a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>${estMembre() ? `<button class="btn petit ${manuel ? "" : "btn-or"}" id="ia-des-bouton">🤖 Proposition de l'IA</button>` : ""}</div>
             <div id="ia-des-zone" class="bd-ia"></div>
           </section>`;
@@ -795,7 +796,7 @@
       bd.disabled = true;
       const stop = attenteIA(z, ETAPES_DES);
       try {
-        const r = await avecDelai(api.ia("des", { fiche_id: id, max: CFG_DES.BONUS_MAX, reperes: CFG_DES.RACES_PROPOSEES, deja: bonusDeja(pages.fiche.des) }));
+        const r = await avecDelai(api.ia("des", { fiche_id: id, max: CFG_DES.BONUS_PERSO_MAX || 10, reperes: CFG_DES.RACES_PROPOSEES, paliers: CFG_DES.PALIERS, deja: bonusDeja(pages.fiche.des) }));
         stop();
         z.innerHTML = htmlPropositionDes(r.propositions[0], f && peutModifier(f));
         brancherUtiliserDes(z, r.propositions);
@@ -906,7 +907,7 @@
           </div>
         </fieldset>
         <fieldset id="champ-analyse" ${estPerso(f) ? "" : "hidden"}><legend>🎲 Bonus de fiche (automatique)</legend>
-          <p class="discret">Chaque lancer = 1d${DE} + ce bonus (jusqu'à +${CFG_DES.BONUS_MAX}). Ci-dessous, une estimation par mots-clés ; pour un vrai bonus, utilise « 🤖 Proposition de l'IA » sur la fiche publiée, ou règle-le à la main.</p>
+          <p class="discret">Chaque lancer = 1d${DE} + base raciale + bonus individuel (0 à +${CFG_DES.BONUS_PERSO_MAX || 10}). Ci-dessous, une estimation automatique ; pour une vraie évaluation, utilise « 🤖 Proposition de l'IA » sur la fiche publiée. En réglant à la main, mets le TOTAL (base + individuel).</p>
           <div class="analyse" id="analyse-live"></div>
           <label class="case-manuel"><input type="checkbox" id="de-manuel"> ✏️ Régler le bonus à la main</label>
           <div class="de-ligne" id="de-manuel-zone" hidden>
@@ -1267,20 +1268,26 @@
   // Dé proposé pour une race : liste de races connues (mots-des.js), sinon analyse de sa fiche de race
   function proposerRace(cle, ficheRace) {
     const table = CFG_DES.RACES_PROPOSEES || {};
-    const c = " " + cle.replace(/[-_'’]/g, " ").replace(/\s+/g, " ").trim() + " ";
+    let c = " " + cle.replace(/[-_'’()\/,.]/g, " ").replace(/\s+/g, " ").trim() + " ";
+    for (const [alias, vrai] of Object.entries(CFG_DES.ALIAS_RACES || {})) if (c.includes(" " + alias + " ")) c += " " + vrai + " ";
     let best = null;
     for (const [nom, v] of Object.entries(table)) {
       const n = normal(nom).replace(/[-_'’]/g, " ").trim();
       const trouve = c.includes(" " + n + " ") || c.includes(" " + n + "s ") || c.includes(" " + n + "x ");
-      if (trouve && (!best || n.length > best.n.length)) best = { n, v };
+      if (trouve && (!best || n.length > best.n.length)) best = { n, v, nom };
     }
-    if (best) return { attaque: best.v[0], defense: best.v[1], soutien: best.v[2], source: "liste" };
+    const a = (mots) => (mots || []).some((m) => c.includes(" " + m + " "));
+    if (best && best.n === "demon" && a(CFG_DES.PECHES) && table["demon lie a un peche"]) best = { n: "demon lie a un peche", v: table["demon lie a un peche"], nom: "demon lie a un peche" };
+    if (best && best.n === "ange" && a(CFG_DES.VERTUS) && table["ange lie a une vertu"]) best = { n: "ange lie a une vertu", v: table["ange lie a une vertu"], nom: "ange lie a une vertu" };
+    if (best) return { attaque: best.v[0], defense: best.v[1], soutien: best.v[2], source: "liste", classe: best.nom };
     if (ficheRace && (ficheRace.contenu || ficheRace.resume)) {
       const an = analyserFiche(ficheRace);
       if (TYPES_DES.some((t) => an[t].bonus)) return { attaque: an.attaque.bonus, defense: an.defense.bonus, soutien: an.soutien.bonus, source: "fiche" };
     }
     return null;
   }
+  const baseRaciale = (f) => { const r = raceDuPerso(f); const b = r ? proposerRace(r.cle, null) : null; return { race: r, base: b }; };
+  const nomPalier = (n) => { let nom = (CFG_DES.PALIERS || [])[0] ? CFG_DES.PALIERS[0][0] : ""; for (const [p, v] of CFG_DES.PALIERS || []) if (n >= v) nom = p; return n < 0 ? "affaibli" : nom; };
   const htmlProposition = (p) => `${TYPES_DES.map((t) => `${infoType(t).icone} ${signe(p[t])}`).join(" · ")}`;
   const deRace = (desRaces, cle) => (desRaces && desRaces[cle]) || { bonus_attaque: 0, bonus_defense: 0, bonus_soutien: 0, nouveau: true };
   const deDe = (des, id) => des[id] || { bonus_attaque: 0, bonus_defense: 0, bonus_soutien: 0, nouveau: true };
@@ -1314,7 +1321,7 @@
       for (const t of TYPES_DES) {
         const b = base ? base[t] | 0 : 0;
         res[t].bonus = Math.max(0, Math.min(CFG_DES.BONUS_MAX, b + res[t].bonus));
-        if (r) res[t].mots.unshift(`race ${r.nom} ${signe(b)}`);
+        res[t].base = b; res[t].individuel = res[t].bonus - b;
       }
     }
     return res;
@@ -1373,7 +1380,7 @@
       </div>`;
     return `
       <div class="entete-page"><div><h1><span class="ic-titre">🎲</span>Dés</h1>
-        <p class="discret">Chaque lancer : <b>1d${DE}</b> + le bonus du <b>personnage</b> (jusqu'à +${CFG_DES.BONUS_MAX}), qui tient compte de sa race et de tout ce que dit sa fiche.</p></div></div>
+        <p class="discret">Chaque lancer : <b>1d${DE}</b> + <b>base raciale</b> (barème officiel) + <b>bonus individuel</b> du personnage (de 0 à +${CFG_DES.BONUS_PERSO_MAX || 10} selon son entraînement, son expérience et sa maîtrise).</p></div></div>
 
       ${estMembre() ? `
       <section class="panneau">
@@ -1392,7 +1399,7 @@
 
       ${estMembre() && persos.length ? `
       <h2 class="titre-section">🤖 Bonus des personnages par l'IA</h2>
-      <p class="discret">L'IA lit la fiche de chaque personnage (race, pouvoirs, histoire…) et propose ses bonus d'attaque, de défense et de soutien, de 0 à +${CFG_DES.BONUS_MAX}. Rien n'est appliqué sans votre accord.</p>
+      <p class="discret">L'IA lit la fiche de chaque personnage, reconnaît sa classification raciale et propose son bonus individuel (palier Débutant à Hors norme) en attaque, défense et soutien, en le comparant aux autres. Rien n'est appliqué sans votre accord.</p>
       <button class="btn" id="ia-des-tous-bouton">🤖 Faire évaluer les ${persos.length} personnage${persos.length > 1 ? "s" : ""}</button>
       <div id="ia-des-tous"></div>` : ""}`;
   };
@@ -1483,7 +1490,7 @@
       try {
         for (const [i, lot] of lots.entries()) {
           const stop = attenteIA(zone, lots.length > 1 ? [`Lot ${i + 1} sur ${lots.length} : l'IA lit les fiches…`, `Lot ${i + 1} sur ${lots.length} : évaluation en cours…`] : ["L'IA lit toutes les fiches…", "Elle évalue chaque personnage…", "Elle rédige ses explications…"]);
-          try { const r = await avecDelai(api.ia("des", { fiche_ids: lot.map((f) => f.id), max: CFG_DES.BONUS_MAX, reperes: CFG_DES.RACES_PROPOSEES, deja: [...bonusDeja(etat.des).filter((x) => !toutes.some((p) => p.titre === x.titre)), ...toutes.map((p) => ({ titre: p.titre, attaque: p.attaque, defense: p.defense, soutien: p.soutien }))] })); toutes.push(...r.propositions); }
+          try { const r = await avecDelai(api.ia("des", { fiche_ids: lot.map((f) => f.id), max: CFG_DES.BONUS_PERSO_MAX || 10, reperes: CFG_DES.RACES_PROPOSEES, paliers: CFG_DES.PALIERS, deja: [...bonusDeja(etat.des).filter((x) => !toutes.some((p) => p.titre === x.titre)), ...toutes.map((p) => ({ titre: p.titre, attaque: p.attaque, defense: p.defense, soutien: p.soutien }))] })); toutes.push(...r.propositions); }
           finally { stop(); }
         }
       } catch (e) { zone.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; if (!toutes.length) { bt.disabled = false; return; } }
@@ -1493,9 +1500,9 @@
           <thead><tr><th></th><th>Personnage</th>${TYPES_DES.map((t) => `<th>${infoType(t).icone}</th>`).join("")}</tr></thead>
           <tbody>${toutes.map((p) => `<tr>
             <td>${peut(p) ? `<input type="checkbox" class="coche-prop" data-id="${esc(p.fiche_id)}" checked>` : ""}</td>
-            <td><a href="#/f/${encodeURIComponent(p.fiche_id)}">${esc(p.titre)}</a>
+            <td><a href="#/f/${encodeURIComponent(p.fiche_id)}">${esc(p.titre)}</a>${p.race ? `<br><small class="discret">${esc(p.race)}</small>` : ""}
               <details><summary class="discret">pourquoi ?</summary>${TYPES_DES.map((t) => p.raisons[t] ? `<div class="petit-texte">${infoType(t).icone} ${esc(p.raisons[t])}</div>` : "").join("")}</details></td>
-            ${TYPES_DES.map((t) => `<td><b>${signe(p[t])}</b></td>`).join("")}</tr>`).join("")}</tbody>
+            ${TYPES_DES.map((t) => `<td><b>${signe(p[t])}</b><br><small class="discret">${(p.base || {})[t] | 0}+${(p.individuel || {})[t] | 0}</small></td>`).join("")}</tr>`).join("")}</tbody>
         </table></div>
         ${toutes.some(peut) ? `<button class="btn btn-or" id="appliquer-prop">✔ Appliquer les bonus cochés</button>` : ""}
         ${toutes.some((p) => !peut(p)) ? `<p class="discret petit-texte">Sans case à cocher : seul l'auteur de la fiche ou un admin peut appliquer ses bonus.</p>` : ""}`);
@@ -1607,9 +1614,12 @@
   /* Propositions de bonus de dés par l'IA */
   const ETAPES_DES = ["L'IA lit la fiche…", "Elle évalue l'attaque…", "…puis la défense…", "…et le soutien…", "Elle rédige ses explications…"];
   function htmlPropositionDes(p, peut) {
+    const b = p.base || {}, ind = p.individuel || {}, pal = p.palier || {};
     return `<div class="prop-des">
-      <div class="pd-titre">🤖 Proposition de l'IA${p.titre ? " pour " + esc(p.titre) : ""}</div>
-      ${TYPES_DES.map((t) => `<div class="pd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>${signe(p[t] | 0)}</b>${p.raisons && p.raisons[t] ? `<small class="discret">${esc(p.raisons[t])}</small>` : ""}</div>`).join("")}
+      <div class="pd-titre">🤖 Proposition de l'IA${p.titre ? " pour " + esc(p.titre) : ""}${p.race ? ` · ${esc(p.race)}` : ""}</div>
+      ${TYPES_DES.map((t) => `<div class="pd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(p[t] | 0)}</b>
+        <small class="discret">base ${signe(b[t] | 0)} + individuel ${signe(ind[t] | 0)}${pal[t] ? ` (${esc(pal[t])})` : ""}${p.raisons && p.raisons[t] ? ` — ${esc(p.raisons[t])}` : ""}</small></div>`).join("")}
+      ${p.note ? `<p class="discret petit-texte">ℹ️ ${esc(p.note)}</p>` : ""}
       ${peut ? `<button class="btn btn-or petit" data-utiliser-des="${esc(p.fiche_id)}">✔ Utiliser ces bonus</button>` : `<p class="discret petit-texte">Seul l'auteur de la fiche ou un admin peut appliquer ces bonus.</p>`}
     </div>`;
   }

@@ -11,65 +11,46 @@
 
 window.AETHERIA_DES = {
   DE: 15,            // tout le monde lance 1d15
-  BONUS_MAX: 30,       // bonus maximum d'un personnage (attaque, défense ou soutien)
-  BONUS_PERSO_MAX: 10, // estimation par mots-clés : la fiche ajoute au plus +10 au niveau de sa race
+  BONUS_MAX: 40,       // bonus total maximum (base raciale + individuel), garde-fou
+  BONUS_PERSO_MAX: 10, // bonus individuel maximum ("Hors norme" : +8 à +10)
   POINTS_POUR_MAX: 18, // nombre de "points" de mots-clés pour atteindre ce +10
 
-  /* NIVEAU DE PUISSANCE de chaque race (attaque, défense, soutien), sur 30,
-     pour un membre ORDINAIRE de cette race. Sert de repère à l'estimation
-     automatique ET à l'IA : un individu exceptionnel peut s'en écarter d'environ ±10.
-     Le nom est cherché dans la race écrite par le joueur ("Haut-elfe" trouve "haut elfe",
-     "Archange déchu" trouve "archange"). Le nom le plus long gagne. */
+  /* BASE RACIALE OFFICIELLE (document « Système racial ») : [attaque, défense, soutien]
+     pour un individu adulte de maîtrise standard. Tous lancent 1d15 + base + bonus individuel.
+     Le nom est cherché dans la case « Race / Peuple » de la fiche (sans accents ni majuscules).
+     Une race absente de cette liste : l'IA déduit sa base à partir de sa fiche de race. */
   RACES_PROPOSEES: {
-    "humain":       [0, 0, 0],
-    "dieu":         [30, 30, 30],
-    "deesse":       [30, 30, 30],
-    "divinite":     [30, 30, 30],
-    "titan":        [30, 30, 12],
-    "demi dieu":    [18, 15, 15],
-    "demi deesse":  [18, 15, 15],
-    "seraphin":     [27, 24, 27],
-    "archange":     [22, 18, 22],
-    "ange":         [15, 12, 18],
-    "nephilim":     [14, 10, 10],
-    "dechu":        [18, 14, 6],
-    "archidemon":   [26, 20, 4],
-    "demon":        [20, 14, 3],
-    "diable":       [20, 14, 3],
-    "succube":      [12, 8, 6],
-    "incube":       [12, 8, 6],
-    "dragon":       [24, 22, 6],
-    "phenix":       [12, 9, 18],
-    "liche":        [16, 14, 2],
-    "vampire":      [9, 8, 2],
-    "loup garou":   [10, 8, 2],
-    "lycan":        [10, 8, 2],
-    "oni":          [12, 9, 2],
-    "kitsune":      [8, 6, 8],
-    "yokai":        [8, 6, 4],
-    "geant":        [14, 12, 0],
-    "troll":        [9, 10, 0],
-    "golem":        [6, 16, 0],
-    "orc":          [8, 4, 0],
-    "ogre":         [10, 8, 0],
-    "haut elfe":    [8, 6, 9],
-    "elfe noir":    [8, 4, 3],
-    "elfe":         [4, 4, 6],
-    "nain":         [4, 9, 2],
-    "sirene":       [4, 3, 8],
-    "nymphe":       [2, 3, 10],
-    "dryade":       [2, 4, 12],
-    "fee":          [2, 3, 10],
-    "centaure":     [6, 4, 2],
-    "spectre":      [6, 10, 2],
-    "fantome":      [4, 10, 2],
-    "zombie":       [3, 4, 0],
-    "gobelin":      [2, 2, 0],
-    "hybride":      [4, 4, 3],
-    "metamorphe":   [6, 6, 2],
-    "sorcier":      [6, 3, 6],
-    "sorciere":     [6, 3, 6],
+    "humain":                [2, 2, 3],
+    "hybride":               [4, 4, 5],
+    "hybride humain bete":   [7, 6, 4],
+    "sirene":                [6, 7, 9],
+    "elfe aile":             [5, 5, 8],
+    "elfe noir":             [8, 6, 4],
+    "oni":                   [11, 10, 5],
+    "vampire":               [8, 9, 7],
+    "demon":                 [10, 9, 6],
+    "demon lie a un peche":  [13, 11, 10],
+    "ange":                  [7, 9, 11],
+    "ange lie a une vertu":  [11, 13, 14],
+    "archange":              [15, 15, 16],
+    "archange dechu":        [17, 15, 13],
+    "celesto demoniaque":    [18, 17, 18],
+    "dieu primordial":       [22, 22, 22],
   },
+  // Mots qui transforment "démon" en "démon lié à un péché" et "ange" en "ange lié à une vertu"
+  PECHES: ["peche", "colere", "orgueil", "avarice", "envie", "luxure", "gourmandise", "paresse"],
+  VERTUS: ["vertu", "justice", "courage", "sagesse", "temperance", "charite", "esperance", "foi"],
+  // Autres façons d'écrire une race → nom officiel
+  ALIAS_RACES: {
+    "humain bete": "hybride humain bete", "homme bete": "hybride humain bete", "hybride bete": "hybride humain bete",
+    "celeste demoniaque": "celesto demoniaque", "dechu": "archange dechu", "dieu": "dieu primordial", "divinite primordiale": "dieu primordial",
+  },
+
+  /* Barème de progression individuelle (par caractéristique, indépendamment) */
+  PALIERS: [
+    ["Débutant", 0], ["Apprenti confirmé", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4],
+    ["Maître", 5], ["Maître exceptionnel", 6], ["Hors norme", 8],
+  ],
 
   TYPES: {
     attaque: {

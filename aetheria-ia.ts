@@ -148,26 +148,34 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 ## Petites corrections
 (format : [[Fiche]] : correction)`;
 
-const CONSIGNE_DES = (max, titres, reperes, deja) => `Tu évalues des personnages pour le système de dés d'Aetheria.
-Chaque lancer = 1d15 + le bonus du personnage. C'est ce bonus que tu proposes, de 0 à ${max}, pour chacun des trois types :
-- attaque : combat, armes, magie offensive, force, férocité
-- defense : protection, armure, esquive, résistance, endurance, boucliers
-- soutien : soin, guérison, aide, bénédictions, renforcer les alliés
-Échelle : 0 = rien dans ce domaine (personne ordinaire), ${Math.round(max / 3)} = guerrier ou mage aguerri, ${Math.round((2 * max) / 3)} = très puissant, ${max} = légendaire, quasi divin.
-Règles :
-- Il n'y a PAS de bonus de race séparé : ton chiffre doit donc inclure la puissance de la race ET ce qui rend ce personnage unique (âge, entraînement, pouvoirs, rang, histoire, faiblesses).
-- La RACE fixe le niveau de départ. Repères pour un membre ORDINAIRE de chaque race (attaque/défense/soutien) :
+const CONSIGNE_DES = (max, titres, reperes, deja, paliers) => `Tu évalues des personnages pour le système de dés d'Aetheria, en appliquant le « Système racial » officiel.
+
+FORMULE : chaque lancer = 1d15 + BASE RACIALE + BONUS INDIVIDUEL, pour chacune des trois caractéristiques :
+- attaque (ATT) : force physique, magie offensive, maîtrise des armes, techniques de combat, capacités destructrices, transformations offensives
+- defense (DEF) : résistance corporelle, robustesse, réflexes défensifs, protections et barrières magiques, régénération, esquive
+- soutien : guérison, protection des alliés, renforcements, affaiblissement des adversaires, manipulation énergétique, enchantements, coordination (pas forcément guérisseur)
+
+1) BASE RACIALE (individu adulte de maîtrise standard) — choisis la classification EXACTE du personnage dans cette liste :
 ${reperes}
-- Un individu peut s'écarter du niveau de sa race d'environ ${Math.round(max / 3)} (un jeune vampire faible est sous le repère, un vampire millénaire au-dessus), mais pas davantage sauf cas vraiment légendaire décrit dans la fiche.
-- Un HUMAIN, même le meilleur guerrier ou mage, dépasse rarement ${Math.round(max * 0.4)}. Une race absente des repères : déduis son niveau de sa fiche de race dans le wiki, ou compare-la aux races connues.
-- COMPARE avec tous les autres personnages du wiki : un personnage plus faible qu'un autre dans la fiche ou l'histoire doit avoir un bonus plus bas, et inversement.${deja ? `
-- Bonus déjà attribués aux autres personnages (attaque/défense/soutien) — place les nouveaux par rapport à eux :
+- « démon lié à un péché » si la fiche lie le démon à un péché (colère, orgueil, avarice, envie, luxure, gourmandise, paresse) ; « ange lié à une vertu » si l'ange est lié à une vertu (justice, courage, sagesse, tempérance, charité, espérance, foi).
+- « célesto démoniaque » : UNIQUEMENT Juthi (seul individu existant). Lucifer est un « archange déchu », pas un célesto-démoniaque.
+- Si la race n'est pas dans la liste, donne "race":"autre" et propose une base cohérente dans "base" en la comparant aux races connues et à sa fiche de race dans le wiki.
+
+2) BONUS INDIVIDUEL (0 à ${max}, chaque caractéristique SÉPARÉMENT) selon ce barème :
+${paliers}
+- Il doit être JUSTIFIÉ par la fiche : âge et maturité, entraînement, expérience du combat, maîtrise magique, pouvoirs particuliers. Jamais automatique à cause de l'âge seul.
+- Les trois caractéristiques évoluent indépendamment : un personnage peut être Expert en attaque et Débutant en soutien. Un pouvoir améliore surtout ce pour quoi il est conçu, pas les trois.
+- Une transformation TEMPORAIRE ne compte pas (elle ne modifie pas la fiche). Les armes, armures et artefacts ne comptent pas (c'est l'équipement, pas le personnage).
+- Une blessure grave, une mutilation, une malédiction, un scellement ou une perte de pouvoir peut donner un bonus individuel NÉGATIF (jusqu'à -5), s'il est décrit dans la fiche.
+- Les races exceptionnelles restent exceptionnelles, et la race ne garantit pas la puissance : un démon inexpérimenté reste Débutant.
+- COMPARE avec tous les autres personnages du wiki pour rester cohérent : à niveau décrit égal, bonus individuel égal.${deja ? `
+- Bonus TOTAUX déjà attribués aux autres personnages (attaque/défense/soutien) — place les nouveaux de façon cohérente :
 ${deja}` : ""}
-- Si la fiche ne dit rien sur un domaine, reste bas. Ne gonfle pas les chiffres.
-- Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le chiffre.
+
+Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le palier choisi.
 Personnages à évaluer : ${titres.map((t) => "« " + t + " »").join(", ")}.
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour, sous cette forme :
-[{"titre":"…","attaque":0,"defense":0,"soutien":0,"raisons":{"attaque":"…","defense":"…","soutien":"…"}}]`;
+[{"titre":"…","race":"clé exacte de la liste ou autre","base":{"attaque":0,"defense":0,"soutien":0},"individuel":{"attaque":0,"defense":0,"soutien":0},"palier":{"attaque":"Débutant","defense":"…","soutien":"…"},"raisons":{"attaque":"…","defense":"…","soutien":"…"},"note":"remarque éventuelle (blessure, transformation ignorée…) ou vide"}]`;
 
 // Repères de puissance par race envoyés par le site (mots-des.js)
 function texteReperes(r) {
@@ -177,6 +185,15 @@ function texteReperes(r) {
     .map(([nom, v]) => `- ${String(nom).slice(0, 40)} : ${v.map((x) => Math.max(0, Math.min(100, parseInt(x, 10) || 0))).join("/")}`)
     .join("\n");
 }
+
+function textePaliers(p, max) {
+  const l = Array.isArray(p) && p.length ? p : [["Débutant", 0], ["Apprenti confirmé", 1], ["Entraîné", 2], ["Expérimenté", 3], ["Expert", 4], ["Maître", 5], ["Maître exceptionnel", 6], ["Hors norme", 8]];
+  return l.slice(0, 20).map(([nom, v], i) => {
+    const fin = l[i + 1] ? l[i + 1][1] - 1 : max;
+    return `- ${String(nom).slice(0, 40)} : +${v}${fin > v ? " à +" + fin : ""}`;
+  }).join("\n");
+}
+function cleRaceServeur(t) { return String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_'’]/g, " ").replace(/\s+/g, " ").trim(); }
 
 function texteDeja(d, cibles) {
   if (!Array.isArray(d)) return "";
@@ -317,12 +334,12 @@ Deno.serve(async (req) => {
       const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : [corps.fiche_id]).filter(Boolean).slice(0, 40);
       var cibles = fiches.filter((f) => ids.includes(f.id));
       if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
-      var maxDes = Math.max(1, Math.min(100, parseInt(corps.max, 10) || 30));
+      var maxDes = Math.max(1, Math.min(50, parseInt(corps.max, 10) || 10));
       messages = [{
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cibles.length === 1 ? cibles[0].id : null })}` +
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
-          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles))}`,
+          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes))}`,
       }];
     } else if (mode === "global") {
       messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_GLOBALE}` }];
@@ -348,16 +365,27 @@ Deno.serve(async (req) => {
     if (mode === "des") {
       let liste = extraireJSON(texte);
       if (!Array.isArray(liste)) liste = [liste];
-      const borne = (n) => Math.max(0, Math.min(maxDes, Math.round(Number(n) || 0)));
-      const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const borneInd = (n) => Math.max(-5, Math.min(maxDes, Math.round(Number(n) || 0)));
+      const borneBase = (n) => Math.max(0, Math.min(60, Math.round(Number(n) || 0)));
+      const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+      const table = {};
+      for (const [k, v] of Object.entries(corps.reperes || {})) if (Array.isArray(v) && v.length === 3) table[cleRaceServeur(k)] = v.map((x) => parseInt(x, 10) || 0);
+      const T = ["attaque", "defense", "soutien"];
+      const lire = (o, t) => (o ? o[t] ?? (t === "defense" ? o["défense"] : undefined) : undefined);
       const propositions = cibles.map((f, i) => {
         const p = liste.find((x) => norm(x.titre) === norm(f.titre)) || (cibles.length === 1 ? liste[0] : liste[i]) || {};
-        const r = p.raisons || {};
-        return {
-          fiche_id: f.id, titre: f.titre,
-          attaque: borne(p.attaque), defense: borne(p.defense ?? p["défense"]), soutien: borne(p.soutien),
-          raisons: { attaque: String(r.attaque || "").slice(0, 300), defense: String(r.defense || r["défense"] || "").slice(0, 300), soutien: String(r.soutien || "").slice(0, 300) },
-        };
+        const cle = cleRaceServeur(p.race);
+        const officielle = table[cle];
+        const base = {}, individuel = {}, total = {}, palier = {}, raisons = {};
+        T.forEach((t, k) => {
+          base[t] = officielle ? officielle[k] : borneBase(lire(p.base, t));
+          individuel[t] = borneInd(lire(p.individuel, t));
+          total[t] = Math.max(0, base[t] + individuel[t]);
+          palier[t] = String(lire(p.palier, t) || "").slice(0, 40);
+          raisons[t] = String(lire(p.raisons, t) || "").slice(0, 300);
+        });
+        return { fiche_id: f.id, titre: f.titre, race: officielle ? cle : (p.race ? String(p.race).slice(0, 60) + " (hors barème)" : "race inconnue"),
+          base, individuel, palier, raisons, note: String(p.note || "").slice(0, 300), ...total };
       });
       return reponse({ propositions, restant, modele: rep.modele });
     }
