@@ -745,25 +745,16 @@
             <figure data-voir="${i}"><img src="${esc(g.url)}" alt="${esc(g.legende || "")}" loading="lazy">${g.legende ? `<figcaption>${esc(g.legende)}</figcaption>` : ""}</figure>`).join("")}
           </div>
         </section>` : ""}
-        ${estRace(f) || estPerso(f) ? (() => {
-          if (estRace(f)) {
-            const d = deRace(desRaces, cleRace(f.titre));
-            return `<section class="boite-de">
-              <div class="bd-titre">🎲 Dé de la race</div>
-              <div class="bd-valeurs">${TYPES_DES.map((t) => `<span>${infoType(t).icone} ${infoType(t).nom} : <b>1d${DE} ${signe(d[CLE_RACE[t]] | 0)}</b></span>`).join("")}</div>
-              ${d.nouveau ? `<div class="discret petit-texte">Pas encore réglé : bonus à 0 pour l'instant (à régler dans l'onglet 🎲 Dés).</div>` : ""}
-              <a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>
-            </section>`;
-          }
-          const race = raceDuPerso(f), dr = race ? deRace(desRaces, race.cle) : null, an = bonusFiche(f, des);
-          const ficheRace = race && [...indexParId.values()].find((x) => estRace(x) && cleRace(x.titre) === race.cle);
+        ${estPerso(f) ? (() => {
+          const an = bonusFiche(f, des), manuel = TYPES_DES.some((t) => an[t].manuel);
           return `<section class="boite-de">
             <div class="bd-titre">🎲 Dés du personnage</div>
-            <div class="bd-lignes">${TYPES_DES.map((t) => { const br = dr ? dr[CLE_RACE[t]] | 0 : 0, bf = an[t].bonus; return `
-              <div class="bd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(br + bf)}</b>
-              <small class="discret">${race ? `race ${signe(br)}` : "race ?"} · fiche ${signe(bf)}${an[t].manuel ? " (réglé à la main)" : an[t].mots.length ? ` (${an[t].mots.slice(0, 4).map(esc).join(", ")})` : ""}</small></div>`; }).join("")}</div>
-            <div class="discret petit-texte">${race ? `Race : ${ficheRace ? `<a href="#/f/${encodeURIComponent(ficheRace.id)}">${esc(race.nom)}</a>` : esc(race.nom)}${dr.nouveau ? " (dé pas encore réglé)" : ""}` : "Aucune race : remplis la case « Race / Peuple » de la fiche."} · ${TYPES_DES.some((t) => an[t].manuel) ? "Bonus de fiche réglé à la main par le joueur ou un admin." : `Le bonus de fiche est calculé à partir des mots de la fiche (max +${CFG_DES.BONUS_MAX}).`}</div>
-            <a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>
+            <div class="bd-lignes">${TYPES_DES.map((t) => `
+              <div class="bd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>1d${DE} ${signe(an[t].bonus)}</b>
+              ${!an[t].manuel && an[t].mots.length ? `<small class="discret">estimé d'après : ${an[t].mots.slice(0, 4).map(esc).join(", ")}</small>` : ""}</div>`).join("")}</div>
+            <div class="discret petit-texte">${manuel ? "Bonus réglés par le joueur, un admin ou l'IA." : `Estimation automatique par mots-clés (max +${CFG_DES.BONUS_MAX}). Pour un vrai bonus, demande la proposition de l'IA.`}</div>
+            <div class="rangee"><a class="btn petit" href="#/des?perso=${encodeURIComponent(f.id)}">🎲 Lancer</a>${estMembre() ? `<button class="btn petit ${manuel ? "" : "btn-or"}" id="ia-des-bouton">🤖 Proposition de l'IA</button>` : ""}</div>
+            <div id="ia-des-zone" class="bd-ia"></div>
           </section>`;
         })() : ""}
 
@@ -797,6 +788,19 @@
   };
   pages.fiche.apres = async (id) => {
     brancherAnalyseFiche(id);
+    const bd = $("#ia-des-bouton");
+    if (bd) bd.onclick = async () => {
+      const z = $("#ia-des-zone"), f = indexParId.get(id);
+      bd.disabled = true;
+      const stop = attenteIA(z, ETAPES_DES);
+      try {
+        const r = await avecDelai(api.ia("des", { fiche_id: id, max: CFG_DES.BONUS_MAX }));
+        stop();
+        z.innerHTML = htmlPropositionDes(r.propositions[0], f && peutModifier(f));
+        brancherUtiliserDes(z, r.propositions);
+      } catch (e) { stop(); z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; }
+      bd.disabled = false;
+    };
     brancherSuppressionMoments();
     $("#partager").onclick = async () => {
       const [f, auteurs] = await Promise.all([api.lireFiche(id), auteursMap()]);
@@ -893,7 +897,7 @@
           <span class="discret petit-texte" id="galerie-etat"></span>
         </fieldset>
 
-        <fieldset id="champ-de" ${estRace(f) ? "" : "hidden"}><legend>🎲 Dé de la race</legend>
+        <fieldset id="champ-de" hidden><legend>🎲 Dé de la race</legend>
           <p class="discret">Chaque membre de cette race lance 1d${DE} + ces bonus.</p>
           <div class="proposition" id="proposition-race"></div>
           <div class="de-ligne">
@@ -901,7 +905,7 @@
           </div>
         </fieldset>
         <fieldset id="champ-analyse" ${estPerso(f) ? "" : "hidden"}><legend>🎲 Bonus de fiche (automatique)</legend>
-          <p class="discret">Calculé à partir des mots de la fiche (titre, résumé, infos, texte), jusqu'à +${CFG_DES.BONUS_MAX}. Il s'ajoute au bonus de la race.</p>
+          <p class="discret">Chaque lancer = 1d${DE} + ce bonus (jusqu'à +${CFG_DES.BONUS_MAX}). Ci-dessous, une estimation par mots-clés ; pour un vrai bonus, utilise « 🤖 Proposition de l'IA » sur la fiche publiée, ou règle-le à la main.</p>
           <div class="analyse" id="analyse-live"></div>
           <label class="case-manuel"><input type="checkbox" id="de-manuel"> ✏️ Régler le bonus à la main</label>
           <div class="de-ligne" id="de-manuel-zone" hidden>
@@ -991,7 +995,7 @@
     form.categorie.onchange = () => {
       const c = catParId(form.categorie.value);
       $("#champ-annee").hidden = !c.chronologie;
-      $("#champ-de").hidden = c.id !== "peuples";
+      $("#champ-de").hidden = true;
       $("#champ-analyse").hidden = c.id !== "personnages";
       if (typeof majAnalyse === "function") majAnalyse();
       const remplies = lireInfos().filter((i) => i.valeur.trim());
@@ -1317,7 +1321,7 @@
   function formuleCote(c) {
     const p = [`1d${DE} (<b>${c.de}</b>)`];
     if (c.bonus_race) p.push(`${signe(c.bonus_race)} ${esc(c.race || "race")}`);
-    if (c.bonus_perso) p.push(`${signe(c.bonus_perso)} fiche`);
+    if (c.bonus_perso) p.push(`${signe(c.bonus_perso)} perso`);
     if (c.bonus_extra) p.push(`${signe(c.bonus_extra)} bonus`);
     return p.join(" ");
   }
@@ -1354,12 +1358,11 @@
       <div class="cote" id="${id}">
         <div class="cote-titre">${ic} ${titre}</div>
         <label>Personnage<select class="c-perso">${optPersos}</select></label>
-        <label>Race<select class="c-race">${optRaces}</select></label>
         <div class="c-formule"></div>
       </div>`;
     return `
       <div class="entete-page"><div><h1><span class="ic-titre">🎲</span>Dés</h1>
-        <p class="discret">Chaque lancer : <b>1d${DE}</b> + bonus de la <b>race</b> + bonus de la <b>fiche</b> du personnage (analysée automatiquement, jusqu'à +${CFG_DES.BONUS_MAX}).</p></div></div>
+        <p class="discret">Chaque lancer : <b>1d${DE}</b> + le bonus du <b>personnage</b> (jusqu'à +${CFG_DES.BONUS_MAX}), qui tient compte de sa race et de tout ce que dit sa fiche.</p></div></div>
 
       ${estMembre() ? `
       <section class="panneau">
@@ -1376,19 +1379,11 @@
       <h2 class="titre-section">Derniers lancers <button class="lien petit-texte" id="rafraichir-lancers">↻ actualiser</button></h2>
       <ol class="lancers" id="liste-lancers">${lancers.map((l) => htmlLancer(l, auteurs)).join("") || `<p class="discret">Aucun lancer pour l'instant.</p>`}</ol>
 
-      <h2 class="titre-section">Dés des races</h2>
-      <p class="discret">Chaque race écrite dans la case « Race / Peuple » d'un personnage a son dé : <b>1d${DE} + bonus</b>. Une nouvelle race apparaît ici automatiquement.${estMembre() ? " Modifie les bonus puis appuie sur 💾." : ""}</p>
-      ${estMembre() && aRegler.length ? `<button class="btn btn-or" id="appliquer-propositions">💡 Utiliser les dés proposés pour les ${aRegler.length} race${aRegler.length > 1 ? "s" : ""} à régler</button>` : ""}
-      ${races.length ? `<div class="table-wrap"><table class="table table-des">
-        <thead><tr><th>Race</th>${TYPES_DES.map((t) => `<th>${infoType(t).icone} ${infoType(t).nom}</th>`).join("")}${estMembre() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${races.map((r) => { const d = deRace(desRaces, r.cle); return `<tr>
-          <td>${r.fiche ? `<a href="#/f/${encodeURIComponent(r.fiche.id)}">${esc(r.nom)}</a>` : esc(r.nom)}${d.nouveau ? ' <span class="badge-nouveau">à régler</span>' : ""}<br><small class="discret">${r.persos.length} perso${r.persos.length > 1 ? "s" : ""}</small>
-            ${(() => { const p = proposerRace(r.cle, r.fiche && pages.des.etat.fichesRaces.get(r.fiche.id)); return p && estMembre() && (d.nouveau || TYPES_DES.some((t) => (d[CLE_RACE[t]] | 0) !== p[t])) ? `<div class="proposition">💡 ${p.source === "fiche" ? "D'après sa fiche" : "Proposé"} : ${htmlProposition(p)} <button class="lien" data-proposer="${esc(r.cle)}">utiliser</button></div>` : ""; })()}</td>
-          ${TYPES_DES.map((t) => estMembre()
-            ? `<td><input type="number" inputmode="numeric" class="r-${t}" data-race="${esc(r.cle)}" value="${d[CLE_RACE[t]] | 0}"></td>`
-            : `<td>${signe(d[CLE_RACE[t]] | 0)}</td>`).join("")}
-          ${estMembre() ? `<td><button class="btn petit" data-sauver-race="${esc(r.cle)}">💾</button></td>` : ""}</tr>`; }).join("")}</tbody>
-      </table></div>` : vide("Aucune race pour l'instant. Remplis la case « Race / Peuple » d'un personnage : son dé apparaîtra ici.")}`;
+      ${estMembre() && persos.length ? `
+      <h2 class="titre-section">🤖 Bonus des personnages par l'IA</h2>
+      <p class="discret">L'IA lit la fiche de chaque personnage (race, pouvoirs, histoire…) et propose ses bonus d'attaque, de défense et de soutien, de 0 à +${CFG_DES.BONUS_MAX}. Rien n'est appliqué sans votre accord.</p>
+      <button class="btn" id="ia-des-tous-bouton">🤖 Faire évaluer les ${persos.length} personnage${persos.length > 1 ? "s" : ""}</button>
+      <div id="ia-des-tous"></div>` : ""}`;
   };
 
   pages.des.apres = (_, params) => {
@@ -1411,7 +1406,7 @@
     const sensDe = (el) => (el.id === "cote-d" ? "defense" : el.id === "cote-s" ? sens : "attaque");
     const lireCote = (el) => {
       const s = sensDe(el);
-      const perso = indexParId.get($(".c-perso", el).value), race = etat.races.get($(".c-race", el).value);
+      const perso = indexParId.get($(".c-perso", el).value), race = null;
       const complet = perso && etat.completes.get(perso.id);
       const an = complet ? bonusFiche(complet, etat.des) : null;
       return {
@@ -1429,10 +1424,10 @@
     const formule = (c) => {
       const p = [`1d${DE}`];
       if (c.bonus_race) p.push(`${signe(c.bonus_race)} <span class="discret">(${esc(c.race)})</span>`);
-      if (c.bonus_perso) p.push(`${signe(c.bonus_perso)} <span class="discret">(fiche)</span>`);
+      if (c.bonus_perso) p.push(`${signe(c.bonus_perso)} <span class="discret">(perso)</span>`);
       const min = 1 + c.bonus_race + c.bonus_perso;
       return `<b>${p.join(" ")}</b><br><span class="discret petit-texte">résultat entre ${min} et ${min + DE - 1}</span>` +
-        (c.fiche_id ? `<div class="c-mots">${c._manuel ? "Bonus de fiche réglé à la main." : c._mots.length ? `Fiche analysée : ${c._mots.slice(0, 6).map(esc).join(", ")}` : "Aucun mot-clé trouvé dans la fiche pour ce type de lancer."}</div>` : "");
+        (c.fiche_id ? `<div class="c-mots">${c._manuel ? "Bonus réglé à la main." : c._mots.length ? `Fiche analysée : ${c._mots.slice(0, 6).map(esc).join(", ")}` : "Aucun mot-clé trouvé dans la fiche pour ce type de lancer."}</div>` : "");
     };
     const majFormules = () => $$(".cote").forEach((el) => ($(".c-formule", el).innerHTML = formule(lireCote(el))));
 
@@ -1465,10 +1460,49 @@
       } catch (e) { toast(e.message, "erreur"); ap.disabled = false; }
     };
 
+    const bt = $("#ia-des-tous-bouton");
+    if (bt) bt.onclick = async () => {
+      const persos = [...indexParId.values()].filter(estPerso);
+      const lots = [];
+      for (let i = 0; i < persos.length; i += 20) lots.push(persos.slice(i, i + 20));
+      if (lots.length > 1 && !confirm(`${persos.length} personnages : l'IA va les évaluer en ${lots.length} fois (${lots.length} utilisations de ta limite du jour). Continuer ?`)) return;
+      const zone = $("#ia-des-tous");
+      bt.disabled = true;
+      const toutes = [];
+      try {
+        for (const [i, lot] of lots.entries()) {
+          const stop = attenteIA(zone, lots.length > 1 ? [`Lot ${i + 1} sur ${lots.length} : l'IA lit les fiches…`, `Lot ${i + 1} sur ${lots.length} : évaluation en cours…`] : ["L'IA lit toutes les fiches…", "Elle évalue chaque personnage…", "Elle rédige ses explications…"]);
+          try { const r = await avecDelai(api.ia("des", { fiche_ids: lot.map((f) => f.id), max: CFG_DES.BONUS_MAX })); toutes.push(...r.propositions); }
+          finally { stop(); }
+        }
+      } catch (e) { zone.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; if (!toutes.length) { bt.disabled = false; return; } }
+      const peut = (p) => { const f = indexParId.get(p.fiche_id); return f && peutModifier(f); };
+      zone.insertAdjacentHTML("beforeend", `
+        <div class="table-wrap"><table class="table table-prop">
+          <thead><tr><th></th><th>Personnage</th>${TYPES_DES.map((t) => `<th>${infoType(t).icone}</th>`).join("")}</tr></thead>
+          <tbody>${toutes.map((p) => `<tr>
+            <td>${peut(p) ? `<input type="checkbox" class="coche-prop" data-id="${esc(p.fiche_id)}" checked>` : ""}</td>
+            <td><a href="#/f/${encodeURIComponent(p.fiche_id)}">${esc(p.titre)}</a>
+              <details><summary class="discret">pourquoi ?</summary>${TYPES_DES.map((t) => p.raisons[t] ? `<div class="petit-texte">${infoType(t).icone} ${esc(p.raisons[t])}</div>` : "").join("")}</details></td>
+            ${TYPES_DES.map((t) => `<td><b>${signe(p[t])}</b></td>`).join("")}</tr>`).join("")}</tbody>
+        </table></div>
+        ${toutes.some(peut) ? `<button class="btn btn-or" id="appliquer-prop">✔ Appliquer les bonus cochés</button>` : ""}
+        ${toutes.some((p) => !peut(p)) ? `<p class="discret petit-texte">Sans case à cocher : seul l'auteur de la fiche ou un admin peut appliquer ses bonus.</p>` : ""}`);
+      const ap2 = $("#appliquer-prop");
+      if (ap2) ap2.onclick = async () => {
+        const ids = $$(".coche-prop:checked").map((c) => c.dataset.id);
+        if (!ids.length) return toast("Coche au moins un personnage.", "erreur");
+        ap2.disabled = true;
+        try { for (const id of ids) { const p = toutes.find((x) => x.fiche_id === id); await api.majDes(id, p.attaque, p.defense, p.soutien); } toast(`Bonus appliqués à ${ids.length} personnage${ids.length > 1 ? "s" : ""}.`); router(); }
+        catch (e) { toast(e.message, "erreur"); ap2.disabled = false; }
+      };
+      bt.disabled = false;
+    };
+
     if (!$("#bouton-lancer")) return;
     const choisirPerso = async (el, id) => {
       const r = raceDuPerso(indexParId.get(id));
-      $(".c-race", el).value = r && etat.races.has(r.cle) ? r.cle : "";
+
       if (id && !etat.completes.has(id)) {
         $(".c-formule", el).innerHTML = `<span class="discret">Analyse de la fiche…</span>`;
         try { etat.completes.set(id, await api.lireFiche(id)); } catch (e) {}
@@ -1477,7 +1511,7 @@
     };
     $$(".cote").forEach((el) => {
       $(".c-perso", el).onchange = () => choisirPerso(el, $(".c-perso", el).value);
-      $(".c-race", el).onchange = majFormules;
+
     });
     $$(".mode").forEach((b) => (b.onclick = () => {
       mode = b.dataset.mode;
@@ -1491,7 +1525,7 @@
     if (pre && indexParId.get(pre)) {
       const f = indexParId.get(pre);
       if (estPerso(f)) for (const el of [$("#cote-a"), $("#cote-s")]) { $(".c-perso", el).value = f.id; choisirPerso(el, f.id); }
-      else if (estRace(f)) { for (const el of [$("#cote-a"), $("#cote-s")]) $(".c-race", el).value = cleRace(f.titre); majFormules(); }
+
     }
 
     $("#bouton-lancer").onclick = async () => {
@@ -1557,6 +1591,24 @@
       };
     };
     dessiner(a);
+  }
+
+  /* Propositions de bonus de dés par l'IA */
+  const ETAPES_DES = ["L'IA lit la fiche…", "Elle évalue l'attaque…", "…puis la défense…", "…et le soutien…", "Elle rédige ses explications…"];
+  function htmlPropositionDes(p, peut) {
+    return `<div class="prop-des">
+      <div class="pd-titre">🤖 Proposition de l'IA${p.titre ? " pour " + esc(p.titre) : ""}</div>
+      ${TYPES_DES.map((t) => `<div class="pd-ligne"><span>${infoType(t).icone} ${infoType(t).nom}</span><b>${signe(p[t] | 0)}</b>${p.raisons && p.raisons[t] ? `<small class="discret">${esc(p.raisons[t])}</small>` : ""}</div>`).join("")}
+      ${peut ? `<button class="btn btn-or petit" data-utiliser-des="${esc(p.fiche_id)}">✔ Utiliser ces bonus</button>` : `<p class="discret petit-texte">Seul l'auteur de la fiche ou un admin peut appliquer ces bonus.</p>`}
+    </div>`;
+  }
+  function brancherUtiliserDes(racine, propositions) {
+    $$("[data-utiliser-des]", racine).forEach((b) => (b.onclick = async () => {
+      const p = propositions.find((x) => x.fiche_id === b.dataset.utiliserDes);
+      b.disabled = true;
+      try { await api.majDes(p.fiche_id, p.attaque, p.defense, p.soutien); toast("Bonus de « " + p.titre + " » enregistrés (réglés à la main)."); router(); }
+      catch (e) { toast(e.message, "erreur"); b.disabled = false; }
+    }));
   }
 
   let conversationIA = [];

@@ -148,6 +148,32 @@ Réponds avec exactement ces quatre parties, dans cet ordre (écris « Rien à s
 ## Petites corrections
 (format : [[Fiche]] : correction)`;
 
+const CONSIGNE_DES = (max, titres) => `Tu évalues des personnages pour le système de dés d'Aetheria.
+Chaque lancer = 1d15 + le bonus du personnage. C'est ce bonus que tu proposes, de 0 à ${max}, pour chacun des trois types :
+- attaque : combat, armes, magie offensive, force, férocité
+- defense : protection, armure, esquive, résistance, endurance, boucliers
+- soutien : soin, guérison, aide, bénédictions, renforcer les alliés
+Échelle : 0 = rien dans ce domaine (personne ordinaire), ${Math.round(max / 3)} = guerrier ou mage aguerri, ${Math.round((2 * max) / 3)} = très puissant, ${max} = légendaire, quasi divin.
+Règles :
+- Il n'y a PAS de bonus de race séparé : tiens compte de la race ET de tout ce qui rend ce personnage unique (âge, entraînement, pouvoirs, rang, histoire, faiblesses). Deux personnages de la même race peuvent être très éloignés : un jeune vampire n'a rien à voir avec un vampire millénaire.
+- Compare les personnages entre eux et avec le reste du wiki pour rester cohérent.
+- Si la fiche ne dit rien sur un domaine, reste bas. Ne gonfle pas les chiffres.
+- Une raison = une phrase courte en français qui cite ce qui, dans la fiche, justifie le chiffre.
+Personnages à évaluer : ${titres.map((t) => "« " + t + " »").join(", ")}.
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour, sous cette forme :
+[{"titre":"…","attaque":0,"defense":0,"soutien":0,"raisons":{"attaque":"…","defense":"…","soutien":"…"}}]`;
+
+// Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
+function extraireJSON(t) {
+  const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
+  const x = m ? m[1] : String(t);
+  const i = [x.indexOf("["), x.indexOf("{")].filter((k) => k >= 0).sort((a, b) => a - b)[0];
+  const j = Math.max(x.lastIndexOf("]"), x.lastIndexOf("}"));
+  if (i === undefined || j < i) throw new ErreurIA("L'IA n'a pas renvoyé de proposition lisible. Réessaie.", 502);
+  try { return JSON.parse(x.slice(i, j + 1)); }
+  catch (e) { throw new ErreurIA("L'IA n'a pas renvoyé de proposition lisible. Réessaie.", 502); }
+}
+
 /* ---------- Appel de l'IA ---------- */
 // Coupe un appel trop long
 async function fetchLimite(url, options, ms) {
@@ -244,7 +270,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
-    if (!["fiche", "global", "question"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -262,6 +288,18 @@ Deno.serve(async (req) => {
         content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE À ANALYSER\n${ficheTexte(cible, true, 60000)}` +
           (mom.length ? `\nMoments marquants de cette fiche :\n${mom.map((m) => "- " + (m.quand ? m.quand + " : " : "") + nettoyer(m.texte)).join("\n")}` : "") +
           `\n\n# CONSIGNE\n${CONSIGNE_FICHE(cible)}`,
+      }];
+    } else if (mode === "des") {
+      // un ou plusieurs personnages (25 max par appel)
+      const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : [corps.fiche_id]).filter(Boolean).slice(0, 25);
+      var cibles = fiches.filter((f) => ids.includes(f.id));
+      if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
+      var maxDes = Math.max(1, Math.min(100, parseInt(corps.max, 10) || 30));
+      messages = [{
+        role: "user",
+        content: `${contexteWiki(fiches, moments, { cibleId: cibles.length === 1 ? cibles[0].id : null })}` +
+          (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
+          `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre))}`,
       }];
     } else if (mode === "global") {
       messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_GLOBALE}` }];
@@ -283,6 +321,23 @@ Deno.serve(async (req) => {
     const rep = await appelerIA(SYSTEME, messages);
     const texte = rep.texte.trim();
     const restant = await compter();
+
+    if (mode === "des") {
+      let liste = extraireJSON(texte);
+      if (!Array.isArray(liste)) liste = [liste];
+      const borne = (n) => Math.max(0, Math.min(maxDes, Math.round(Number(n) || 0)));
+      const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const propositions = cibles.map((f, i) => {
+        const p = liste.find((x) => norm(x.titre) === norm(f.titre)) || (cibles.length === 1 ? liste[0] : liste[i]) || {};
+        const r = p.raisons || {};
+        return {
+          fiche_id: f.id, titre: f.titre,
+          attaque: borne(p.attaque), defense: borne(p.defense ?? p["défense"]), soutien: borne(p.soutien),
+          raisons: { attaque: String(r.attaque || "").slice(0, 300), defense: String(r.defense || r["défense"] || "").slice(0, 300), soutien: String(r.soutien || "").slice(0, 300) },
+        };
+      });
+      return reponse({ propositions, restant, modele: rep.modele });
+    }
 
     let analyse = null;
     if (mode !== "question") {

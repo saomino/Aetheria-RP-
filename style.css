@@ -519,3 +519,16 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .ai-etape { font: 600 0.9rem system-ui, sans-serif; color: var(--ether); }
 .ai-temps { font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); margin-top: 2px; }
 .erreur-note { border-left-color: var(--rouge); background: rgba(224, 112, 112, 0.1); }
+
+/* Propositions de dés par l'IA */
+.bd-ia { width: 100%; }
+.prop-des { margin-top: 10px; padding: 12px 14px; border: 1px solid rgba(127, 200, 248, 0.5); border-radius: 12px; background: rgba(127, 200, 248, 0.06); }
+.pd-titre { font: 600 0.85rem system-ui, sans-serif; color: var(--ether); margin-bottom: 6px; }
+.pd-ligne { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; padding: 6px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); font: 0.9rem system-ui, sans-serif; }
+.pd-ligne b { color: var(--or-vif); font: 700 1rem var(--titres); }
+.pd-ligne small { grid-column: 1 / -1; font-size: 0.78rem; }
+.prop-des .btn { margin-top: 10px; }
+.table-prop td { vertical-align: top; }
+.table-prop details summary { cursor: pointer; font-size: 0.75rem; }
+#ia-des-tous { margin: 12px 0 18px; }
+#ia-des-tous-bouton { margin-bottom: 4px; }

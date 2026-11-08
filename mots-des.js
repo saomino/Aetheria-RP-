@@ -11,8 +11,8 @@
 
 window.AETHERIA_DES = {
   DE: 15,            // tout le monde lance 1d15
-  BONUS_MAX: 15,     // bonus de fiche maximum
-  POINTS_POUR_MAX: 18, // nombre de "points" de mots-clés pour atteindre le maximum
+  BONUS_MAX: 30,     // bonus maximum d'un personnage
+  POINTS_POUR_MAX: 30, // nombre de "points" de mots-clés pour atteindre le maximum
 
   /* Dés PROPOSÉS pour les races (attaque, défense, soutien).
      Ce sont juste des suggestions : on peut toujours les changer dans l'onglet 🎲 Dés.
