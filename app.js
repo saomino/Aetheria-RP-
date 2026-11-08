@@ -117,6 +117,7 @@
       /^\/(wiki|c|f|nouveau|editer)/.test(route) ? "wiki" :
       route.startsWith("/recherche") ? "wiki" :
       route.startsWith("/des") ? "des" :
+      route.startsWith("/ia") ? "wiki" :
       /^\/(joueurs|joueur)/.test(route) ? "joueurs" :
       route.startsWith("/roue") ? "roue" : "moi";
     $("#entete").innerHTML = `
@@ -637,6 +638,7 @@
         <div class="hero-stats"><span><b>${fiches.length}</b> fiche${fiches.length > 1 ? "s" : ""}</span><span><b>${auteurs.size}</b> joueur${auteurs.size > 1 ? "s" : ""}</span></div>
         <div class="hero-actions">
           ${estMembre() ? `<a class="btn btn-or" href="#/nouveau">Créer une fiche</a>` : !m ? `<a class="btn btn-or" href="#/connexion">Se connecter</a>` : ""}
+          <a class="btn" href="#/ia">🤖 Assistant IA</a>
         </div>
       </section>
       <h2 class="titre-section">Explorer le monde</h2>
@@ -651,6 +653,7 @@
     const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
     return `
       <div class="entete-page"><div><h1><span class="ic-titre">📚</span>Wiki</h1><p class="discret">${fiches.length} fiche${fiches.length > 1 ? "s" : ""} au total</p></div></div>
+      <a class="carte-ia" href="#/ia"><span class="ci-ic">🤖</span><span><b>Assistant IA</b><br><small>Pose une question sur le lore, ou fais vérifier la cohérence du wiki.</small></span><span class="lc-fl">›</span></a>
       <form class="filtres" id="wiki-recherche" role="search"><input type="search" name="q" placeholder="🔍 Rechercher une fiche…"><button class="btn">Chercher</button></form>
       ${choixCategorie(null, fiches)}
       <h2 class="titre-section">Toutes les fiches</h2>
@@ -764,6 +767,11 @@
           </section>`;
         })() : ""}
 
+        <section class="boite-ia" id="boite-ia">
+          <div class="bi-titre">🤖 Avis de l'archiviste <small class="discret">(IA)</small></div>
+          <div id="ia-contenu"><span class="discret">Chargement…</span></div>
+        </section>
+
         <section class="moments">
           <h2 class="titre-section">Moments marquants ${moments.length ? `<span class="discret petit-texte">${moments.length}</span>` : ""}</h2>
           ${estMembre() ? `
@@ -788,6 +796,7 @@
       </article>`;
   };
   pages.fiche.apres = async (id) => {
+    brancherAnalyseFiche(id);
     brancherSuppressionMoments();
     $("#partager").onclick = async () => {
       const [f, auteurs] = await Promise.all([api.lireFiche(id), auteursMap()]);
@@ -1501,6 +1510,105 @@
     };
   };
 
+  /* ---------- Assistant IA ---------- */
+  const NOTE_IA = "L'IA propose, elle ne modifie rien. Elle peut se tromper : vérifie toujours.";
+  const htmlAnalyseIA = (a, auteurs) => `
+    <div class="ia-meta">${dateFr(a.cree_le)}${auteurs && auteurs.get(a.auteur_id) ? " · demandé par " + esc(auteurs.get(a.auteur_id).pseudo) : ""}</div>
+    <div class="contenu ia-texte">${markdown(a.contenu)}</div>`;
+
+  async function brancherAnalyseFiche(id) {
+    const zone = $("#ia-contenu");
+    if (!zone) return;
+    const [a, auteurs] = await Promise.all([api.derniereAnalyse(id), auteursMap()]);
+    await majIndexTitres();
+    const dessiner = (analyse, msg) => {
+      zone.innerHTML = `
+        ${analyse ? htmlAnalyseIA(analyse, auteurs) : `<p class="discret">${msg || "Pas encore d'analyse pour cette fiche."}</p>`}
+        ${estMembre() ? `<button class="btn petit ${analyse ? "" : "btn-or"}" id="lancer-ia">🤖 ${analyse ? "Relancer l'analyse" : "Analyser cette fiche"}</button>` : ""}
+        <p class="discret petit-texte">${NOTE_IA}</p>`;
+      const b = $("#lancer-ia");
+      if (b) b.onclick = async () => {
+        b.disabled = true; b.textContent = "🤖 L'archiviste lit le wiki…";
+        try {
+          const r = await api.ia("fiche", { fiche_id: id });
+          dessiner(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString(), auteur_id: moi().user.id });
+          if (typeof r.restant === "number") toast(`Analyse terminée. Il te reste ${r.restant} utilisation${r.restant > 1 ? "s" : ""} aujourd'hui.`);
+        } catch (e) { toast(e.message, "erreur"); b.disabled = false; b.textContent = "🤖 Réessayer"; }
+      };
+    };
+    dessiner(a);
+  }
+
+  let conversationIA = [];
+  pages.ia = async () => {
+    await majIndexTitres();
+    const [globale, auteurs] = await Promise.all([api.derniereAnalyse(null), auteursMap()]);
+    pages.ia.auteurs = auteurs;
+    const idees = ["Résume-moi le lore d'Aetheria", "Quelles races existent et qui en fait partie ?", "Y a-t-il des contradictions dans la chronologie ?", "Aide-moi à créer un personnage cohérent avec le monde"];
+    return `
+      <div class="entete-page"><div><div class="fil"><a href="#/wiki">Wiki</a> › Assistant IA</div><h1><span class="ic-titre">🤖</span>Assistant IA</h1>
+        <p class="discret">L'archiviste a lu tout le wiki. Pose-lui une question ou demande-lui de vérifier la cohérence. ${NOTE_IA}</p></div></div>
+
+      <section class="panneau">
+        <h2>💬 Demande à l'archiviste</h2>
+        <div class="chat" id="chat">${conversationIA.map((m) => bulle(m)).join("") || `<div class="idees">${idees.map((q) => `<button class="idee" data-idee="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}</div>
+        ${estMembre() ? `<form class="chat-saisie" id="form-chat">
+          <textarea name="q" rows="2" maxlength="2000" placeholder="Ex : Qui sont les ennemis de Raphaël ?" required></textarea>
+          <button class="btn btn-or">Envoyer</button>
+        </form>
+        ${conversationIA.length ? `<button class="lien petit-texte" id="nouvelle-conv">Nouvelle conversation</button>` : ""}` : `<p class="note">Connecte-toi avec un compte membre pour utiliser l'assistant.</p>`}
+      </section>
+
+      <section class="panneau">
+        <h2>🔎 Cohérence de tout le wiki</h2>
+        <div id="ia-globale">${globale ? htmlAnalyseIA(globale, auteurs) : `<p class="discret">Aucune analyse globale pour l'instant.</p>`}</div>
+        ${estMembre() ? `<button class="btn ${globale ? "" : "btn-or"}" id="lancer-globale">🔎 ${globale ? "Relancer l'analyse du wiki" : "Analyser tout le wiki"}</button>` : ""}
+      </section>`;
+  };
+  const bulle = (m) => `<div class="bulle ${m.role === "user" ? "bulle-moi" : "bulle-ia"}">${m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : `<div class="contenu ia-texte">${markdown(m.content)}</div>`}</div>`;
+
+  pages.ia.apres = () => {
+    const chat = $("#chat");
+    const defiler = () => chat.lastElementChild && chat.lastElementChild.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const envoyer = async (q) => {
+      q = (q || "").trim();
+      if (!q) return;
+      const f = $("#form-chat"); if (f) { f.q.value = ""; $("button", f).disabled = true; }
+      if (!conversationIA.length) chat.innerHTML = "";
+      conversationIA.push({ role: "user", content: q });
+      chat.insertAdjacentHTML("beforeend", bulle({ role: "user", content: q }) + `<div class="bulle bulle-ia attente" id="attente">🤖 L'archiviste réfléchit…</div>`);
+      defiler();
+      try {
+        const r = await api.ia("question", { question: q, historique: conversationIA.slice(0, -1).slice(-8) });
+        conversationIA.push({ role: "assistant", content: r.texte });
+        $("#attente").outerHTML = bulle({ role: "assistant", content: r.texte });
+      } catch (e) {
+        conversationIA.pop();
+        $("#attente").outerHTML = `<div class="bulle bulle-ia erreur-ia">⚠️ ${esc(e.message)}</div>`;
+      }
+      if (f) $("button", f).disabled = false;
+      defiler();
+    };
+    $$("[data-idee]").forEach((b) => (b.onclick = () => estMembre() ? envoyer(b.dataset.idee) : toast("Connecte-toi pour utiliser l'assistant.", "erreur")));
+    const f = $("#form-chat");
+    if (f) {
+      f.onsubmit = (e) => { e.preventDefault(); envoyer(f.q.value); };
+      f.q.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && window.innerWidth > 760) { e.preventDefault(); envoyer(f.q.value); } };
+    }
+    const n = $("#nouvelle-conv");
+    if (n) n.onclick = () => { conversationIA = []; router(); };
+    const g = $("#lancer-globale");
+    if (g) g.onclick = async () => {
+      g.disabled = true; g.textContent = "🔎 L'archiviste lit tout le wiki… (ça peut prendre une minute)";
+      try {
+        const r = await api.ia("global");
+        $("#ia-globale").innerHTML = htmlAnalyseIA(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString() }, pages.ia.auteurs);
+        g.textContent = "🔎 Relancer l'analyse du wiki";
+      } catch (e) { toast(e.message, "erreur"); g.textContent = "🔎 Réessayer"; }
+      g.disabled = false;
+    };
+  };
+
   /* ---------- Roue de la chance ---------- */
   const COULEURS_ROUE = ["#e3b866", "#3b4a8c", "#7fc8f8", "#6a4c93", "#c9706b", "#2f6f6a", "#f5d08a", "#4b3b78", "#8fb8de", "#9c5a7a"];
   const lireRoue = () => { try { return JSON.parse(localStorage.getItem("aetheria_roue") || "[]"); } catch (e) { return []; } };
@@ -1846,7 +1954,7 @@
     const routes = {
       "": [pages.accueil], wiki: [pages.wiki], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
       recherche: [pages.recherche], joueurs: [pages.joueurs], joueur: [pages.joueur], connexion: [pages.connexion],
-      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], des: [pages.des],
+      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], des: [pages.des], ia: [pages.ia],
     };
     const [page] = routes[morceaux[0] || ""] || [null];
     const arg = morceaux[0] === "nouveau" ? null : morceaux[1];

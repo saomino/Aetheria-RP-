@@ -358,6 +358,36 @@ from public.des d join public.fiches f on f.id = d.fiche_id
 where f.categorie = 'peuples'
 on conflict (cle) do nothing;
 
+-- ---------- Assistant IA ---------------------------------------------
+-- Analyses enregistrées (l'IA propose, elle ne modifie jamais les fiches).
+-- Écrites uniquement par la fonction "aetheria-ia" (clé serveur).
+create table if not exists public.analyses_ia (
+  id         uuid primary key default gen_random_uuid(),
+  cible      text not null check (cible in ('fiche', 'global')),
+  fiche_id   uuid references public.fiches(id) on delete cascade,
+  contenu    text not null,
+  modele     text,
+  auteur_id  uuid references public.profils(id) on delete set null,
+  cree_le    timestamptz not null default now()
+);
+create index if not exists analyses_ia_fiche_idx on public.analyses_ia (fiche_id, cree_le desc);
+alter table public.analyses_ia enable row level security;
+drop policy if exists "analyses lecture" on public.analyses_ia;
+create policy "analyses lecture" on public.analyses_ia for select using (true);
+drop policy if exists "analyses suppression admin" on public.analyses_ia;
+create policy "analyses suppression admin" on public.analyses_ia for delete to authenticated using (public.est_admin());
+
+-- Compteur d'utilisation par jour (limite anti-abus)
+create table if not exists public.ia_usage (
+  user_id  uuid not null references public.profils(id) on delete cascade,
+  jour     date not null default current_date,
+  nb       int not null default 0,
+  primary key (user_id, jour)
+);
+alter table public.ia_usage enable row level security;
+drop policy if exists "ia_usage lecture" on public.ia_usage;
+create policy "ia_usage lecture" on public.ia_usage for select to authenticated using (user_id = auth.uid() or public.est_admin());
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
