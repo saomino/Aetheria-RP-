@@ -19,7 +19,7 @@ const CLE = (Deno.env.get("IA_CLE") || "").trim();
 // Par défaut : Gemini Flash (version complète, gratuite). Plus rapide mais moins fin : IA_MODELE = gemini-flash-lite-latest
 const MODELE = (Deno.env.get("IA_MODELE") || (FOURNISSEUR === "gemini" ? "gemini-flash-latest" : "")).trim();
 // Modèles de secours si le modèle principal est surchargé (séparés par des virgules)
-const SECOURS = (Deno.env.get("IA_MODELES_SECOURS") || (FOURNISSEUR === "gemini" ? "gemini-2.5-flash,gemini-flash-lite-latest" : ""))
+const SECOURS = (Deno.env.get("IA_MODELES_SECOURS") || (FOURNISSEUR === "gemini" ? "gemini-3.8-flash,gemini-flash-lite-latest" : ""))
   .split(",").map((x) => x.trim()).filter((x) => x && x !== MODELE);
 const LIMITE_JOUR = parseInt(Deno.env.get("IA_LIMITE_JOUR") || "20", 10);
 const MAX_CARACTERES = parseInt(Deno.env.get("IA_MAX_CARACTERES") || (FOURNISSEUR === "gemini" ? "500000" : "150000"), 10);
@@ -158,38 +158,39 @@ async function fetchLimite(url, options, ms) {
   finally { clearTimeout(t); }
 }
 
-const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms));
-// Surcharge / lenteur / limite momentanée : on passe au modèle suivant
-const PASSAGER = (e) => [429, 500, 502, 503, 504].includes(e.code) || /overload|high demand|unavailable|try again|exhausted|trop lent/i.test(e.message);
 
 // IA de secours d'une autre marque (facultatif) : IA_SECOURS_FOURNISSEUR, IA_SECOURS_CLE, IA_SECOURS_MODELE
 const SECOURS_F = (Deno.env.get("IA_SECOURS_FOURNISSEUR") || "").toLowerCase().trim();
 const SECOURS_CLE = (Deno.env.get("IA_SECOURS_CLE") || "").trim();
 const SECOURS_MODELE = (Deno.env.get("IA_SECOURS_MODELE") || (SECOURS_F === "gemini" ? "gemini-flash-latest" : "")).trim();
 const BUDGET_TOTAL = 110000;   // la fonction Supabase est coupée vers 150 s : on garde de la marge
-const BUDGET_ESSAI = 45000;    // un modèle qui ne répond pas en 45 s est abandonné
+const BUDGET_ESSAI = 40000;    // un modèle qui ne répond pas en 40 s est abandonné
 
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
   if (!MODELE) throw new ErreurIA(`Il manque le secret IA_MODELE pour le fournisseur « ${FOURNISSEUR} ».`, 500);
-  const essais = [MODELE, ...SECOURS].map((m) => ({ f: FOURNISSEUR, cle: CLE, m }));
+  // Ordre : modèle principal → IA de secours (autre marque) → autres modèles de la marque principale
+  const essais = [{ f: FOURNISSEUR, cle: CLE, m: MODELE }];
   if (SECOURS_F && SECOURS_CLE && SECOURS_MODELE) essais.push({ f: SECOURS_F, cle: SECOURS_CLE, m: SECOURS_MODELE });
+  for (const m of SECOURS) essais.push({ f: FOURNISSEUR, cle: CLE, m });
   const debut = Date.now();
-  let derniere;
-  for (const [i, e] of essais.entries()) {
+  const echecs = [];
+  for (const e of essais) {
     const reste = BUDGET_TOTAL - (Date.now() - debut);
     if (reste < 8000) break;
-    if (i > 0) await attendre(1000);
     try {
       return { texte: await appelerModele(e.f, e.cle, e.m, systeme, messages, Math.min(BUDGET_ESSAI, reste)), modele: `${e.f}/${e.m}` };
     } catch (err) {
-      derniere = err;
+      // quelle que soit l'erreur (surcharge, lenteur, modèle retiré, clé refusée…) on passe au suivant
+      const raison = err.code === 504 ? "trop lent" : err.message.replace(/^L'IA \([^)]*\) a refusé la demande : /, "");
+      echecs.push(`${e.m} : ${raison.slice(0, 160)}`);
       console.warn(`${e.f}/${e.m} : ${err.message}`);
-      if (!PASSAGER(err)) throw err;
     }
   }
-  throw new ErreurIA("L'IA est surchargée en ce moment (trop lente ou trop demandée). Réessaie dans quelques minutes." +
-    (SECOURS_CLE ? "" : " Astuce : ajoute une IA de secours (Grok ou ChatGPT) dans les secrets Supabase."), 503);
+  const surcharge = echecs.every((x) => /trop lent|high demand|overload|unavailable|exhausted|try again|429|503/i.test(x));
+  throw new ErreurIA((surcharge ? "L'IA est surchargée en ce moment. Réessaie dans quelques minutes." : "Aucune IA n'a pu répondre.") +
+    (SECOURS_CLE ? "" : " Astuce : ajoute une IA de secours (ChatGPT ou Grok) dans les secrets Supabase.") +
+    "\nDétail : " + echecs.join(" | "), 503);
 }
 
 async function appelerModele(fournisseur, cle, modele, systeme, messages, delai) {

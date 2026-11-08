@@ -1513,7 +1513,7 @@
   /* ---------- Assistant IA ---------- */
   const NOTE_IA = "L'IA propose, elle ne modifie rien. Elle peut se tromper : vérifie toujours.";
   const htmlAnalyseIA = (a, auteurs) => `
-    <div class="ia-meta">${dateFr(a.cree_le)}${auteurs && auteurs.get(a.auteur_id) ? " · demandé par " + esc(auteurs.get(a.auteur_id).pseudo) : ""}</div>
+    <div class="ia-meta">${dateFr(a.cree_le)}${auteurs && auteurs.get(a.auteur_id) ? " · demandé par " + esc(auteurs.get(a.auteur_id).pseudo) : ""}${a.modele ? " · répondu par " + esc(/openai/.test(a.modele) ? "ChatGPT" : /xai|grok/.test(a.modele) ? "Grok" : /claude/.test(a.modele) ? "Claude" : "Gemini") : ""}</div>
     <div class="contenu ia-texte">${markdown(a.contenu)}</div>`;
 
   // Écran d'attente : animation, compteur de secondes, étapes
@@ -1553,7 +1553,7 @@
           stop();
           dessiner(r.analyse || { contenu: r.texte, cree_le: new Date().toISOString(), auteur_id: moi().user.id });
           if (typeof r.restant === "number") toast(`Analyse terminée. Il te reste ${r.restant} utilisation${r.restant > 1 ? "s" : ""} aujourd'hui.`);
-        } catch (e) { stop(); dessiner(analyse, null); zone.insertAdjacentHTML("afterbegin", `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`); }
+        } catch (e) { stop(); dessiner(analyse, null); zone.insertAdjacentHTML("afterbegin", `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`); }
       };
     };
     dessiner(a);
