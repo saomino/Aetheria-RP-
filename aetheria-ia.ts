@@ -259,6 +259,26 @@ Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
 "contenu":"le texte de la fiche en Markdown, avec ces parties : ## Apparence, ## Personnalité, ## Histoire, ## Capacités, ## Relations, ## Objectifs et secrets. Utilise des \\n pour les retours à la ligne. 350 à 700 mots."}`;
 };
 
+const CONSIGNE_CORRIGER = (titre, avis) => `Corrige la fiche « ${titre} » ci-dessous.
+${avis ? "Voici le dernier avis de l'archiviste sur cette fiche, à prendre en compte :\n" + avis + "\n" : ""}
+Ce que tu dois corriger :
+- les INCOHÉRENCES avec le reste du wiki (dates, âges, races, lieux, liens familiaux, titres, chronologie) et à l'intérieur de la fiche ;
+- l'orthographe, la grammaire, la ponctuation, les répétitions maladroites ;
+- les cases d'infos vides ou fausses quand la bonne information figure dans le texte ou dans le wiki.
+
+Ce que tu ne dois PAS faire :
+- changer le style, la voix, le ton ou la longueur de la fiche : c'est l'œuvre du joueur, corrige sans réécrire ;
+- inventer de nouveaux événements, pouvoirs ou personnages ; supprimer des passages (sauf une contradiction évidente) ;
+- toucher aux liens [[…]], aux balises de couleur comme [rouge]…[/rouge], aux images ![](…) et aux titres ## : garde-les exactement à leur place ;
+- changer le titre de la fiche.
+Quand une incohérence ne peut pas être corrigée sans choisir entre deux versions de l'histoire, NE la corrige PAS : signale-la dans "a_verifier".
+
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
+{"resume":"…","infos":{"Nom de la case":"valeur", …},"contenu":"le texte complet corrigé en Markdown (\\n pour les retours à la ligne)",
+"changements":["une phrase par correction faite, ex : Âge corrigé de 30 à 300 ans pour correspondre à la chronologie"],
+"a_verifier":["incohérences laissées telles quelles, que le joueur doit trancher"]}
+S'il n'y a rien à corriger, renvoie le texte inchangé et "changements":[].`;
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -366,7 +386,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
-    if (!["fiche", "global", "question", "des", "scenario", "creer"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -396,6 +416,15 @@ Deno.serve(async (req) => {
         content: `${contexteWiki(fiches, moments, { cibleId: cibles.length === 1 ? cibles[0].id : null })}` +
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
           `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes), (Array.isArray(corps.uniques) && corps.uniques.length ? corps.uniques.slice(0, 10).map((u) => String(u).slice(0, 40)).join(", ") : "celesto demoniaque"))}`,
+      }];
+    } else if (mode === "corriger") {
+      cible = fiches.find((x) => x.id === corps.fiche_id);
+      if (!cible) throw new ErreurIA("Fiche introuvable.", 404);
+      const av = await db(`analyses_ia?fiche_id=eq.${cible.id}&select=contenu&order=cree_le.desc&limit=1`).catch(() => []);
+      const brut = { titre: cible.titre, resume: cible.resume || "", infos: Object.fromEntries((cible.infos || []).map((i) => [i.cle, i.valeur || ""])), contenu: String(cible.contenu || "").slice(0, 60000) };
+      messages = [{
+        role: "user",
+        content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE À CORRIGER (texte exact)\n${JSON.stringify(brut)}\n\n# CONSIGNE\n${CONSIGNE_CORRIGER(cible.titre, av && av[0] ? String(av[0].contenu).slice(0, 6000) : "")}`,
       }];
     } else if (mode === "creer") {
       const choix = corps.choix && typeof corps.choix === "object" ? corps.choix : {};
@@ -428,6 +457,20 @@ Deno.serve(async (req) => {
     const rep = await appelerIA(SYSTEME, messages);
     const texte = rep.texte.trim();
     const restant = await compter();
+
+    if (mode === "corriger") {
+      const o = extraireJSON(texte);
+      const c = Array.isArray(o) ? o[0] : o;
+      if (!c || typeof c.contenu !== "string") throw new ErreurIA("L'IA n'a pas renvoyé de version corrigée lisible. Réessaie.", 502);
+      const infos = {};
+      for (const [k, v2] of Object.entries(c.infos || {})) if (v2 !== null && v2 !== undefined) infos[String(k).slice(0, 40)] = String(v2).slice(0, 150);
+      const liste = (x) => (Array.isArray(x) ? x : []).map((y) => String(y).slice(0, 300)).filter(Boolean).slice(0, 40);
+      return reponse({
+        correction: { resume: String(c.resume ?? cible.resume ?? "").slice(0, 400), infos, contenu: c.contenu.replace(/\\n/g, "\n").slice(0, 100000),
+          changements: liste(c.changements), a_verifier: liste(c.a_verifier) },
+        restant, modele: rep.modele,
+      });
+    }
 
     if (mode === "creer") {
       const o = extraireJSON(texte);

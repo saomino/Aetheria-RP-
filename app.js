@@ -862,6 +862,8 @@
       f = await api.lireFiche(id);
       if (!f) return vide("Fiche introuvable.");
       if (!peutModifier(f)) return vide("Tu ne peux modifier que tes propres fiches.");
+      const pm = pages.editeur.prefillModif;
+      if (pm && pm.id === id) { pages.editeur.prefillModif = null; f = { ...f, resume: pm.resume, infos: pm.infos, contenu: pm.contenu }; }
     }
     if (!peutPublier(f.categorie)) f.categorie = (CATS.find((c) => peutPublier(c.id)) || CATS[0]).id;
     if (!id) f.infos = catParId(f.categorie).champs.map((cle) => ({ cle, valeur: "" }));
@@ -1596,16 +1598,66 @@
   // Abandonne côté site si aucune réponse au bout de 2 min 30
   const avecDelai = (promesse) => Promise.race([promesse, new Promise((_, ko) => setTimeout(() => ko(new Error("Pas de réponse de l'IA au bout de 2 minutes. Réessaie plus tard.")), 150000))]);
 
+  /* Correction d'une fiche par l'IA : proposition → vérification → application */
+  async function corrigerFiche(id, z, bouton) {
+    bouton.disabled = true;
+    const stop = attenteIA(z, ["L'IA relit la fiche…", "Elle la compare au reste du wiki…", "Elle corrige les incohérences…", "Elle corrige l'orthographe…", "Elle prépare la liste des changements…"]);
+    try {
+      const [r, f] = await Promise.all([avecDelai(api.ia("corriger", { fiche_id: id })), api.lireFiche(id)]);
+      stop();
+      const c = r.correction;
+      const fusionInfos = () => {
+        const res = (f.infos || []).map((i) => { const k = Object.keys(c.infos).find((x) => normal(x) === normal(i.cle)); return { cle: i.cle, valeur: k !== undefined ? c.infos[k] : i.valeur }; });
+        for (const [cle, valeur] of Object.entries(c.infos)) if (valeur && !res.some((i) => normal(i.cle) === normal(cle))) res.push({ cle, valeur });
+        return res;
+      };
+      const raccourci = (f.contenu || "").length > 400 && c.contenu.length < (f.contenu || "").length * 0.6;
+      if (!c.changements.length && !c.a_verifier.length) { z.innerHTML = `<p class="note">✅ L'IA n'a rien trouvé à corriger dans cette fiche.</p>`; bouton.disabled = false; return; }
+      z.innerHTML = `<div class="prop-des correction">
+        <div class="pd-titre">✍️ Corrections proposées (${c.changements.length})</div>
+        ${c.changements.length ? `<ul>${c.changements.map((x) => `<li>${inline(esc(x))}</li>`).join("")}</ul>` : `<p class="discret">Aucune correction automatique.</p>`}
+        ${c.a_verifier.length ? `<div class="pd-titre">⚠️ À trancher par toi (non corrigé)</div><ul>${c.a_verifier.map((x) => `<li>${inline(esc(x))}</li>`).join("")}</ul>` : ""}
+        ${raccourci ? `<p class="note erreur-note">⚠️ Le texte corrigé est nettement plus court que l'original : vérifie qu'aucun passage n'a disparu avant d'appliquer.</p>` : ""}
+        <details><summary>Voir le texte corrigé</summary><div class="contenu ia-texte">${c.resume ? `<p><i>${esc(c.resume)}</i></p>` : ""}${markdown(c.contenu)}</div></details>
+        ${c.changements.length ? `<div class="rangee">
+          <button class="btn btn-or petit" id="appliquer-correction">✔ Appliquer les corrections</button>
+          <button class="btn petit" id="editer-correction">✎ Ouvrir dans l'éditeur</button>
+          <button class="lien" id="annuler-correction">Annuler</button></div>` : ""}
+      </div>`;
+      const ap = $("#appliquer-correction");
+      if (ap) ap.onclick = async () => {
+        if (!confirm("Remplacer le texte de la fiche par la version corrigée ?")) return;
+        ap.disabled = true;
+        try {
+          await api.modifierFiche(id, { categorie: f.categorie, titre: f.titre, resume: c.resume, image_url: f.image_url, infos: fusionInfos(), contenu: c.contenu, annee: f.annee, galerie: f.galerie });
+          toast("Fiche corrigée !"); router();
+        } catch (e) { toast(e.message, "erreur"); ap.disabled = false; }
+      };
+      const ed = $("#editer-correction");
+      if (ed) ed.onclick = () => { pages.editeur.prefillModif = { id, resume: c.resume, infos: fusionInfos(), contenu: c.contenu }; location.hash = "#/editer/" + encodeURIComponent(id); };
+      const an = $("#annuler-correction");
+      if (an) an.onclick = () => { z.innerHTML = ""; };
+    } catch (e) { stop(); z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; }
+    bouton.disabled = false;
+  }
+
   async function brancherAnalyseFiche(id) {
     const zone = $("#ia-contenu");
     if (!zone) return;
     const [a, auteurs] = await Promise.all([api.derniereAnalyse(id), auteursMap()]);
     await majIndexTitres();
+    const ficheIA = indexParId.get(id);
     const dessiner = (analyse, msg) => {
       zone.innerHTML = `
         ${analyse ? htmlAnalyseIA(analyse, auteurs) : `<p class="discret">${msg || "Pas encore d'analyse pour cette fiche."}</p>`}
-        ${estMembre() ? `<button class="btn petit ${analyse ? "" : "btn-or"}" id="lancer-ia">🤖 ${analyse ? "Relancer l'analyse" : "Analyser cette fiche"}</button>` : ""}
+        <div class="rangee">
+          ${estMembre() ? `<button class="btn petit ${analyse ? "" : "btn-or"}" id="lancer-ia">🤖 ${analyse ? "Relancer l'analyse" : "Analyser cette fiche"}</button>` : ""}
+          ${ficheIA && peutModifier(ficheIA) ? `<button class="btn petit" id="corriger-ia">✍️ Corriger la fiche</button>` : ""}
+        </div>
+        <div id="correction-ia"></div>
         <p class="discret petit-texte">${NOTE_IA}</p>`;
+      const bc = $("#corriger-ia");
+      if (bc) bc.onclick = () => corrigerFiche(id, $("#correction-ia"), bc);
       const b = $("#lancer-ia");
       if (b) b.onclick = async () => {
         const stop = attenteIA(zone, ETAPES_FICHE);

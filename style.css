@@ -560,3 +560,9 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .champ-libre { margin: 4px 0 16px; }
 .carte-ia.petite { margin-bottom: 14px; padding: 10px 14px; }
 .carte-ia.petite .ci-ic { font-size: 1.5rem; }
+
+.correction ul { margin: 4px 0 10px; padding-left: 1.2em; font: 0.88rem system-ui, sans-serif; }
+.correction li { margin-bottom: 4px; }
+.correction details { margin: 8px 0; }
+.correction summary { cursor: pointer; color: var(--or); font: 0.85rem system-ui, sans-serif; }
+#correction-ia { margin-top: 6px; }
