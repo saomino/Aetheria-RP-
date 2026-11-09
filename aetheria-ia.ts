@@ -229,6 +229,36 @@ Réponds avec exactement ces parties :
 (choix moraux, liens avec l'histoire des personnages, suites possibles)
 Reste concret et évocateur, sans pavés : des listes courtes.`;
 
+const CONSIGNE_CREER = (c, nomsPris) => {
+  const v = (x) => (x && String(x).trim() ? String(x).trim().slice(0, 300) : "au choix (invente ce qui est le plus cohérent avec le wiki)");
+  return `Crée la fiche d'un NOUVEAU personnage pour le wiki d'Aetheria, à partir des choix du joueur :
+- Race : ${v(c.race)}
+- Rôle dans l'histoire : ${v(c.role)}
+- Lieu de vie (royaume, ville, région) : ${v(c.lieu)}
+- Rang social ou métier : ${v(c.rang)}
+- Magie : ${v(c.magie)}
+- Faction : ${v(c.faction)}
+- Nom imposé : ${v(c.nom)}
+- Âge : ${v(c.age)}
+- Genre : ${v(c.genre)}
+- Idées du joueur : ${v(c.idees)}
+
+Règles :
+- RESPECTE strictement chaque choix du joueur. Pour ce qui est « au choix », décide toi-même de façon cohérente avec le wiki.
+- Le personnage doit s'intégrer au monde existant SANS rien contredire : réutilise les lieux, factions, peuples, divinités, magies et personnages des fiches quand c'est pertinent, et cite-les entre [[doubles crochets]] avec leur titre exact.
+- Respecte ce que le wiki dit de sa race (durée de vie, apparence, capacités, coutumes). Si la race n'a pas de fiche, reste plausible.
+- Si un rôle royal ou noble est choisi, vérifie qui règne déjà dans ce lieu d'après le wiki et place le personnage sans créer de contradiction (héritier, cadet, prétendant, souverain d'un autre territoire…).
+- « Magie : selon sa race » = décide d'après les capacités de la race. « Aucune magie » = aucun pouvoir magique.
+- N'utilise PAS un nom déjà pris : ${nomsPris || "(aucun)"}.
+- Ne te contente pas de clichés : donne-lui une vraie personnalité, des contradictions, un objectif, un secret.
+- Ne donne pas de chiffres de dés ni de bonus.
+
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
+{"titre":"Nom du personnage","resume":"une phrase d'accroche (moins de 250 caractères)",
+"infos":{"Race / Peuple":"…","Âge":"…","Rôle / Classe":"…","Affiliation":"…","Statut":"Vivant","Lieu d'origine":"…"},
+"contenu":"le texte de la fiche en Markdown, avec ces parties : ## Apparence, ## Personnalité, ## Histoire, ## Capacités, ## Relations, ## Objectifs et secrets. Utilise des \\n pour les retours à la ligne. 350 à 700 mots."}`;
+};
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -336,7 +366,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
-    if (!["fiche", "global", "question", "des", "scenario"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario", "creer"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -367,6 +397,11 @@ Deno.serve(async (req) => {
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
           `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes), (Array.isArray(corps.uniques) && corps.uniques.length ? corps.uniques.slice(0, 10).map((u) => String(u).slice(0, 40)).join(", ") : "celesto demoniaque"))}`,
       }];
+    } else if (mode === "creer") {
+      const choix = corps.choix && typeof corps.choix === "object" ? corps.choix : {};
+      if (!String(choix.race || "").trim()) throw new ErreurIA("Choisis au moins une race.");
+      const nomsPris = fiches.filter((x) => x.categorie === "personnages").map((x) => x.titre).slice(0, 400).join(", ");
+      messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_CREER(choix, nomsPris)}` }];
     } else if (mode === "scenario") {
       const mission = String(corps.mission || "").trim().slice(0, 300);
       const rang = String(corps.difficulte || "").trim().slice(0, 20);
@@ -393,6 +428,18 @@ Deno.serve(async (req) => {
     const rep = await appelerIA(SYSTEME, messages);
     const texte = rep.texte.trim();
     const restant = await compter();
+
+    if (mode === "creer") {
+      const o = extraireJSON(texte);
+      const fiche = Array.isArray(o) ? o[0] : o;
+      if (!fiche || !fiche.titre) throw new ErreurIA("L'IA n'a pas renvoyé de fiche lisible. Réessaie.", 502);
+      const infos = {};
+      for (const [k, v2] of Object.entries(fiche.infos || {})) if (v2 !== null && v2 !== undefined && String(v2).trim()) infos[String(k).slice(0, 40)] = String(v2).slice(0, 150);
+      return reponse({
+        fiche: { titre: String(fiche.titre).slice(0, 120), resume: String(fiche.resume || "").slice(0, 400), infos, contenu: String(fiche.contenu || "").replace(/\\n/g, "\n").slice(0, 30000) },
+        restant, modele: rep.modele,
+      });
+    }
 
     if (mode === "des") {
       let liste = extraireJSON(texte);

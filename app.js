@@ -117,7 +117,7 @@
       /^\/(wiki|c|f|nouveau|editer)/.test(route) ? "wiki" :
       route.startsWith("/recherche") ? "wiki" :
       route.startsWith("/des") ? "des" :
-      route.startsWith("/ia") ? "wiki" :
+      route.startsWith("/ia") || route.startsWith("/creer-ia") ? "wiki" :
       /^\/(joueurs|joueur)/.test(route) ? "joueurs" :
       route.startsWith("/roue") ? "roue" : "moi";
     $("#entete").innerHTML = `
@@ -653,6 +653,7 @@
     const [fiches, auteurs] = await Promise.all([majIndexTitres(), auteursMap()]);
     return `
       <div class="entete-page"><div><h1><span class="ic-titre">📚</span>Wiki</h1><p class="discret">${fiches.length} fiche${fiches.length > 1 ? "s" : ""} au total</p></div></div>
+      ${estMembre() ? `<a class="carte-ia" href="#/creer-ia"><span class="ci-ic">✨</span><span><b>Créer un personnage avec l'IA</b><br><small>Choisis sa race, son rôle, son royaume… l'IA écrit une fiche cohérente avec le wiki.</small></span><span class="lc-fl">›</span></a>` : ""}
       <a class="carte-ia" href="#/ia"><span class="ci-ic">🤖</span><span><b>Assistant IA</b><br><small>Pose une question sur le lore, ou fais vérifier la cohérence du wiki.</small></span><span class="lc-fl">›</span></a>
       <form class="filtres" id="wiki-recherche" role="search"><input type="search" name="q" placeholder="🔍 Rechercher une fiche…"><button class="btn">Chercher</button></form>
       ${choixCategorie(null, fiches)}
@@ -876,6 +877,7 @@
     return `
       <div class="entete-page"><div><div class="fil"><a href="#/">Accueil</a> › ${id ? "Modifier" : "Nouvelle fiche"}</div><h1>${id ? "Modifier la fiche" : "Nouvelle fiche"}</h1></div></div>
       <form class="editeur" id="editeur" autocomplete="off">
+        ${!id ? `<a class="carte-ia petite" href="#/creer-ia"><span class="ci-ic">✨</span><span><b>Créer un personnage avec l'IA</b><br><small>Réponds à quelques questions, l'IA écrit la fiche.</small></span><span class="lc-fl">›</span></a>` : ""}
         <div class="import-zone" id="import-zone">
           <label class="btn import-bouton">📄 Remplir depuis un fichier<input type="file" id="fichier-import" accept=".docx,.pdf,.txt,.md,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></label>
           <span class="discret petit-texte" id="import-etat">Word (.docx), PDF ou texte : le texte complet est ajouté à la fiche.</span>
@@ -1717,6 +1719,131 @@
     };
   };
 
+  /* ---------- Création de personnage avec l'IA (assistant pas à pas) ---------- */
+  const JOLIS_NOMS = {
+    "humain": "Humain", "hybride": "Hybride", "hybride humain bete": "Hybride humain-bête", "sirene": "Sirène", "elfe aile": "Elfe ailé",
+    "elfe noir": "Elfe noir", "oni": "Oni", "vampire": "Vampire", "demon": "Démon", "demon lie a un peche": "Démon lié à un péché",
+    "ange": "Ange", "ange lie a une vertu": "Ange lié à une vertu", "archange": "Archange", "archange dechu": "Archange déchu", "dieu primordial": "Dieu primordial",
+  };
+  let creation = null;
+  const nouvelleCreation = () => ({ etape: 0, race: "", role: "", lieu: "", rang: "", magie: "", faction: "", details: { nom: "", age: "", genre: "", idees: "" } });
+
+  pages.creerIA = async () => {
+    if (!estMembre()) return pasMembre();
+    await majIndexTitres();
+    if (!creation) creation = nouvelleCreation();
+    return `
+      <div class="entete-page"><div><div class="fil"><a href="#/wiki">Wiki</a> › Créer avec l'IA</div>
+        <h1><span class="ic-titre">🤖</span>Créer un personnage avec l'IA</h1>
+        <p class="discret">Réponds à quelques questions : l'IA écrit une fiche cohérente avec tout le wiki. Tu pourras la relire et la modifier avant de la publier.</p></div></div>
+      <div class="assistant" id="assistant"></div>`;
+  };
+
+  pages.creerIA.apres = () => {
+    const zone = $("#assistant");
+    if (!zone) return;
+    const toutes = [...indexParId.values()];
+    const titres = (cat) => toutes.filter((f) => f.categorie === cat).map((f) => f.titre).sort((a, b) => a.localeCompare(b, "fr"));
+    // races : celles des personnages, les fiches de race et le barème des dés
+    const races = new Map();
+    toutesLesRaces(toutes, {}).forEach((r) => races.set(r.cle, r.nom));
+    Object.keys(CFG_DES.RACES_PROPOSEES || {}).forEach((k) => { if (![...races.keys()].some((c) => c.replace(/[-_'’]/g, " ") === k)) races.set(k, JOLIS_NOMS[k] || k); });
+    const listeRaces = [...races.values()].sort((a, b) => a.localeCompare(b, "fr"));
+
+    const ETAPES = [
+      { cle: "race", titre: "Quelle race ?", aide: "Les races déjà présentes dans ton wiki et ton système de dés.", choix: listeRaces, libre: "Autre race…", obligatoire: true },
+      { cle: "role", titre: "Quel rôle dans l'histoire ?", choix: ["Protagoniste", "Antagoniste", "Allié", "Mentor", "Rival", "Neutre / ambigu", "Personnage secondaire"], libre: "Autre rôle…", ia: "Surprends-moi" },
+      { cle: "lieu", titre: "Où vit-il ? (royaume, ville, région)", aide: titres("monde").length ? "Les lieux de ta catégorie « Le Monde »." : "Ton wiki n'a pas encore de lieux : écris-en un ou laisse l'IA choisir.", choix: titres("monde"), libre: "Autre lieu…", ia: "L'IA choisit" },
+      { cle: "rang", titre: "Son rang social ou son métier ?", choix: ["Roi / Reine", "Prince / Princesse", "Noble", "Chevalier", "Soldat", "Mage", "Prêtre / Prêtresse", "Marchand", "Artisan", "Aventurier de guilde", "Voleur / Assassin", "Érudit", "Paysan", "Hors-la-loi"], libre: "Autre métier…", ia: "L'IA choisit" },
+      { cle: "magie", titre: "Utilise-t-il la magie ?", aide: titres("magie").length ? "Tu peux choisir une magie de ton wiki." : "", choix: ["Non, aucune magie", ...titres("magie").map((t) => "Oui : " + t)], libre: "Oui, une autre magie…", ia: "Selon sa race (l'IA décide)" },
+      { cle: "faction", titre: "Fait-il partie d'une faction ?", choix: ["Aucune faction", ...titres("factions")], libre: "Autre faction…", ia: "L'IA choisit" },
+      { cle: "details", titre: "Des détails à imposer ?", aide: "Tout est facultatif : laisse vide pour que l'IA invente." },
+    ];
+
+    const dessiner = () => {
+      const c = creation, n = ETAPES.length;
+      if (c.etape >= n) return recap();
+      const e = ETAPES[c.etape], valeur = c[e.cle];
+      const barre = `<div class="progression"><div style="width:${Math.round(((c.etape + 1) / (n + 1)) * 100)}%"></div></div><div class="discret petit-texte">Question ${c.etape + 1} sur ${n}</div>`;
+      if (e.cle === "details") {
+        const d = c.details;
+        zone.innerHTML = `${barre}<h2>${e.titre}</h2><p class="discret">${e.aide}</p>
+          <form id="form-details" class="panneau">
+            <label>Nom ou prénom<input name="nom" maxlength="60" value="${esc(d.nom)}" placeholder="ex : Elarion"></label>
+            <div class="ligne2"><label>Âge<input name="age" maxlength="40" value="${esc(d.age)}" placeholder="ex : 230 ans"></label>
+            <label>Genre<input name="genre" maxlength="40" value="${esc(d.genre)}" placeholder="ex : femme"></label></div>
+            <label>Personnalité, apparence, idées d'histoire…<textarea name="idees" rows="4" maxlength="1500" placeholder="ex : timide mais redoutable à l'arc, cherche à venger sa sœur…">${esc(d.idees)}</textarea></label>
+          </form>
+          <div class="rangee fin"><button class="btn" id="precedent">← Retour</button><button class="btn btn-or" id="suivant">Voir le récapitulatif →</button></div>`;
+        const lire = () => { const f = $("#form-details"); c.details = { nom: f.nom.value.trim(), age: f.age.value.trim(), genre: f.genre.value.trim(), idees: f.idees.value.trim() }; };
+        $("#precedent").onclick = () => { lire(); c.etape--; dessiner(); };
+        $("#suivant").onclick = () => { lire(); c.etape++; dessiner(); };
+        return;
+      }
+      const dansListe = e.choix.includes(valeur) || (e.ia && valeur === e.ia);
+      zone.innerHTML = `${barre}<h2>${e.titre}</h2>${e.aide ? `<p class="discret">${e.aide}</p>` : ""}
+        <div class="choix-assistant">
+          ${e.ia ? `<button type="button" class="choix ${valeur === e.ia ? "actif" : ""}" data-v="${esc(e.ia)}">🎲 ${esc(e.ia)}</button>` : ""}
+          ${e.choix.map((v) => `<button type="button" class="choix ${valeur === v ? "actif" : ""}" data-v="${esc(v)}">${esc(v)}</button>`).join("")}
+        </div>
+        <input id="valeur-libre" class="champ-libre" maxlength="80" placeholder="${esc(e.libre)}" value="${!dansListe && valeur ? esc(valeur) : ""}">
+        <div class="rangee fin">${c.etape ? `<button class="btn" id="precedent">← Retour</button>` : ""}<button class="btn btn-or" id="suivant" ${valeur || !e.obligatoire ? "" : "disabled"}>${valeur || e.obligatoire ? "Suivant →" : "Passer →"}</button></div>`;
+      const majBouton = () => { const b = $("#suivant"); b.disabled = e.obligatoire && !c[e.cle]; b.textContent = c[e.cle] || e.obligatoire ? "Suivant →" : "Passer →"; };
+      $$("[data-v]", zone).forEach((b) => (b.onclick = () => {
+        c[e.cle] = c[e.cle] === b.dataset.v ? "" : b.dataset.v;
+        $("#valeur-libre").value = "";
+        $$("[data-v]", zone).forEach((x) => x.classList.toggle("actif", x.dataset.v === c[e.cle]));
+        majBouton();
+        if (c[e.cle]) setTimeout(() => { c.etape++; dessiner(); }, 180);
+      }));
+      $("#valeur-libre").oninput = (ev) => { c[e.cle] = ev.target.value.trim(); $$("[data-v]", zone).forEach((x) => x.classList.remove("actif")); majBouton(); };
+      $("#valeur-libre").onkeydown = (ev) => { if (ev.key === "Enter" && c[e.cle]) { ev.preventDefault(); c.etape++; dessiner(); } };
+      const p = $("#precedent"); if (p) p.onclick = () => { c.etape--; dessiner(); };
+      $("#suivant").onclick = () => { c.etape++; dessiner(); };
+    };
+
+    const ligne = (ic, nom, v) => `<div><span class="tl-ic">${ic}</span><b>${nom} :</b> ${v ? esc(v) : `<span class="discret">au choix de l'IA</span>`}</div>`;
+    const recap = () => {
+      const c = creation, d = c.details;
+      zone.innerHTML = `<div class="progression"><div style="width:100%"></div></div>
+        <h2>Récapitulatif</h2>
+        <div class="tirage-lignes">
+          ${ligne("🧬", "Race", c.race)}${ligne("🎭", "Rôle", c.role)}${ligne("🏰", "Lieu", c.lieu)}${ligne("👑", "Rang / métier", c.rang)}
+          ${ligne("✦", "Magie", c.magie)}${ligne("⚑", "Faction", c.faction)}
+          ${d.nom || d.age || d.genre || d.idees ? `<div><span class="tl-ic">✎</span><b>Détails :</b> ${esc([d.nom && "nom " + d.nom, d.age && "âge " + d.age, d.genre, d.idees].filter(Boolean).join(" · "))}</div>` : ""}
+        </div>
+        <div class="rangee"><button class="btn" id="precedent">← Modifier</button><button class="btn btn-or" id="generer">🤖 Créer la fiche</button><button class="lien" id="recommencer">Tout recommencer</button></div>
+        <div id="resultat-creation"></div>`;
+      $("#precedent").onclick = () => { c.etape = ETAPES.length - 1; dessiner(); };
+      $("#recommencer").onclick = () => { creation = nouvelleCreation(); dessiner(); };
+      $("#generer").onclick = async () => {
+        const g = $("#generer"); g.disabled = true;
+        const z = $("#resultat-creation");
+        const stop = attenteIA(z, ["L'IA relit tout le wiki…", "Elle imagine le personnage…", "Elle vérifie la cohérence avec les autres fiches…", "Elle écrit son histoire…", "Elle remplit les cases d'infos…"]);
+        try {
+          const r = await avecDelai(api.ia("creer", { choix: { race: c.race, role: c.role, lieu: c.lieu, rang: c.rang, magie: c.magie, faction: c.faction, ...c.details } }));
+          stop();
+          const fiche = r.fiche;
+          const champs = catParId("personnages").champs;
+          pages.editeur.prefill = {
+            categorie: "personnages", titre: fiche.titre, resume: fiche.resume, contenu: fiche.contenu,
+            infos: Object.entries(fiche.infos || {}).map(([cle, valeur]) => ({ cle: champs.find((x) => normal(x) === normal(cle)) || cle, valeur: String(valeur) })),
+          };
+          z.innerHTML = `<div class="scenario">
+            <h2>${esc(fiche.titre)}</h2>
+            ${fiche.resume ? `<p class="fiche-resume">${esc(fiche.resume)}</p>` : ""}
+            <div class="contenu ia-texte">${markdown(fiche.contenu)}</div>
+            <div class="rangee"><button class="btn btn-or" id="ouvrir-editeur">✎ Relire et publier</button><button class="btn" id="regenerer">🔄 Une autre version</button></div>
+            <p class="discret petit-texte">Rien n'est publié tant que tu n'as pas appuyé sur « Publier » dans le formulaire. ${NOTE_IA}</p></div>`;
+          $("#ouvrir-editeur").onclick = () => { const pf = pages.editeur.prefill; creation = null; pages.editeur.prefill = pf; location.hash = "#/nouveau?cat=personnages"; };
+          $("#regenerer").onclick = () => $("#generer").click();
+        } catch (err) { stop(); z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(err.message).replace(/\n/g, "<br>")}</p>`; }
+        g.disabled = false;
+      };
+    };
+    dessiner();
+  };
+
   /* ---------- Roues de la chance : personnages, missions, difficulté ---------- */
   const COULEURS_ROUE = ["#e3b866", "#3b4a8c", "#7fc8f8", "#6a4c93", "#c9706b", "#2f6f6a", "#f5d08a", "#4b3b78", "#8fb8de", "#9c5a7a"];
   const CFG_MISSIONS = window.AETHERIA_MISSIONS || { MISSIONS: [], DIFFICULTES: [] };
@@ -2146,7 +2273,7 @@
     const routes = {
       "": [pages.accueil], wiki: [pages.wiki], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
       recherche: [pages.recherche], joueurs: [pages.joueurs], joueur: [pages.joueur], connexion: [pages.connexion],
-      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], des: [pages.des], ia: [pages.ia],
+      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], des: [pages.des], ia: [pages.ia], "creer-ia": [pages.creerIA],
     };
     const [page] = routes[morceaux[0] || ""] || [null];
     const arg = morceaux[0] === "nouveau" ? null : morceaux[1];
