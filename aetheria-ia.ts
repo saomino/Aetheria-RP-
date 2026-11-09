@@ -205,6 +205,30 @@ function texteDeja(d, cibles) {
     .join("\n");
 }
 
+const CONSIGNE_SCENARIO = (mission, rang, desc, equipe) => `Tu es le maître du jeu de la guilde d'Aetheria. Les joueurs viennent de tirer une mission au hasard.
+Mission : « ${mission} »
+Difficulté : rang ${rang}${desc ? " — " + desc : ""}
+Échelle de la guilde, du plus facile au plus difficile : E, D, C, B, A, S, SS.
+${equipe.length ? "Équipe envoyée en mission : " + equipe.map((n) => "[[" + n + "]]").join(", ") + "." : "L'équipe n'est pas encore connue."}
+
+Imagine un scénario de mission prêt à jouer, cohérent avec le wiki (réutilise ses lieux, factions, créatures du bestiaire, peuples, divinités et personnages quand c'est pertinent, et cite-les entre [[doubles crochets]]). Si le wiki ne fournit pas ce qu'il faut, invente des éléments nouveaux mais signale-les comme « à créer ».
+Dose le danger selon le rang : plus le rang est élevé, plus les adversaires sont puissants, nombreux ou rusés, et plus les conséquences d'un échec sont graves. Si l'équipe est connue, tiens compte de ses forces et faiblesses décrites dans les fiches, sans rendre la mission impossible ni trop facile pour elle.
+
+Réponds avec exactement ces parties :
+## Le contrat
+(qui confie la mission, ce qui est demandé officiellement, la récompense proposée selon le rang)
+## Ce qui se passe vraiment
+(la vérité cachée derrière la mission)
+## Lieux
+## Adversaires et obstacles
+(avec leur niveau de danger)
+## Déroulé possible
+(3 à 5 étapes clés)
+## Rebondissement
+## Pistes pour le maître du jeu
+(choix moraux, liens avec l'histoire des personnages, suites possibles)
+Reste concret et évocateur, sans pavés : des listes courtes.`;
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -312,7 +336,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
-    if (!["fiche", "global", "question", "des"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -343,6 +367,12 @@ Deno.serve(async (req) => {
           (cibles.length === 1 ? `\n\n# FICHE À ÉVALUER\n${ficheTexte(cibles[0], true, 60000)}` : "") +
           `\n\n# CONSIGNE\n${CONSIGNE_DES(maxDes, cibles.map((f) => f.titre), texteReperes(corps.reperes), texteDeja(corps.deja, cibles), textePaliers(corps.paliers, maxDes), (Array.isArray(corps.uniques) && corps.uniques.length ? corps.uniques.slice(0, 10).map((u) => String(u).slice(0, 40)).join(", ") : "celesto demoniaque"))}`,
       }];
+    } else if (mode === "scenario") {
+      const mission = String(corps.mission || "").trim().slice(0, 300);
+      const rang = String(corps.difficulte || "").trim().slice(0, 20);
+      if (!mission || !rang) throw new ErreurIA("Il faut une mission et une difficulté.");
+      const equipe = (Array.isArray(corps.personnages) ? corps.personnages : []).slice(0, 12).map((n) => String(n).slice(0, 80));
+      messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_SCENARIO(mission, rang, String(corps.description || "").slice(0, 200), equipe)}` }];
     } else if (mode === "global") {
       messages = [{ role: "user", content: `${contexteWiki(fiches, moments)}\n\n# CONSIGNE\n${CONSIGNE_GLOBALE}` }];
     } else {
@@ -394,7 +424,7 @@ Deno.serve(async (req) => {
     }
 
     let analyse = null;
-    if (mode !== "question") {
+    if (mode !== "question" && mode !== "scenario") {
       const r = await db("analyses_ia", {
         method: "POST",
         headers: { Prefer: "return=representation" },

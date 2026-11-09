@@ -864,6 +864,11 @@
     }
     if (!peutPublier(f.categorie)) f.categorie = (CATS.find((c) => peutPublier(c.id)) || CATS[0]).id;
     if (!id) f.infos = catParId(f.categorie).champs.map((cle) => ({ cle, valeur: "" }));
+    if (!id && pages.editeur.prefill) {
+      const pf = pages.editeur.prefill; pages.editeur.prefill = null;
+      Object.assign(f, { categorie: pf.categorie || f.categorie, titre: pf.titre || "", resume: pf.resume || "", contenu: pf.contenu || "" });
+      for (const i of pf.infos || []) { const l = f.infos.find((x) => normal(x.cle) === normal(i.cle)); if (l) l.valeur = i.valeur; else f.infos.push(i); }
+    }
     pages.editeur.fiche = f;
     pages.editeur.des = id ? deDe(await api.listerDes(), id) : null;
     pages.editeur.desRaces = await api.listerDesRaces();
@@ -1712,28 +1717,26 @@
     };
   };
 
-  /* ---------- Roue de la chance ---------- */
+  /* ---------- Roues de la chance : personnages, missions, difficulté ---------- */
   const COULEURS_ROUE = ["#e3b866", "#3b4a8c", "#7fc8f8", "#6a4c93", "#c9706b", "#2f6f6a", "#f5d08a", "#4b3b78", "#8fb8de", "#9c5a7a"];
-  const lireRoue = () => { try { return JSON.parse(localStorage.getItem("aetheria_roue") || "[]"); } catch (e) { return []; } };
-  const ecrireRoue = (l) => { try { localStorage.setItem("aetheria_roue", JSON.stringify(l)); } catch (e) {} };
+  const CFG_MISSIONS = window.AETHERIA_MISSIONS || { MISSIONS: [], DIFFICULTES: [] };
+  const lireLS = (k, defaut) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? defaut : v; } catch (e) { return defaut; } };
+  const ecrireLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const missionsDefaut = () => CFG_MISSIONS.MISSIONS.map((nom, i) => ({ nom, num: i + 1 }));
+  const difficultesDefaut = () => CFG_MISSIONS.DIFFICULTES.map(([nom]) => ({ nom }));
+  let ongletRoue = "persos";
 
   pages.roue = async () => {
     await majIndexTitres();
+    const onglets = [["persos", "👥", "Personnages"], ["missions", "📜", "Missions"], ["diff", "⭐", "Difficulté"]];
     return `
-      <div class="entete-page"><div><h1><span class="ic-titre">🎡</span>Roue de la chance</h1>
-        <p class="discret">Touche les personnages pour les mettre dans la roue, puis lance-la.</p></div></div>
-      <section class="panneau roue-choix">
-        <div class="rangee roue-outils">
-          <input id="roue-filtre" type="search" placeholder="Chercher un personnage…">
-          <button class="btn petit" id="roue-tous">Tout ajouter</button>
-          <button class="btn petit btn-danger" id="roue-vider">Vider</button>
-        </div>
-        <div class="roue-noms" id="roue-noms"></div>
-        <form class="rangee roue-ajout" id="roue-ajout">
-          <input name="nom" maxlength="40" placeholder="Ajouter un autre nom (PNJ, joueur…)">
-          <button class="btn petit">Ajouter</button>
-        </form>
-      </section>
+      <div class="entete-page"><div><h1><span class="ic-titre">🎡</span>Roues de la chance</h1>
+        <p class="discret">Tire une équipe, une mission de guilde et une difficulté, puis laisse l'IA imaginer le scénario.</p></div></div>
+
+      <section class="panneau tirage" id="tirage"></section>
+
+      <div class="modes onglets-roue">${onglets.map(([id, ic, nom]) => `<button class="mode ${id === ongletRoue ? "actif" : ""}" data-roue="${id}">${ic} ${nom}</button>`).join("")}</div>
+      <section class="panneau roue-choix" id="roue-choix"></section>
       <div class="roue-zone">
         <div class="roue-cadre">
           <div class="roue-fleche"></div>
@@ -1746,98 +1749,174 @@
 
   pages.roue.apres = () => {
     const persos = [...indexParId.values()].filter((f) => f.categorie === "personnages").sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
-    let roue = lireRoue().filter((e) => !e.id || indexParId.has(e.id)).map((e) => (e.id ? { id: e.id, nom: indexParId.get(e.id).titre } : e));
+    const R = {
+      persos: lireLS("aetheria_roue", []).filter((e) => !e.id || indexParId.has(e.id)).map((e) => (e.id ? { id: e.id, nom: indexParId.get(e.id).titre } : e)),
+      missions: lireLS("aetheria_roue_missions", null) || missionsDefaut(),
+      diff: lireLS("aetheria_roue_diff", null) || difficultesDefaut(),
+    };
+    const CLES = { persos: "aetheria_roue", missions: "aetheria_roue_missions", diff: "aetheria_roue_diff" };
+    const tirage = lireLS("aetheria_tirage", { equipe: [], mission: null, difficulte: null });
     let rotation = 0, enCours = false;
     const canvas = $("#roue"), ctx = canvas.getContext("2d");
-    const dansRoue = (id) => roue.some((e) => e.id === id);
+    const roue = () => R[ongletRoue];
+    const sauver = () => { ecrireLS(CLES[ongletRoue], roue()); ecrireLS("aetheria_tirage", tirage); };
 
-    const dessinerNoms = () => {
-      const q = normal($("#roue-filtre").value);
-      const visibles = persos.filter((f) => !q || normal(f.titre).includes(q));
-      const libres = roue.filter((e) => !e.id);
-      $("#roue-noms").innerHTML =
-        (visibles.map((f) => `<button type="button" class="nom-roue ${dansRoue(f.id) ? "actif" : ""}" data-id="${esc(f.id)}">${dansRoue(f.id) ? "✓ " : ""}${esc(f.titre)}</button>`).join("") +
-        libres.map((e, i) => `<button type="button" class="nom-roue actif libre" data-libre="${esc(e.nom)}">✓ ${esc(e.nom)} <span aria-hidden="true">✕</span></button>`).join("")) ||
-        `<p class="discret">${persos.length ? "Aucun personnage trouvé." : "Aucune fiche de personnage pour l'instant. Tu peux ajouter des noms à la main ci-dessous."}</p>`;
-      $$("[data-id]", $("#roue-noms")).forEach((b) => (b.onclick = () => {
-        if (enCours) return;
-        const id = b.dataset.id;
-        roue = dansRoue(id) ? roue.filter((e) => e.id !== id) : [...roue, { id, nom: indexParId.get(id).titre }];
-        majTout();
-      }));
-      $$("[data-libre]", $("#roue-noms")).forEach((b) => (b.onclick = () => {
-        if (enCours) return;
-        roue = roue.filter((e) => e.id || e.nom !== b.dataset.libre);
-        majTout();
-      }));
+    /* --- Résumé du tirage + scénario IA --- */
+    const dessinerTirage = () => {
+      const descDiff = tirage.difficulte && (CFG_MISSIONS.DIFFICULTES.find(([n]) => n === tirage.difficulte) || [])[1];
+      $("#tirage").innerHTML = `
+        <h2>🎯 Tirage en cours</h2>
+        <div class="tirage-lignes">
+          <div><span class="tl-ic">👥</span><b>Équipe :</b> ${tirage.equipe.length ? tirage.equipe.map((e) => e.id ? `<a href="#/f/${encodeURIComponent(e.id)}">${esc(e.nom)}</a>` : esc(e.nom)).join(", ") : `<span class="discret">tourne la roue des personnages</span>`}</div>
+          <div><span class="tl-ic">📜</span><b>Mission :</b> ${tirage.mission ? esc(tirage.mission) : `<span class="discret">tourne la roue des missions</span>`}</div>
+          <div><span class="tl-ic">⭐</span><b>Difficulté :</b> ${tirage.difficulte ? `<span class="rang">${esc(tirage.difficulte)}</span> <small class="discret">${esc(descDiff || "")}</small>` : `<span class="discret">tourne la roue des difficultés</span>`}</div>
+        </div>
+        <div class="rangee">
+          ${estMembre() ? `<button class="btn btn-or" id="imaginer" ${tirage.mission && tirage.difficulte ? "" : "disabled"}>🤖 Imaginer le scénario</button>` : ""}
+          <button class="btn petit" id="vider-tirage">Nouveau tirage</button>
+        </div>
+        ${!estMembre() ? `<p class="discret petit-texte">Connecte-toi avec un compte membre pour que l'IA imagine le scénario.</p>` : ""}
+        <div id="scenario"></div>`;
+      $("#vider-tirage").onclick = () => { tirage.equipe = []; tirage.mission = null; tirage.difficulte = null; ecrireLS("aetheria_tirage", tirage); dessinerTirage(); };
+      const im = $("#imaginer");
+      if (im) im.onclick = async () => {
+        const z = $("#scenario");
+        im.disabled = true;
+        const stop = attenteIA(z, ["L'IA lit la mission…", "Elle cherche des lieux et des créatures dans le wiki…", "Elle dose la difficulté…", "Elle prépare un rebondissement…", "Elle rédige le scénario…"]);
+        try {
+          const r = await avecDelai(api.ia("scenario", { mission: tirage.mission, difficulte: tirage.difficulte, description: descDiff || "", personnages: tirage.equipe.map((e) => e.nom) }));
+          stop();
+          z.innerHTML = `<div class="scenario"><div class="contenu ia-texte">${markdown(r.texte)}</div>
+            <div class="rangee"><button class="btn petit" id="copier-scenario">📋 Copier</button>${estMembre() ? `<button class="btn petit btn-or" id="chronique-scenario">📜 En faire une chronique</button>` : ""}</div>
+            <p class="discret petit-texte">${NOTE_IA}</p></div>`;
+          $("#copier-scenario").onclick = () => copier(r.texte);
+          const ch = $("#chronique-scenario");
+          if (ch) ch.onclick = () => {
+            pages.editeur.prefill = {
+              categorie: "chroniques",
+              titre: `Mission ${tirage.difficulte} — ${tirage.mission}`.slice(0, 120),
+              resume: tirage.mission.slice(0, 400),
+              infos: [{ cle: "Participants", valeur: tirage.equipe.map((e) => e.nom).join(", ") }, { cle: "Arc / Campagne", valeur: "Mission de guilde (rang " + tirage.difficulte + ")" }],
+              contenu: r.texte,
+            };
+            location.hash = "#/nouveau?cat=chroniques";
+          };
+        } catch (e) { stop(); z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; }
+        im.disabled = false;
+      };
     };
 
-    const dessinerRoue = () => {
-      const W = canvas.width, R = W / 2 - 10, cx = W / 2, cy = W / 2;
-      ctx.clearRect(0, 0, W, W);
-      ctx.save(); ctx.translate(cx, cy);
-      ctx.beginPath(); ctx.arc(0, 0, R + 6, 0, Math.PI * 2); ctx.fillStyle = "#e3b866"; ctx.fill();
-      if (!roue.length) {
-        ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fillStyle = "#151a36"; ctx.fill();
-        ctx.restore(); return;
+    /* --- Choix des éléments selon l'onglet --- */
+    const dessinerChoix = () => {
+      const z = $("#roue-choix");
+      if (ongletRoue === "persos") {
+        const dans = (id) => R.persos.some((e) => e.id === id);
+        z.innerHTML = `
+          <div class="rangee roue-outils"><input id="roue-filtre" type="search" placeholder="Chercher un personnage…"><button class="btn petit" id="roue-tous">Tout ajouter</button><button class="btn petit btn-danger" id="roue-vider">Vider</button></div>
+          <div class="roue-noms" id="roue-noms"></div>
+          <form class="rangee roue-ajout" id="roue-ajout"><input name="nom" maxlength="40" placeholder="Ajouter un autre nom (PNJ, joueur…)"><button class="btn petit">Ajouter</button></form>`;
+        const noms = () => {
+          const q = normal($("#roue-filtre").value);
+          const vis = persos.filter((f) => !q || normal(f.titre).includes(q));
+          $("#roue-noms").innerHTML = vis.map((f) => `<button type="button" class="nom-roue ${dans(f.id) ? "actif" : ""}" data-id="${esc(f.id)}">${dans(f.id) ? "✓ " : ""}${esc(f.titre)}</button>`).join("") +
+            R.persos.filter((e) => !e.id).map((e) => `<button type="button" class="nom-roue actif libre" data-libre="${esc(e.nom)}">✓ ${esc(e.nom)} <span aria-hidden="true">✕</span></button>`).join("") ||
+            `<p class="discret">${persos.length ? "Aucun personnage trouvé." : "Aucune fiche de personnage : ajoute des noms à la main."}</p>`;
+          $$("[data-id]", z).forEach((b) => (b.onclick = () => { if (enCours) return; const id = b.dataset.id; R.persos = dans(id) ? R.persos.filter((e) => e.id !== id) : [...R.persos, { id, nom: indexParId.get(id).titre }]; majTout(); }));
+          $$("[data-libre]", z).forEach((b) => (b.onclick = () => { if (enCours) return; R.persos = R.persos.filter((e) => e.id || e.nom !== b.dataset.libre); majTout(); }));
+        };
+        $("#roue-filtre").oninput = noms;
+        $("#roue-tous").onclick = () => { if (enCours) return; persos.forEach((f) => { if (!dans(f.id)) R.persos.push({ id: f.id, nom: f.titre }); }); majTout(); };
+        $("#roue-vider").onclick = () => { if (!enCours && R.persos.length && confirm("Retirer tous les noms de la roue ?")) { R.persos = []; majTout(); } };
+        $("#roue-ajout").onsubmit = (e) => { e.preventDefault(); const nom = e.target.nom.value.trim(); if (!nom || enCours) return; if (R.persos.some((x) => normal(x.nom) === normal(nom))) return toast("Ce nom est déjà dans la roue.", "erreur"); R.persos.push({ nom }); e.target.nom.value = ""; majTout(); };
+        noms();
+      } else if (ongletRoue === "missions") {
+        z.innerHTML = `
+          <div class="rangee roue-outils"><input id="roue-filtre" type="search" placeholder="Chercher une mission…"><button class="btn petit" id="roue-reset">Remettre les ${CFG_MISSIONS.MISSIONS.length}</button></div>
+          <details class="liste-missions"><summary>Voir les ${R.missions.length} missions dans la roue</summary><ol id="roue-missions"></ol></details>
+          <form class="rangee roue-ajout" id="roue-ajout"><input name="nom" maxlength="200" placeholder="Ajouter une mission inventée…"><button class="btn petit">Ajouter</button></form>`;
+        const liste = () => {
+          const q = normal($("#roue-filtre").value);
+          $("#roue-missions").innerHTML = R.missions.map((m, i) => ({ m, i })).filter(({ m }) => !q || normal(m.nom).includes(q))
+            .map(({ m, i }) => `<li><span class="num-mission">${m.num ? "N°" + m.num : "★"}</span> ${esc(m.nom)} <button type="button" class="lien" data-retirer-m="${i}" aria-label="Retirer">✕</button></li>`).join("") || `<p class="discret">Aucune mission.</p>`;
+          $$("[data-retirer-m]", z).forEach((b) => (b.onclick = () => { if (enCours) return; R.missions.splice(+b.dataset.retirerM, 1); majTout(); }));
+        };
+        $("#roue-filtre").oninput = () => { $(".liste-missions").open = true; liste(); };
+        $("#roue-reset").onclick = () => { if (!enCours && confirm("Remettre toutes les missions dans la roue ?")) { R.missions = missionsDefaut(); majTout(); } };
+        $("#roue-ajout").onsubmit = (e) => { e.preventDefault(); const nom = e.target.nom.value.trim(); if (!nom || enCours) return; R.missions.push({ nom }); e.target.nom.value = ""; majTout(); };
+        liste();
+      } else {
+        const dans = (n) => R.diff.some((d) => d.nom === n);
+        z.innerHTML = `<p class="discret">Touche un rang pour le retirer ou le remettre dans la roue.</p>
+          <div class="roue-noms">${CFG_MISSIONS.DIFFICULTES.map(([n, d]) => `<button type="button" class="nom-roue ${dans(n) ? "actif" : ""}" data-rang="${esc(n)}" title="${esc(d)}">${dans(n) ? "✓ " : ""}Rang ${esc(n)}</button>`).join("")}</div>`;
+        $$("[data-rang]", z).forEach((b) => (b.onclick = () => {
+          if (enCours) return;
+          const n = b.dataset.rang;
+          R.diff = dans(n) ? R.diff.filter((d) => d.nom !== n) : CFG_MISSIONS.DIFFICULTES.map(([x]) => x).filter((x) => x === n || dans(x)).map((x) => ({ nom: x }));
+          majTout();
+        }));
       }
-      const n = roue.length, a = (Math.PI * 2) / n;
-      roue.forEach((e, i) => {
+    };
+
+    /* --- Dessin de la roue --- */
+    const etiquette = (e) => {
+      if (ongletRoue === "missions") return R.missions.length > 14 ? (e.num ? "N°" + e.num : "★") : e.nom;
+      if (ongletRoue === "diff") return e.nom;
+      return e.nom;
+    };
+    const dessinerRoue = () => {
+      const l = roue(), W = canvas.width, Rr = W / 2 - 10;
+      ctx.clearRect(0, 0, W, W);
+      ctx.save(); ctx.translate(W / 2, W / 2);
+      ctx.beginPath(); ctx.arc(0, 0, Rr + 6, 0, Math.PI * 2); ctx.fillStyle = "#e3b866"; ctx.fill();
+      if (!l.length) { ctx.beginPath(); ctx.arc(0, 0, Rr, 0, Math.PI * 2); ctx.fillStyle = "#151a36"; ctx.fill(); ctx.restore(); return; }
+      const n = l.length, a = (Math.PI * 2) / n;
+      l.forEach((e, i) => {
         const debut = -Math.PI / 2 + i * a;
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, debut, debut + a); ctx.closePath();
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, Rr, debut, debut + a); ctx.closePath();
         let coul = COULEURS_ROUE[i % COULEURS_ROUE.length];
         if (n > 1 && i === n - 1 && coul === COULEURS_ROUE[0]) coul = COULEURS_ROUE[2];
         ctx.fillStyle = coul; ctx.fill();
-        ctx.strokeStyle = "rgba(13,16,36,0.6)"; ctx.lineWidth = 3; ctx.stroke();
-        ctx.save();
-        ctx.rotate(debut + a / 2);
+        ctx.strokeStyle = "rgba(13,16,36,0.6)"; ctx.lineWidth = n > 40 ? 1.5 : 3; ctx.stroke();
+        ctx.save(); ctx.rotate(debut + a / 2);
         ctx.textAlign = "right"; ctx.textBaseline = "middle";
-        const clair = ["#e3b866", "#7fc8f8", "#f5d08a", "#8fb8de"].includes(coul);
-        ctx.fillStyle = clair ? "#0d1024" : "#ffffff";
-        const taille = Math.max(18, Math.min(44, 520 / n + 12));
+        ctx.fillStyle = ["#e3b866", "#7fc8f8", "#f5d08a", "#8fb8de"].includes(coul) ? "#0d1024" : "#ffffff";
+        const taille = Math.max(13, Math.min(46, 520 / n + 12));
         ctx.font = `600 ${taille}px "Cinzel", Georgia, serif`;
-        let t = e.nom;
-        const max = R - 90;
+        let t = etiquette(e); const max = Rr - 90;
         while (ctx.measureText(t).width > max && t.length > 2) t = t.slice(0, -1);
-        if (t !== e.nom) t = t.slice(0, -1) + "…";
-        if (n <= 60) ctx.fillText(t, R - 24, 0);
+        if (t !== etiquette(e)) t = t.slice(0, -1) + "…";
+        ctx.fillText(t, Rr - 20, 0);
         ctx.restore();
       });
       ctx.restore();
     };
 
-    const majTout = () => {
-      ecrireRoue(roue);
-      dessinerNoms();
+    const majTout = (choix = true) => {
+      sauver();
+      if (choix) dessinerChoix();
       dessinerRoue();
-      const n = roue.length;
-      $("#roue-compte").textContent = n ? `${n} nom${n > 1 ? "s" : ""} dans la roue` : "La roue est vide";
+      const n = roue().length, mot = { persos: "nom", missions: "mission", diff: "rang" }[ongletRoue];
+      $("#roue-compte").textContent = n ? `${n} ${mot}${n > 1 ? "s" : ""} dans la roue` : "La roue est vide";
       $("#roue-lancer").disabled = n < 2;
+      const d = $(".liste-missions summary"); if (d) d.textContent = `Voir les ${R.missions.length} missions dans la roue`;
     };
 
-    $("#roue-filtre").oninput = dessinerNoms;
-    $("#roue-tous").onclick = () => {
+    $$("[data-roue]").forEach((b) => (b.onclick = () => {
       if (enCours) return;
-      persos.forEach((f) => { if (!dansRoue(f.id)) roue.push({ id: f.id, nom: f.titre }); });
+      ongletRoue = b.dataset.roue;
+      $$("[data-roue]").forEach((x) => x.classList.toggle("actif", x === b));
+      canvas.style.transition = "none"; rotation = 0; canvas.style.transform = "rotate(0deg)";
       majTout();
-    };
-    $("#roue-vider").onclick = () => { if (!enCours && roue.length && confirm("Retirer tous les noms de la roue ?")) { roue = []; majTout(); } };
-    $("#roue-ajout").onsubmit = (e) => {
-      e.preventDefault();
-      const nom = e.target.nom.value.trim();
-      if (!nom || enCours) return;
-      if (roue.some((x) => normal(x.nom) === normal(nom))) { toast("Ce nom est déjà dans la roue.", "erreur"); return; }
-      roue.push({ nom }); e.target.nom.value = ""; majTout();
-    };
+    }));
 
     $("#roue-lancer").onclick = () => {
-      if (enCours || roue.length < 2) return;
-      enCours = true;
-      $("#roue-lancer").disabled = true;
-      const n = roue.length, seg = 360 / n;
-      const hasard = crypto.getRandomValues(new Uint32Array(2));
-      const gagnant = hasard[0] % n;
-      const decalage = (hasard[1] / 4294967296 - 0.5) * seg * 0.7;
+      const l = roue();
+      if (enCours || l.length < 2) return;
+      enCours = true; $("#roue-lancer").disabled = true;
+      const n = l.length, seg = 360 / n;
+      const h = crypto.getRandomValues(new Uint32Array(2));
+      const gagnant = h[0] % n;
+      const decalage = (h[1] / 4294967296 - 0.5) * seg * 0.7;
       const cible = (360 - ((gagnant + 0.5) * seg + decalage) + 3600) % 360;
       const actuel = ((rotation % 360) + 360) % 360;
       rotation += 360 * 6 + ((cible - actuel + 360) % 360);
@@ -1847,14 +1926,24 @@
     };
 
     const resultat = (i) => {
-      const e = roue[i];
+      const onglet = ongletRoue, e = roue()[i];
+      // on enregistre le tirage
+      if (onglet === "persos") { if (!tirage.equipe.some((x) => x.nom === e.nom)) tirage.equipe.push({ nom: e.nom, id: e.id || null }); }
+      else if (onglet === "missions") tirage.mission = e.nom;
+      else tirage.difficulte = e.nom;
+      ecrireLS("aetheria_tirage", tirage);
+      dessinerTirage();
+      const titre = { persos: "La roue a choisi", missions: "Mission tirée", diff: "Difficulté" }[onglet];
+      const desc = onglet === "diff" ? (CFG_MISSIONS.DIFFICULTES.find(([n]) => n === e.nom) || [])[1] : "";
       const fond = document.createElement("div");
       fond.className = "feuille-fond resultat-roue";
       fond.innerHTML = `
         <div class="carte-resultat">
-          <div class="cr-titre">✧ La roue a choisi ✧</div>
-          <div class="cr-nom">${esc(e.nom)}</div>
+          <div class="cr-titre">✧ ${titre} ✧</div>
+          <div class="cr-nom ${onglet === "missions" ? "cr-mission" : ""}">${onglet === "diff" ? "Rang " : ""}${esc(e.nom)}</div>
+          ${desc ? `<p class="discret">${esc(desc)}</p>` : ""}
           ${e.id ? `<a class="lien" href="#/f/${encodeURIComponent(e.id)}">Voir sa fiche</a>` : ""}
+          ${onglet === "persos" ? `<p class="discret petit-texte">Ajouté à l'équipe du tirage.</p>` : ""}
           <div class="cr-boutons">
             <button class="btn btn-danger" id="cr-retirer">🗑 Retirer de la roue</button>
             <button class="btn btn-or" id="cr-garder">✔ Garder</button>
@@ -1862,17 +1951,17 @@
         </div>`;
       document.body.appendChild(fond);
       requestAnimationFrame(() => fond.classList.add("ouvert"));
-      const fermer = () => { fond.remove(); window.removeEventListener("hashchange", fermer); majTout(); };
+      const fermer = () => { fond.remove(); window.removeEventListener("hashchange", fermer); };
       window.addEventListener("hashchange", fermer);
-      $("#cr-garder", fond).onclick = fermer;
+      $("#cr-garder", fond).onclick = () => { fermer(); majTout(); };
       $("#cr-retirer", fond).onclick = () => {
-        roue.splice(i, 1);
-        canvas.style.transition = "none";
-        rotation = 0; canvas.style.transform = "rotate(0deg)";
-        fermer();
+        R[onglet].splice(i, 1);
+        canvas.style.transition = "none"; rotation = 0; canvas.style.transform = "rotate(0deg)";
+        fermer(); majTout();
       };
     };
 
+    dessinerTirage();
     majTout();
   };
 
