@@ -566,3 +566,17 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .correction details { margin: 8px 0; }
 .correction summary { cursor: pointer; color: var(--or); font: 0.85rem system-ui, sans-serif; }
 #correction-ia { margin-top: 6px; }
+
+/* ---------- Roues de pouvoirs ---------- */
+.boite-roues { margin: 22px 0 6px; padding: 14px 16px; border: 1px solid rgba(201, 112, 107, 0.6); border-radius: var(--rayon); background: rgba(106, 76, 147, 0.08); }
+.boite-roues .bd-titre { margin-bottom: 8px; }
+.roues-liste { list-style: none; padding: 0; margin: 0 0 10px; }
+.roues-liste li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.roue-propo { padding: 10px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.roue-propo h3 { margin: 0 0 4px; font-family: var(--titres); color: var(--or); font-size: 1.05rem; }
+.liste-pouvoirs { list-style: none; padding: 0; margin: 8px 0 0; max-height: 340px; overflow-y: auto; font: 0.9rem system-ui, sans-serif; }
+.liste-pouvoirs li { padding: 6px 4px; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.champ-court { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; font-size: 0.85rem; }
+.champ-court select { width: 100%; }
+.cr-effet { font-size: 1.02rem; line-height: 1.45; margin: 6px 0 10px; }
+.onglets-roue { flex-wrap: wrap; }

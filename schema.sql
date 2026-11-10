@@ -388,6 +388,32 @@ alter table public.ia_usage enable row level security;
 drop policy if exists "ia_usage lecture" on public.ia_usage;
 create policy "ia_usage lecture" on public.ia_usage for select to authenticated using (user_id = auth.uid() or public.est_admin());
 
+-- ---------- Roues de pouvoirs (propres à un personnage, un objet, une magie) ----------
+-- ex : le jeu de 54 cartes du Joker. Créées par l'IA (proposition) ou à la main,
+-- enregistrées par l'auteur de la fiche ou un admin.
+create table if not exists public.roues_perso (
+  id           uuid primary key default gen_random_uuid(),
+  fiche_id     uuid not null references public.fiches(id) on delete cascade,
+  nom          text not null check (char_length(trim(nom)) between 1 and 80),
+  description  text check (char_length(description) <= 1000),
+  elements     jsonb not null check (jsonb_typeof(elements) = 'array' and jsonb_array_length(elements) between 2 and 200),
+  cree_par     uuid references public.profils(id) on delete set null default auth.uid(),
+  cree_le      timestamptz not null default now()
+);
+create index if not exists roues_perso_fiche_idx on public.roues_perso (fiche_id);
+alter table public.roues_perso enable row level security;
+drop policy if exists "roues_perso lecture" on public.roues_perso;
+create policy "roues_perso lecture" on public.roues_perso for select using (true);
+drop policy if exists "roues_perso ajout" on public.roues_perso;
+create policy "roues_perso ajout" on public.roues_perso for insert to authenticated
+  with check (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
+drop policy if exists "roues_perso modification" on public.roues_perso;
+create policy "roues_perso modification" on public.roues_perso for update to authenticated
+  using (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
+drop policy if exists "roues_perso suppression" on public.roues_perso;
+create policy "roues_perso suppression" on public.roues_perso for delete to authenticated
+  using (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

@@ -10,5 +10,6 @@ window.AETHERIA_DEMO_DATA = function () {
     des: {},
     races_des: {},
     lancers: [],
+    roues_perso: [],
   };
 };

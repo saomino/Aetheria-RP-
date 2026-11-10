@@ -267,6 +267,25 @@
       erreur(error);
     }
 
+    /* ---- Roues de pouvoirs ---- */
+    async listerRouesPerso(ficheId) {
+      let q = this.sb.from("roues_perso").select("*").order("cree_le");
+      if (ficheId) q = q.eq("fiche_id", ficheId);
+      const { data, error } = await q;
+      if (error) return [];
+      return data;
+    }
+    async creerRouePerso({ fiche_id, nom, description, elements }) {
+      const { data, error } = await this.sb.from("roues_perso").insert({ fiche_id, nom, description: description || null, elements }).select().single();
+      if (error && /roues_perso/.test(error.message || "")) throw new Error("La table des roues n'existe pas encore : relance le fichier schema.sql dans Supabase.");
+      erreur(error);
+      return data;
+    }
+    async supprimerRouePerso(id) {
+      const { error } = await this.sb.from("roues_perso").delete().eq("id", id);
+      erreur(error);
+    }
+
     /* ---- Assistant IA ---- */
     async ia(mode, params = {}) {
       const { data, error } = await this.sb.functions.invoke("aetheria-ia", { body: { mode, ...params } });
@@ -449,6 +468,14 @@
     }
     async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
     async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
+
+    async listerRouesPerso(ficheId) { return (this._lire().roues_perso || []).filter((r) => !ficheId || r.fiche_id === ficheId); }
+    async creerRouePerso({ fiche_id, nom, description, elements }) {
+      const s = this._lire(); s.roues_perso = s.roues_perso || [];
+      const r = { id: "r" + Date.now() + Math.random().toString(36).slice(2, 6), fiche_id, nom, description: description || null, elements, cree_par: this.moi.user.id, cree_le: new Date().toISOString() };
+      s.roues_perso.push(r); this._ecrire(); return r;
+    }
+    async supprimerRouePerso(id) { const s = this._lire(); s.roues_perso = (s.roues_perso || []).filter((r) => r.id !== id); this._ecrire(); }
 
     async ia() {
       throw new Error("L'assistant IA ne fonctionne qu'une fois le site branché sur Supabase (pas en mode démo).");

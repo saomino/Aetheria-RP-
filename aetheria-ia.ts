@@ -279,6 +279,15 @@ Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
 "a_verifier":["incohérences laissées telles quelles, que le joueur doit trancher"]}
 S'il n'y a rien à corriger, renvoie le texte inchangé et "changements":[].`;
 
+const CONSIGNE_ROUES = (titre, existantes) => `Lis la fiche « ${titre} » et décide si ses pouvoirs, sa magie ou ses objets reposent sur un TIRAGE AU SORT ou sur le HASARD : un jeu de cartes, des dés, une roulette, des runes ou des sorts piochés au hasard, des transformations aléatoires, une malédiction qui frappe au hasard, des effets qui changent à chaque utilisation, etc.
+- Si c'est le cas, crée une ou plusieurs ROUES qui reproduisent EXACTEMENT ce tirage tel que la fiche le décrit (ex : un jeu de 54 cartes = 54 cases, une par carte, avec l'effet de chaque carte selon sa famille et sa valeur ; respecte les noms, familles, effets et règles de la fiche). N'invente pas de pouvoirs absents de la fiche ; si la fiche donne une règle générale (ex : « plus la carte est haute, plus l'effet est fort »), applique-la à chaque case.
+- Si rien dans la fiche ne repose sur le hasard, ne crée AUCUNE roue : renvoie "roues":[] et explique pourquoi en une phrase.
+${existantes ? "Roues déjà enregistrées pour ce personnage (ne les refais pas, propose seulement ce qui manque) : " + existantes + "\n" : ""}
+Chaque case : "nom" très court (20 caractères max, ex : "Roi ♥", "Joker noir"), "effet" (une ou deux phrases, ce qui se passe quand on la tire), "poids" (1 = normal ; mets plus pour une case plus fréquente, ex : 2 ou 3, et garde 1 pour les cas rares si les autres sont plus fréquentes). Entre 2 et 200 cases par roue.
+Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
+{"roues":[{"nom":"Nom de la roue (ex : Jeu de 54 cartes)","description":"à quoi elle sert et quand la tourner, règles particulières (ex : une carte tirée est défaussée jusqu'au mélange)","elements":[{"nom":"As ♠","effet":"…","poids":1}]}],
+"explication":"une ou deux phrases sur pourquoi ces roues (ou pourquoi aucune)"}`;
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -386,7 +395,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
-    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -425,6 +434,14 @@ Deno.serve(async (req) => {
       messages = [{
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE À CORRIGER (texte exact)\n${JSON.stringify(brut)}\n\n# CONSIGNE\n${CONSIGNE_CORRIGER(cible.titre, av && av[0] ? String(av[0].contenu).slice(0, 6000) : "")}`,
+      }];
+    } else if (mode === "roues") {
+      cible = fiches.find((x) => x.id === corps.fiche_id);
+      if (!cible) throw new ErreurIA("Fiche introuvable.", 404);
+      const ex = await db(`roues_perso?fiche_id=eq.${cible.id}&select=nom`).catch(() => []);
+      messages = [{
+        role: "user",
+        content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE DU PERSONNAGE\n${ficheTexte(cible, true, 60000)}\n\n# CONSIGNE\n${CONSIGNE_ROUES(cible.titre, (ex || []).map((r) => r.nom).join(", "))}`,
       }];
     } else if (mode === "creer") {
       const choix = corps.choix && typeof corps.choix === "object" ? corps.choix : {};
@@ -470,6 +487,20 @@ Deno.serve(async (req) => {
           changements: liste(c.changements), a_verifier: liste(c.a_verifier) },
         restant, modele: rep.modele,
       });
+    }
+
+    if (mode === "roues") {
+      const o = extraireJSON(texte);
+      const brut = Array.isArray(o) ? { roues: o } : (o || {});
+      const roues = (Array.isArray(brut.roues) ? brut.roues : []).slice(0, 5).map((r) => ({
+        nom: String(r && r.nom || "Roue").trim().slice(0, 80) || "Roue",
+        description: String(r && r.description || "").slice(0, 1000),
+        elements: (Array.isArray(r && r.elements) ? r.elements : []).slice(0, 200).map((e) => {
+          const x = typeof e === "string" ? { nom: e } : (e || {});
+          return { nom: String(x.nom || "").trim().slice(0, 40), effet: String(x.effet || "").slice(0, 400), poids: Math.max(1, Math.min(20, Math.round(Number(x.poids) || 1))) };
+        }).filter((e) => e.nom),
+      })).filter((r) => r.elements.length >= 2);
+      return reponse({ roues, explication: String(brut.explication || "").slice(0, 600), restant, modele: rep.modele });
     }
 
     if (mode === "creer") {

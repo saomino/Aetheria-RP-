@@ -761,6 +761,8 @@
           </section>`;
         })() : ""}
 
+        <section class="boite-roues" id="boite-roues" hidden></section>
+
         <section class="boite-ia" id="boite-ia">
           <div class="bi-titre">🤖 Avis de l'archiviste <small class="discret">(IA)</small></div>
           <div id="ia-contenu"><span class="discret">Chargement…</span></div>
@@ -791,6 +793,7 @@
   };
   pages.fiche.apres = async (id) => {
     brancherAnalyseFiche(id);
+    brancherRouesFiche(id);
     const bd = $("#ia-des-bouton");
     if (bd) bd.onclick = async () => {
       const z = $("#ia-des-zone"), f = indexParId.get(id);
@@ -1641,6 +1644,80 @@
     bouton.disabled = false;
   }
 
+  /* ---------- Roues de pouvoirs sur la fiche ---------- */
+  const ETAPES_ROUES = ["L'IA lit les pouvoirs du personnage…", "Elle cherche ce qui dépend du hasard…", "Elle prépare les cases et leurs effets…", "Elle vérifie que tout colle à la fiche…"];
+  async function brancherRouesFiche(id) {
+    const boite = $("#boite-roues");
+    if (!boite) return;
+    const f = indexParId.get(id);
+    const proprio = f && peutModifier(f);
+    let roues = await api.listerRouesPerso(id).catch(() => []);
+    let propositions = null;
+    const dessiner = () => {
+      if (!roues.length && !proprio && !propositions) { boite.hidden = true; return; }
+      boite.hidden = false;
+      boite.innerHTML = `
+        <div class="bd-titre">🎡 Roues du personnage</div>
+        ${roues.length ? `<ul class="roues-liste">${roues.map((r) => `
+          <li><div><b>${esc(r.nom)}</b> <small class="discret">${(r.elements || []).length} cases</small>${r.description ? `<div class="discret petit-texte">${esc(r.description)}</div>` : ""}</div>
+            <div class="rangee"><a class="btn petit btn-or" href="#/roue?roue=${encodeURIComponent(r.id)}">🎡 Tourner</a>${proprio ? `<button class="btn petit btn-danger" data-suppr-roue="${esc(r.id)}">Supprimer</button>` : ""}</div></li>`).join("")}</ul>`
+          : `<p class="discret">Pas de roue pour ce personnage. Si ses pouvoirs reposent sur le hasard (cartes, dés, runes, effets aléatoires…), l'IA peut en créer une.</p>`}
+        ${proprio ? `<div class="rangee"><button class="btn petit ${roues.length ? "" : "btn-or"}" id="ia-roues">🤖 Proposer des roues</button></div>` : ""}
+        <div id="ia-roues-zone"></div>`;
+      $$("[data-suppr-roue]", boite).forEach((b) => (b.onclick = async () => {
+        const r = roues.find((x) => x.id === b.dataset.supprRoue);
+        if (!r || !confirm(`Supprimer la roue « ${r.nom} » ?`)) return;
+        try { await api.supprimerRouePerso(r.id); roues = roues.filter((x) => x.id !== r.id); toast("Roue supprimée."); dessiner(); }
+        catch (e) { toast(e.message, "erreur"); }
+      }));
+      const bi = $("#ia-roues");
+      if (bi) bi.onclick = async () => {
+        const z = $("#ia-roues-zone");
+        bi.disabled = true;
+        const stop = attenteIA(z, ETAPES_ROUES);
+        try {
+          const r = await avecDelai(api.ia("roues", { fiche_id: id }));
+          stop();
+          propositions = r;
+          montrer();
+        } catch (e) { stop(); z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message).replace(/\n/g, "<br>")}</p>`; }
+        bi.disabled = false;
+      };
+      if (propositions) montrer();
+    };
+    const montrer = () => {
+      const z = $("#ia-roues-zone"), r = propositions;
+      if (!z || !r) return;
+      if (!r.roues || !r.roues.length) {
+        z.innerHTML = `<div class="scenario"><p><b>Aucune roue n'est nécessaire</b> d'après l'IA.</p>${r.explication ? `<p class="discret">${esc(r.explication)}</p>` : ""}</div>`;
+        return;
+      }
+      z.innerHTML = `<div class="scenario">
+        ${r.explication ? `<p class="discret">${esc(r.explication)}</p>` : ""}
+        ${r.roues.map((w, k) => `
+          <div class="roue-propo">
+            <h3>${esc(w.nom)} <small class="discret">${w.elements.length} cases</small></h3>
+            ${w.description ? `<p class="discret">${esc(w.description)}</p>` : ""}
+            <details><summary>Voir les cases</summary><ol class="liste-pouvoirs">${w.elements.map((e) => `<li><b>${esc(e.nom)}</b>${e.poids > 1 ? ` <small class="discret">×${e.poids}</small>` : ""}${e.effet ? ` — <span class="discret">${esc(e.effet)}</span>` : ""}</li>`).join("")}</ol></details>
+            <div class="rangee"><button class="btn petit btn-or" data-garder-roue="${k}">💾 Enregistrer cette roue</button></div>
+          </div>`).join("")}
+        <p class="discret petit-texte">Rien n'est enregistré tant que tu n'appuies pas sur « Enregistrer ». ${NOTE_IA}</p></div>`;
+      $$("[data-garder-roue]", z).forEach((b) => (b.onclick = async () => {
+        const w = r.roues[+b.dataset.garderRoue];
+        b.disabled = true;
+        try {
+          const cree = await api.creerRouePerso({ fiche_id: id, nom: w.nom, description: w.description, elements: w.elements });
+          roues = [...roues, cree];
+          r.roues = r.roues.filter((x) => x !== w);
+          if (!r.roues.length) propositions = null;
+          toast("Roue enregistrée ! Tu peux la tourner dans 🎡 Roue › ✨ Pouvoirs.");
+          dessiner();
+        } catch (e) { b.disabled = false; toast(e.message, "erreur"); }
+      }));
+    };
+    dessiner();
+  }
+
   async function brancherAnalyseFiche(id) {
     const zone = $("#ia-contenu");
     if (!zone) return;
@@ -1905,9 +1982,13 @@
   const difficultesDefaut = () => CFG_MISSIONS.DIFFICULTES.map(([nom]) => ({ nom }));
   let ongletRoue = "persos";
 
-  pages.roue = async () => {
+  pages.roue = async (arg, params) => {
     await majIndexTitres();
-    const onglets = [["persos", "👥", "Personnages"], ["missions", "📜", "Missions"], ["diff", "⭐", "Difficulté"]];
+    pages.roue.roues = (await api.listerRouesPerso().catch(() => [])).filter((r) => indexParId.has(r.fiche_id));
+    const demande = params && params.get("roue");
+    if (demande && pages.roue.roues.some((r) => r.id === demande)) { ongletRoue = "pouvoirs"; ecrireLS("aetheria_pouvoir_sel", demande); }
+    if (ongletRoue === "pouvoirs" && !pages.roue.roues.length) ongletRoue = "persos";
+    const onglets = [["persos", "👥", "Personnages"], ["missions", "📜", "Missions"], ["diff", "⭐", "Difficulté"], ["pouvoirs", "✨", "Pouvoirs"]];
     return `
       <div class="entete-page"><div><h1><span class="ic-titre">🎡</span>Roues de la chance</h1>
         <p class="discret">Tire une équipe, une mission de guilde et une difficulté, puis laisse l'IA imaginer le scénario.</p></div></div>
@@ -1934,11 +2015,34 @@
       diff: lireLS("aetheria_roue_diff", null) || difficultesDefaut(),
     };
     const CLES = { persos: "aetheria_roue", missions: "aetheria_roue_missions", diff: "aetheria_roue_diff" };
+    // Roues de pouvoirs : une roue choisie, et pour chaque roue la liste des cases encore dedans (comme un paquet de cartes)
+    const ROUES = pages.roue.roues || [];
+    let rouePouvoir = ROUES.find((r) => r.id === lireLS("aetheria_pouvoir_sel", null)) || ROUES[0] || null;
+    const clePaquet = (r) => "aetheria_paquet_" + r.id;
+    const chargerPaquet = () => {
+      if (!rouePouvoir) { R.pouvoirs = []; return; }
+      const els = rouePouvoir.elements || [];
+      const reste = lireLS(clePaquet(rouePouvoir), null);
+      const idx = Array.isArray(reste) ? reste.filter((k) => Number.isInteger(k) && k >= 0 && k < els.length) : els.map((_, k) => k);
+      R.pouvoirs = idx.map((k) => ({ ...els[k], idx: k }));
+    };
+    chargerPaquet();
     const tirage = lireLS("aetheria_tirage", { equipe: [], mission: null, difficulte: null });
     let rotation = 0, enCours = false;
     const canvas = $("#roue"), ctx = canvas.getContext("2d");
     const roue = () => R[ongletRoue];
-    const sauver = () => { ecrireLS(CLES[ongletRoue], roue()); ecrireLS("aetheria_tirage", tirage); };
+    const sauver = () => {
+      if (ongletRoue === "pouvoirs") { if (rouePouvoir) { ecrireLS(clePaquet(rouePouvoir), R.pouvoirs.map((e) => e.idx)); ecrireLS("aetheria_pouvoir_sel", rouePouvoir.id); } }
+      else ecrireLS(CLES[ongletRoue], roue());
+      ecrireLS("aetheria_tirage", tirage);
+    };
+    const poids = (e) => (ongletRoue === "pouvoirs" ? Math.max(1, Math.min(20, Math.round(Number(e.poids) || 1))) : 1);
+    // angles de chaque case, proportionnels à leur poids
+    const parts = () => {
+      const l = roue(), tot = l.reduce((t, e) => t + poids(e), 0) || 1;
+      let c = 0;
+      return l.map((e) => { const d = c, w = (poids(e) / tot) * 360; c += w; return { debut: d, largeur: w }; });
+    };
 
     /* --- Résumé du tirage + scénario IA --- */
     const dessinerTirage = () => {
@@ -2023,6 +2127,27 @@
         $("#roue-reset").onclick = () => { if (!enCours && confirm("Remettre toutes les missions dans la roue ?")) { R.missions = missionsDefaut(); majTout(); } };
         $("#roue-ajout").onsubmit = (e) => { e.preventDefault(); const nom = e.target.nom.value.trim(); if (!nom || enCours) return; R.missions.push({ nom }); e.target.nom.value = ""; majTout(); };
         liste();
+      } else if (ongletRoue === "pouvoirs") {
+        if (!ROUES.length) { z.innerHTML = `<p class="discret">Aucune roue de pouvoirs pour l'instant. Ouvre la fiche d'un personnage dont les pouvoirs reposent sur le hasard (cartes, dés, runes…) et appuie sur « 🤖 Proposer des roues ».</p>`; return; }
+        const persosR = [...new Set(ROUES.map((r) => r.fiche_id))].map((id) => indexParId.get(id)).sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
+        const duPerso = ROUES.filter((r) => r.fiche_id === rouePouvoir.fiche_id);
+        const els = rouePouvoir.elements || [], sortis = els.map((e, k) => ({ ...e, idx: k })).filter((e) => !R.pouvoirs.some((x) => x.idx === e.idx));
+        const f = indexParId.get(rouePouvoir.fiche_id);
+        z.innerHTML = `
+          <div class="rangee roue-outils">
+            <label class="champ-court">Personnage<select id="pv-perso">${persosR.map((p) => `<option value="${esc(p.id)}" ${p.id === rouePouvoir.fiche_id ? "selected" : ""}>${esc(p.titre)}</option>`).join("")}</select></label>
+            <label class="champ-court">Roue<select id="pv-roue">${duPerso.map((r) => `<option value="${esc(r.id)}" ${r.id === rouePouvoir.id ? "selected" : ""}>${esc(r.nom)}</option>`).join("")}</select></label>
+          </div>
+          ${rouePouvoir.description ? `<p class="discret">${esc(rouePouvoir.description)}</p>` : ""}
+          <div class="rangee"><a class="lien" href="#/f/${encodeURIComponent(f.id)}">Fiche de ${esc(f.titre)}</a>
+            <button class="btn petit" id="pv-remettre" ${sortis.length ? "" : "disabled"}>🔀 Remettre tout (${sortis.length} retirée${sortis.length > 1 ? "s" : ""})</button></div>
+          <details class="liste-missions"><summary>Voir les ${R.pouvoirs.length} cases restantes</summary>
+            <ol class="liste-pouvoirs">${R.pouvoirs.map((e) => `<li><b>${esc(e.nom)}</b>${poids(e) > 1 ? ` <small class="discret">×${poids(e)}</small>` : ""}${e.effet ? ` — <span class="discret">${esc(e.effet)}</span>` : ""}</li>`).join("")}</ol></details>
+          ${sortis.length ? `<details class="liste-missions"><summary>Déjà retirées (${sortis.length})</summary><ol class="liste-pouvoirs">${sortis.map((e) => `<li>${esc(e.nom)}</li>`).join("")}</ol></details>` : ""}`;
+        const changer = (r) => { if (enCours || !r) return; rouePouvoir = r; ecrireLS("aetheria_pouvoir_sel", r.id); chargerPaquet(); canvas.style.transition = "none"; rotation = 0; canvas.style.transform = "rotate(0deg)"; majTout(); };
+        $("#pv-perso").onchange = (e) => changer(ROUES.find((r) => r.fiche_id === e.target.value));
+        $("#pv-roue").onchange = (e) => changer(ROUES.find((r) => r.id === e.target.value));
+        $("#pv-remettre").onclick = () => { if (enCours) return; R.pouvoirs = els.map((e, k) => ({ ...e, idx: k })); canvas.style.transition = "none"; rotation = 0; canvas.style.transform = "rotate(0deg)"; majTout(); toast("Toutes les cases sont revenues dans la roue."); };
       } else {
         const dans = (n) => R.diff.some((d) => d.nom === n);
         z.innerHTML = `<p class="discret">Touche un rang pour le retirer ou le remettre dans la roue.</p>
@@ -2048,9 +2173,9 @@
       ctx.save(); ctx.translate(W / 2, W / 2);
       ctx.beginPath(); ctx.arc(0, 0, Rr + 6, 0, Math.PI * 2); ctx.fillStyle = "#e3b866"; ctx.fill();
       if (!l.length) { ctx.beginPath(); ctx.arc(0, 0, Rr, 0, Math.PI * 2); ctx.fillStyle = "#151a36"; ctx.fill(); ctx.restore(); return; }
-      const n = l.length, a = (Math.PI * 2) / n;
+      const n = l.length, P = parts();
       l.forEach((e, i) => {
-        const debut = -Math.PI / 2 + i * a;
+        const a = (P[i].largeur * Math.PI) / 180, debut = -Math.PI / 2 + (P[i].debut * Math.PI) / 180;
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, Rr, debut, debut + a); ctx.closePath();
         let coul = COULEURS_ROUE[i % COULEURS_ROUE.length];
         if (n > 1 && i === n - 1 && coul === COULEURS_ROUE[0]) coul = COULEURS_ROUE[2];
@@ -2059,7 +2184,7 @@
         ctx.save(); ctx.rotate(debut + a / 2);
         ctx.textAlign = "right"; ctx.textBaseline = "middle";
         ctx.fillStyle = ["#e3b866", "#7fc8f8", "#f5d08a", "#8fb8de"].includes(coul) ? "#0d1024" : "#ffffff";
-        const taille = Math.max(13, Math.min(46, 520 / n + 12));
+        const taille = Math.max(13, Math.min(46, (520 / n + 12) * Math.min(1.6, Math.sqrt(P[i].largeur / (360 / n)))));
         ctx.font = `600 ${taille}px "Cinzel", Georgia, serif`;
         let t = etiquette(e); const max = Rr - 90;
         while (ctx.measureText(t).width > max && t.length > 2) t = t.slice(0, -1);
@@ -2074,10 +2199,10 @@
       sauver();
       if (choix) dessinerChoix();
       dessinerRoue();
-      const n = roue().length, mot = { persos: "nom", missions: "mission", diff: "rang" }[ongletRoue];
+      const n = roue().length, mot = { persos: "nom", missions: "mission", diff: "rang", pouvoirs: "case" }[ongletRoue];
       $("#roue-compte").textContent = n ? `${n} ${mot}${n > 1 ? "s" : ""} dans la roue` : "La roue est vide";
       $("#roue-lancer").disabled = n < 2;
-      const d = $(".liste-missions summary"); if (d) d.textContent = `Voir les ${R.missions.length} missions dans la roue`;
+      const d = ongletRoue === "missions" && $(".liste-missions summary"); if (d) d.textContent = `Voir les ${R.missions.length} missions dans la roue`;
     };
 
     $$("[data-roue]").forEach((b) => (b.onclick = () => {
@@ -2092,11 +2217,13 @@
       const l = roue();
       if (enCours || l.length < 2) return;
       enCours = true; $("#roue-lancer").disabled = true;
-      const n = l.length, seg = 360 / n;
+      const P = parts();
       const h = crypto.getRandomValues(new Uint32Array(2));
-      const gagnant = h[0] % n;
-      const decalage = (h[1] / 4294967296 - 0.5) * seg * 0.7;
-      const cible = (360 - ((gagnant + 0.5) * seg + decalage) + 3600) % 360;
+      const tire = (h[0] / 4294967296) * 360;
+      let gagnant = P.findIndex((p) => tire < p.debut + p.largeur);
+      if (gagnant < 0) gagnant = l.length - 1;
+      const pos = P[gagnant].debut + P[gagnant].largeur * (0.15 + 0.7 * (h[1] / 4294967296));
+      const cible = (360 - pos + 3600) % 360;
       const actuel = ((rotation % 360) + 360) % 360;
       rotation += 360 * 6 + ((cible - actuel + 360) % 360);
       canvas.style.transition = "transform 5.5s cubic-bezier(0.12, 0.7, 0.1, 1)";
@@ -2109,22 +2236,24 @@
       // on enregistre le tirage
       if (onglet === "persos") { if (!tirage.equipe.some((x) => x.nom === e.nom)) tirage.equipe.push({ nom: e.nom, id: e.id || null }); }
       else if (onglet === "missions") tirage.mission = e.nom;
-      else tirage.difficulte = e.nom;
+      else if (onglet === "diff") tirage.difficulte = e.nom;
       ecrireLS("aetheria_tirage", tirage);
       dessinerTirage();
-      const titre = { persos: "La roue a choisi", missions: "Mission tirée", diff: "Difficulté" }[onglet];
-      const desc = onglet === "diff" ? (CFG_MISSIONS.DIFFICULTES.find(([n]) => n === e.nom) || [])[1] : "";
+      const titre = { persos: "La roue a choisi", missions: "Mission tirée", diff: "Difficulté", pouvoirs: rouePouvoir ? rouePouvoir.nom : "Pouvoir" }[onglet];
+      const desc = onglet === "diff" ? (CFG_MISSIONS.DIFFICULTES.find(([n]) => n === e.nom) || [])[1] : onglet === "pouvoirs" ? e.effet || "" : "";
       const fond = document.createElement("div");
       fond.className = "feuille-fond resultat-roue";
       fond.innerHTML = `
         <div class="carte-resultat">
           <div class="cr-titre">✧ ${titre} ✧</div>
           <div class="cr-nom ${onglet === "missions" ? "cr-mission" : ""}">${onglet === "diff" ? "Rang " : ""}${esc(e.nom)}</div>
-          ${desc ? `<p class="discret">${esc(desc)}</p>` : ""}
+          ${desc ? `<p class="${onglet === "pouvoirs" ? "cr-effet" : "discret"}">${inline(esc(desc))}</p>` : ""}
           ${e.id ? `<a class="lien" href="#/f/${encodeURIComponent(e.id)}">Voir sa fiche</a>` : ""}
           ${onglet === "persos" ? `<p class="discret petit-texte">Ajouté à l'équipe du tirage.</p>` : ""}
+          ${onglet === "pouvoirs" ? `<p class="discret petit-texte">« Retirer » la défausse (comme une carte jouée) jusqu'à « Remettre tout ».</p>` : ""}
           <div class="cr-boutons">
             <button class="btn btn-danger" id="cr-retirer">🗑 Retirer de la roue</button>
+            ${onglet === "pouvoirs" ? `<button class="btn" id="cr-copier">📋 Copier</button>` : ""}
             <button class="btn btn-or" id="cr-garder">✔ Garder</button>
           </div>
         </div>`;
@@ -2133,6 +2262,8 @@
       const fermer = () => { fond.remove(); window.removeEventListener("hashchange", fermer); };
       window.addEventListener("hashchange", fermer);
       $("#cr-garder", fond).onclick = () => { fermer(); majTout(); };
+      const cc = $("#cr-copier", fond);
+      if (cc) cc.onclick = () => copier(`${titre} : ${e.nom}${e.effet ? " — " + e.effet : ""}`);
       $("#cr-retirer", fond).onclick = () => {
         R[onglet].splice(i, 1);
         canvas.style.transition = "none"; rotation = 0; canvas.style.transform = "rotate(0deg)";
