@@ -280,13 +280,23 @@ Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
 S'il n'y a rien à corriger, renvoie le texte inchangé et "changements":[].`;
 
 const CONSIGNE_ROUES = (titre, existantes) => `Lis la fiche « ${titre} » et décide si ses pouvoirs, sa magie ou ses objets reposent sur un TIRAGE AU SORT ou sur le HASARD : un jeu de cartes, des dés, une roulette, des runes ou des sorts piochés au hasard, des transformations aléatoires, une malédiction qui frappe au hasard, des effets qui changent à chaque utilisation, etc.
-- Si c'est le cas, crée une ou plusieurs ROUES qui reproduisent EXACTEMENT ce tirage tel que la fiche le décrit (ex : un jeu de 54 cartes = 54 cases, une par carte, avec l'effet de chaque carte selon sa famille et sa valeur ; respecte les noms, familles, effets et règles de la fiche). N'invente pas de pouvoirs absents de la fiche ; si la fiche donne une règle générale (ex : « plus la carte est haute, plus l'effet est fort »), applique-la à chaque case.
+- Si c'est le cas, crée une ou plusieurs ROUES qui reproduisent EXACTEMENT ce tirage tel que la fiche le décrit (ex : un jeu de 54 cartes = 54 cases, une par carte, avec l'effet de chaque carte selon sa famille et sa valeur ; respecte les noms, familles, effets et règles de la fiche). Pour l'effet de chaque case, deux cas :
+  1. la fiche explique l'effet (de la case précise, ou par une règle générale comme « plus la carte est haute, plus l'effet est fort ») → reprends-le fidèlement, avec ses mots, et applique la règle à chaque case ;
+  2. la fiche NE l'explique PAS → c'est à toi de DÉFINIR un effet précis et crédible, déduit de la fiche : sa magie, son style de combat, sa personnalité, ses limites, sa race, son niveau. L'effet doit rester cohérent avec ce que le personnage sait faire et avec sa puissance (ne le rends ni plus fort ni plus faible que la fiche) ; ne lui donne pas de pouvoir qui contredit la fiche.
 - Si rien dans la fiche ne repose sur le hasard, ne crée AUCUNE roue : renvoie "roues":[] et explique pourquoi en une phrase.
 ${existantes ? "Roues déjà enregistrées pour ce personnage (ne les refais pas, propose seulement ce qui manque) : " + existantes + "\n" : ""}
-Chaque case : "nom" très court (20 caractères max, ex : "Roi ♥", "Joker noir"), "effet" (une ou deux phrases, ce qui se passe quand on la tire), "poids" (1 = normal ; mets plus pour une case plus fréquente, ex : 2 ou 3, et garde 1 pour les cas rares si les autres sont plus fréquentes). Entre 2 et 200 cases par roue.
+Chaque case : "nom" très court (20 caractères max, ex : "Roi ♥", "Joker noir"), "effet", "poids" (1 = normal ; mets plus pour une case plus fréquente, ex : 2 ou 3, et garde 1 pour les cas rares si les autres sont plus fréquentes). Entre 2 et 200 cases par roue.
+L'"effet" est le plus important : c'est le SEUL texte que le joueur lira quand la case tombe, il doit donc se suffire à lui-même. Écris en 1 à 3 phrases ce qui se passe CONCRÈTEMENT en RP :
+- ce que fait le pouvoir (attaque, bouclier, soin, illusion, transformation…), sa forme visible, sa cible (lui, un allié, un ennemi, une zone) ;
+- sa force (en reprenant les termes et les paliers de la fiche), sa durée ou sa portée si la fiche en parle, et son prix ou son inconvénient s'il y en a ;
+- reprends les noms de techniques, les règles et les exemples EXACTS de la fiche quand ils existent.
+INTERDIT : un effet vague ou générique comme « Effet offensif de puissance 5 », « Soutien moyen » ou « Distorsion ». Chaque case doit être différente et compréhensible sans relire la fiche.
+Quand la fiche range les cases dans des familles ou des catégories (ex : « Distorsion », « Protection », un élément, une école de magie), N'ÉCRIS JAMAIS le nom de la famille seul : dis ce que fait CONCRÈTEMENT cette carte-là. Remplace aussi les mots flous (« beaucoup », « fort », « puissant », « moyen ») par ce qu'on voit et ce que ça change dans le combat ou la scène.
+Exemple de MAUVAIS effet : « Distorsion, utilise beaucoup de magie. »
+Exemple de BON effet : « Distorsion : il tord l'espace autour d'un ennemi pendant trois échanges ; ses coups sont déviés et frappent à côté. Le Joker perd l'usage de sa main gauche le temps du sort. »
 Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
 {"roues":[{"nom":"Nom de la roue (ex : Jeu de 54 cartes)","description":"à quoi elle sert et quand la tourner, règles particulières (ex : une carte tirée est défaussée jusqu'au mélange)","elements":[{"nom":"As ♠","effet":"…","poids":1}]}],
-"explication":"une ou deux phrases sur pourquoi ces roues (ou pourquoi aucune)"}`;
+"explication":"une ou deux phrases sur pourquoi ces roues (ou pourquoi aucune), en précisant quels effets viennent de la fiche et lesquels tu as dû définir toi-même"}`;
 
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
@@ -497,7 +507,7 @@ Deno.serve(async (req) => {
         description: String(r && r.description || "").slice(0, 1000),
         elements: (Array.isArray(r && r.elements) ? r.elements : []).slice(0, 200).map((e) => {
           const x = typeof e === "string" ? { nom: e } : (e || {});
-          return { nom: String(x.nom || "").trim().slice(0, 40), effet: String(x.effet || "").slice(0, 400), poids: Math.max(1, Math.min(20, Math.round(Number(x.poids) || 1))) };
+          return { nom: String(x.nom || "").trim().slice(0, 40), effet: String(x.effet || "").slice(0, 700), poids: Math.max(1, Math.min(20, Math.round(Number(x.poids) || 1))) };
         }).filter((e) => e.nom),
       })).filter((r) => r.elements.length >= 2);
       return reponse({ roues, explication: String(brut.explication || "").slice(0, 600), restant, modele: rep.modele });
