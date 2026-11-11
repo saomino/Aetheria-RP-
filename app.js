@@ -1359,9 +1359,10 @@
   }
   /* ---------- Envoi sur Discord (salon des dés) ---------- */
   const lieuxMonde = () => [...indexParId.values()].filter((f) => f.categorie === "monde").map((f) => f.titre).sort((a, b) => a.localeCompare(b, "fr"));
-  function htmlEnvoiDiscord(id) {
+  function htmlEnvoiDiscord(id, salonDefaut = "des") {
     if (!estMembre()) return "";
     return `<div class="envoi-discord" id="${id}">
+      <select class="ed-salon" aria-label="Salon Discord"><option value="des" ${salonDefaut === "des" ? "selected" : ""}>🎲 Salon des dés</option><option value="missions" ${salonDefaut === "missions" ? "selected" : ""}>📜 Salon des missions</option></select>
       <input class="ed-lieu" list="${id}-lieux" maxlength="80" placeholder="📍 Lieu de la scène (facultatif)" value="${esc(lireLS("aetheria_lieu", ""))}">
       <datalist id="${id}-lieux">${lieuxMonde().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
       <button type="button" class="btn petit btn-discord">📤 Envoyer sur Discord</button></div>`;
@@ -1373,7 +1374,7 @@
       const lieu = ($(".ed-lieu", el).value || "").trim();
       ecrireLS("aetheria_lieu", lieu);
       b.disabled = true; b.textContent = "Envoi…";
-      try { await api.ia("discord", { ...donnees(), lieu }); b.textContent = "✔ Envoyé sur Discord"; toast("Envoyé sur Discord !"); }
+      try { await api.ia("discord", { ...donnees(), lieu, salon: $(".ed-salon", el).value }); b.textContent = "✔ Envoyé sur Discord"; toast("Envoyé sur Discord !"); }
       catch (e) { b.disabled = false; b.textContent = "📤 Envoyer sur Discord"; toast(e.message, "erreur"); }
     };
   }
@@ -2082,7 +2083,7 @@
           ${estMembre() ? `<button class="btn btn-or" id="imaginer" ${tirage.mission && tirage.difficulte ? "" : "disabled"}>🤖 Imaginer le scénario</button>` : ""}
           <button class="btn petit" id="vider-tirage">Nouveau tirage</button>
         </div>
-        ${tirage.mission || tirage.difficulte || tirage.equipe.length ? htmlEnvoiDiscord("ed-tirage") : ""}
+        ${tirage.mission || tirage.difficulte || tirage.equipe.length ? htmlEnvoiDiscord("ed-tirage", "missions") : ""}
         ${!estMembre() ? `<p class="discret petit-texte">Connecte-toi avec un compte membre pour que l'IA imagine le scénario.</p>` : ""}
         <div id="scenario"></div>`;
       brancherEnvoiDiscord($("#ed-tirage"), () => ({ type: "tirage", equipe: tirage.equipe.map((e) => e.nom), mission: tirage.mission, difficulte: tirage.difficulte, description: descDiff || "", scenario: dernierScenario }));

@@ -412,9 +412,12 @@ function formuleDiscord(c) {
 const lienFiche = (c) => (c.fiche_id ? `[${court(c.nom, 80)}](${SITE}#/f/${encodeURIComponent(c.fiche_id)})` : court(c.nom || c.race || "Anonyme", 80));
 
 async function envoyerDiscord(profil, corps) {
-  const url = Deno.env.get("DISCORD_WEBHOOK") || "";
+  // salon des dés : lancers et roues de pouvoirs ; salon des missions : tirages de mission
+  const salon = corps.salon === "missions" || corps.salon === "des" ? corps.salon : corps.type === "tirage" ? "missions" : "des";
+  const secret = salon === "missions" ? "DISCORD_WEBHOOK_MISSIONS" : "DISCORD_WEBHOOK";
+  const url = Deno.env.get(secret) || "";
   if (!/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(url))
-    throw new ErreurIA("Le salon Discord n'est pas encore branché : il manque le secret DISCORD_WEBHOOK dans Supabase.", 400);
+    throw new ErreurIA(`Le salon Discord ${salon === "missions" ? "des missions" : "des dés"} n'est pas encore branché : il manque le secret ${secret} dans Supabase.`, 400);
   const lieu = court(corps.lieu, 80);
   const pied = { text: `Tiré sur Aetheria par ${court(profil.pseudo, 40)}${lieu ? " · 📍 " + lieu : ""}` };
   let embed;
@@ -464,7 +467,7 @@ async function envoyerDiscord(profil, corps) {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "Aetheria", embeds: [embed], allowed_mentions: { parse: [] } }),
   });
-  if (r.status === 404 || r.status === 401) throw new ErreurIA("Discord refuse le webhook : il a peut-être été supprimé. Crée-en un nouveau et remplace DISCORD_WEBHOOK.", 502);
+  if (r.status === 404 || r.status === 401) throw new ErreurIA("Discord refuse le webhook : il a peut-être été supprimé. Crée-en un nouveau et remplace " + secret + " dans Supabase.", 502);
   if (r.status === 429) throw new ErreurIA("Discord demande d'attendre quelques secondes avant le prochain envoi.", 429);
   if (!r.ok) throw new ErreurIA("Discord a refusé le message (" + r.status + ").", 502);
   return reponse({ ok: true });
