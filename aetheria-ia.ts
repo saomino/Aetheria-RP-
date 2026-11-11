@@ -397,6 +397,79 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
   return ((d.choices || [])[0] || { message: {} }).message.content || "";
 }
 
+/* ---------- Envoi sur Discord (webhook du salon des dés) ---------- */
+const SITE = (Deno.env.get("SITE_URL") || "https://saomino.github.io/Aetheria-RP-/").replace(/\/?$/, "/");
+const court = (t, n) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+const sg = (n) => (n >= 0 ? "+ " + n : "− " + Math.abs(n));
+const NOMS_SENS = { attaque: "⚔️ attaque", defense: "🛡️ défense", soutien: "💚 soutien" };
+function formuleDiscord(c) {
+  const p = [`🎲 **${c.de}**`];
+  if (c.bonus_race) p.push(`${sg(c.bonus_race)} (${court(c.race || "race", 40)})`);
+  if (c.bonus_perso) p.push(`${sg(c.bonus_perso)} (expérience)`);
+  if (c.bonus_extra) p.push(`${sg(c.bonus_extra)} (bonus)`);
+  return p.join(" ") + ` = **${c.total}**`;
+}
+const lienFiche = (c) => (c.fiche_id ? `[${court(c.nom, 80)}](${SITE}#/f/${encodeURIComponent(c.fiche_id)})` : court(c.nom || c.race || "Anonyme", 80));
+
+async function envoyerDiscord(profil, corps) {
+  const url = Deno.env.get("DISCORD_WEBHOOK") || "";
+  if (!/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(url))
+    throw new ErreurIA("Le salon Discord n'est pas encore branché : il manque le secret DISCORD_WEBHOOK dans Supabase.", 400);
+  const lieu = court(corps.lieu, 80);
+  const pied = { text: `Tiré sur Aetheria par ${court(profil.pseudo, 40)}${lieu ? " · 📍 " + lieu : ""}` };
+  let embed;
+  if (corps.type === "lancer") {
+    const l = (await db(`lancers?id=eq.${encodeURIComponent(String(corps.lancer_id || ""))}&select=*`))[0];
+    if (!l) throw new ErreurIA("Lancer introuvable.", 404);
+    if (l.auteur_id !== profil.id && profil.role !== "admin") throw new ErreurIA("Tu ne peux envoyer que tes propres lancers.", 403);
+    if (Date.now() - new Date(l.cree_le).getTime() > 30 * 60000) throw new ErreurIA("Ce lancer date de plus de 30 minutes : relance les dés.", 400);
+    const d = l.donnees;
+    if (l.mode === "combat") {
+      const g = d.gagnant;
+      embed = {
+        title: `⚔️ ${court(d.a.nom || "Attaquant", 60)} attaque ${court(d.d.nom || "Défenseur", 60)}`,
+        color: g === "attaquant" ? 0xc9706b : g === "defenseur" ? 0x7fc8f8 : 0xe3b866,
+        fields: [
+          { name: `⚔️ ${court(d.a.nom || "Attaquant", 80)}`, value: formuleDiscord(d.a) },
+          { name: `🛡️ ${court(d.d.nom || "Défenseur", 80)}`, value: formuleDiscord(d.d) },
+        ],
+        description: g === "attaquant" ? `💥 ${lienFiche(d.a)} **touche** : ${d.degats} dégât${d.degats > 1 ? "s" : ""}`
+          : g === "defenseur" ? `🛡️ ${lienFiche(d.d)} **pare l'attaque**` : "⚖️ **Égalité**",
+      };
+    } else {
+      embed = { title: `${NOMS_SENS[d.a.sens] || "🎲"} — ${court(d.a.nom || d.a.race || "Lancer", 80)}`, color: 0xe3b866, description: formuleDiscord(d.a) + (d.a.fiche_id ? `\n${lienFiche(d.a)}` : "") };
+    }
+    pied.text += " · lancer vérifié ✔";
+  } else if (corps.type === "roue") {
+    embed = {
+      title: `🎡 ${court(corps.roue || "Roue", 80)}${corps.perso ? " — " + court(corps.perso, 60) : ""}`,
+      color: 0x6a4c93,
+      description: `**${court(corps.nom, 80)}**${corps.effet ? "\n" + court(corps.effet, 1500) : ""}`,
+    };
+  } else if (corps.type === "tirage") {
+    const equipe = (Array.isArray(corps.equipe) ? corps.equipe : []).slice(0, 12).map((n) => court(n, 60)).filter(Boolean);
+    embed = {
+      title: "🎯 Tirage de mission", color: 0x2f6f6a,
+      fields: [
+        ...(equipe.length ? [{ name: "👥 Équipe", value: equipe.join(", ") }] : []),
+        ...(corps.mission ? [{ name: "📜 Mission", value: court(corps.mission, 300) }] : []),
+        ...(corps.difficulte ? [{ name: "⭐ Difficulté", value: `Rang **${court(corps.difficulte, 10)}**${corps.description ? " — " + court(corps.description, 200) : ""}` }] : []),
+      ],
+      description: corps.scenario ? court(corps.scenario, 3500) : undefined,
+    };
+  } else throw new ErreurIA("Type d'envoi inconnu.");
+  embed.footer = pied;
+  embed.timestamp = new Date().toISOString();
+  const r = await fetch(url + (url.includes("?") ? "&" : "?") + "wait=true", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "Aetheria", embeds: [embed], allowed_mentions: { parse: [] } }),
+  });
+  if (r.status === 404 || r.status === 401) throw new ErreurIA("Discord refuse le webhook : il a peut-être été supprimé. Crée-en un nouveau et remplace DISCORD_WEBHOOK.", 502);
+  if (r.status === 429) throw new ErreurIA("Discord demande d'attendre quelques secondes avant le prochain envoi.", 429);
+  if (!r.ok) throw new ErreurIA("Discord a refusé le message (" + r.status + ").", 502);
+  return reponse({ ok: true });
+}
+
 /* ---------- Point d'entrée ---------- */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -405,6 +478,7 @@ Deno.serve(async (req) => {
     const profil = await utilisateur(req);
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
+    if (mode === "discord") return await envoyerDiscord(profil, corps);
     if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([

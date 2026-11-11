@@ -1357,6 +1357,27 @@
     if (c.bonus_extra) p.push(`${signe(c.bonus_extra)} bonus`);
     return p.join(" ");
   }
+  /* ---------- Envoi sur Discord (salon des dés) ---------- */
+  const lieuxMonde = () => [...indexParId.values()].filter((f) => f.categorie === "monde").map((f) => f.titre).sort((a, b) => a.localeCompare(b, "fr"));
+  function htmlEnvoiDiscord(id) {
+    if (!estMembre()) return "";
+    return `<div class="envoi-discord" id="${id}">
+      <input class="ed-lieu" list="${id}-lieux" maxlength="80" placeholder="📍 Lieu de la scène (facultatif)" value="${esc(lireLS("aetheria_lieu", ""))}">
+      <datalist id="${id}-lieux">${lieuxMonde().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
+      <button type="button" class="btn petit btn-discord">📤 Envoyer sur Discord</button></div>`;
+  }
+  function brancherEnvoiDiscord(el, donnees) {
+    const b = el && $(".btn-discord", el);
+    if (!b) return;
+    b.onclick = async () => {
+      const lieu = ($(".ed-lieu", el).value || "").trim();
+      ecrireLS("aetheria_lieu", lieu);
+      b.disabled = true; b.textContent = "Envoi…";
+      try { await api.ia("discord", { ...donnees(), lieu }); b.textContent = "✔ Envoyé sur Discord"; toast("Envoyé sur Discord !"); }
+      catch (e) { b.disabled = false; b.textContent = "📤 Envoyer sur Discord"; toast(e.message, "erreur"); }
+    };
+  }
+
   function htmlLancer(l, auteurs) {
     const d = l.donnees, a = auteurs.get(l.auteur_id);
     const qui = (c) => esc(c.nom || c.race || "Anonyme");
@@ -1569,7 +1590,8 @@
         const a = net(lireCote(mode === "combat" ? $("#cote-a") : $("#cote-s")));
         const d = mode === "combat" ? net(lireCote($("#cote-d"))) : null;
         const [l] = await Promise.all([api.lancerDes(mode, a, d), new Promise((ok) => setTimeout(ok, 900))]);
-        zone.innerHTML = `<ol class="lancers resultat-frais">${htmlLancer(l, await auteursMap())}</ol>`;
+        zone.innerHTML = `<ol class="lancers resultat-frais">${htmlLancer(l, await auteursMap())}</ol>${htmlEnvoiDiscord("ed-des")}`;
+        brancherEnvoiDiscord($("#ed-des"), () => ({ type: "lancer", lancer_id: l.id }));
         rafraichir();
       } catch (e) { zone.innerHTML = ""; toast(e.message, "erreur"); }
       b.disabled = false;
@@ -2045,7 +2067,9 @@
     };
 
     /* --- Résumé du tirage + scénario IA --- */
+    let dernierScenario = "";
     const dessinerTirage = () => {
+      dernierScenario = "";
       const descDiff = tirage.difficulte && (CFG_MISSIONS.DIFFICULTES.find(([n]) => n === tirage.difficulte) || [])[1];
       $("#tirage").innerHTML = `
         <h2>🎯 Tirage en cours</h2>
@@ -2058,8 +2082,10 @@
           ${estMembre() ? `<button class="btn btn-or" id="imaginer" ${tirage.mission && tirage.difficulte ? "" : "disabled"}>🤖 Imaginer le scénario</button>` : ""}
           <button class="btn petit" id="vider-tirage">Nouveau tirage</button>
         </div>
+        ${tirage.mission || tirage.difficulte || tirage.equipe.length ? htmlEnvoiDiscord("ed-tirage") : ""}
         ${!estMembre() ? `<p class="discret petit-texte">Connecte-toi avec un compte membre pour que l'IA imagine le scénario.</p>` : ""}
         <div id="scenario"></div>`;
+      brancherEnvoiDiscord($("#ed-tirage"), () => ({ type: "tirage", equipe: tirage.equipe.map((e) => e.nom), mission: tirage.mission, difficulte: tirage.difficulte, description: descDiff || "", scenario: dernierScenario }));
       $("#vider-tirage").onclick = () => { tirage.equipe = []; tirage.mission = null; tirage.difficulte = null; ecrireLS("aetheria_tirage", tirage); dessinerTirage(); };
       const im = $("#imaginer");
       if (im) im.onclick = async () => {
@@ -2069,6 +2095,7 @@
         try {
           const r = await avecDelai(api.ia("scenario", { mission: tirage.mission, difficulte: tirage.difficulte, description: descDiff || "", personnages: tirage.equipe.map((e) => e.nom) }));
           stop();
+          dernierScenario = r.texte;
           z.innerHTML = `<div class="scenario"><div class="contenu ia-texte">${markdown(r.texte)}</div>
             <div class="rangee"><button class="btn petit" id="copier-scenario">📋 Copier</button>${estMembre() ? `<button class="btn petit btn-or" id="chronique-scenario">📜 En faire une chronique</button>` : ""}</div>
             <p class="discret petit-texte">${NOTE_IA}</p></div>`;
@@ -2250,6 +2277,7 @@
           ${desc ? `<p class="${onglet === "pouvoirs" ? "cr-effet" : "discret"}">${inline(esc(desc))}</p>` : ""}
           ${e.id ? `<a class="lien" href="#/f/${encodeURIComponent(e.id)}">Voir sa fiche</a>` : ""}
           ${onglet === "persos" ? `<p class="discret petit-texte">Ajouté à l'équipe du tirage.</p>` : ""}
+          ${onglet === "pouvoirs" ? htmlEnvoiDiscord("ed-roue") : ""}
           ${onglet === "pouvoirs" ? `<p class="discret petit-texte">« Retirer » la défausse (comme une carte jouée) jusqu'à « Remettre tout ».</p>` : ""}
           <div class="cr-boutons">
             <button class="btn btn-danger" id="cr-retirer">🗑 Retirer de la roue</button>
@@ -2262,6 +2290,10 @@
       const fermer = () => { fond.remove(); window.removeEventListener("hashchange", fermer); };
       window.addEventListener("hashchange", fermer);
       $("#cr-garder", fond).onclick = () => { fermer(); majTout(); };
+      if (onglet === "pouvoirs") {
+        const rp = rouePouvoir, fp = rp && indexParId.get(rp.fiche_id);
+        brancherEnvoiDiscord($("#ed-roue", fond), () => ({ type: "roue", roue: rp ? rp.nom : "", perso: fp ? fp.titre : "", nom: e.nom, effet: e.effet || "" }));
+      }
       const cc = $("#cr-copier", fond);
       if (cc) cc.onclick = () => copier(`${titre} : ${e.nom}${e.effet ? " — " + e.effet : ""}`);
       $("#cr-retirer", fond).onclick = () => {

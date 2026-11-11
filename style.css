@@ -580,3 +580,10 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .champ-court select { width: 100%; }
 .cr-effet { font-size: 1.02rem; line-height: 1.45; margin: 6px 0 10px; }
 .onglets-roue { flex-wrap: wrap; }
+
+/* ---------- Envoi sur Discord ---------- */
+.envoi-discord { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 4px; }
+.envoi-discord .ed-lieu { flex: 1 1 180px; min-width: 0; }
+.btn-discord { background: #5865f2; border-color: #5865f2; color: #fff; }
+.btn-discord:disabled { opacity: 0.75; }
+.carte-resultat .envoi-discord { justify-content: center; }
