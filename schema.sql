@@ -414,6 +414,27 @@ drop policy if exists "roues_perso suppression" on public.roues_perso;
 create policy "roues_perso suppression" on public.roues_perso for delete to authenticated
   using (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
 
+-- ---------- Mini-jeux : scores (Aetherdle, Qui suis-je, Bataille de cartes, Tournoi) ----------
+create table if not exists public.jeux_scores (
+  id       uuid primary key default gen_random_uuid(),
+  user_id  uuid not null references public.profils(id) on delete cascade default auth.uid(),
+  jeu      text not null check (jeu in ('aetherdle', 'qui', 'cartes', 'tournoi')),
+  jour     date not null default current_date,
+  score    int  not null check (score between 0 and 1000),
+  details  jsonb,
+  cree_le  timestamptz not null default now()
+);
+create unique index if not exists jeux_scores_aetherdle_unique on public.jeux_scores (user_id, jour) where jeu = 'aetherdle';
+create index if not exists jeux_scores_jeu_idx on public.jeux_scores (jeu, jour desc);
+alter table public.jeux_scores enable row level security;
+drop policy if exists "jeux_scores lecture" on public.jeux_scores;
+create policy "jeux_scores lecture" on public.jeux_scores for select using (true);
+drop policy if exists "jeux_scores ajout" on public.jeux_scores;
+create policy "jeux_scores ajout" on public.jeux_scores for insert to authenticated
+  with check (public.est_membre() and user_id = auth.uid() and jour between current_date - 1 and current_date + 1);
+drop policy if exists "jeux_scores suppression admin" on public.jeux_scores;
+create policy "jeux_scores suppression admin" on public.jeux_scores for delete to authenticated using (public.est_admin());
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
