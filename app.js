@@ -119,7 +119,8 @@
       route.startsWith("/des") ? "des" :
       route.startsWith("/ia") || route.startsWith("/creer-ia") ? "wiki" :
       /^\/(joueurs|joueur)/.test(route) ? "joueurs" :
-      route.startsWith("/roue") ? "roue" : "moi";
+      route.startsWith("/roue") ? "roue" :
+      route.startsWith("/jeux") ? "jeux" : "moi";
     $("#entete").innerHTML = `
       ${api.mode === "demo" ? `<div class="bandeau-demo">Mode démo : rien n'est partagé tant que <code>config.js</code> n'est pas rempli. <button class="lien" id="reset-demo">Tout effacer</button></div>` : ""}
       <div class="barre">
@@ -133,6 +134,7 @@
       ["wiki", "#/wiki", "📚", "Wiki"],
       ["des", "#/des", "🎲", "Dés"],
       ["roue", "#/roue", "🎡", "Roue"],
+      ["jeux", "#/jeux", "🎮", "Jeux"],
       ["joueurs", "#/joueurs", "👥", "Joueurs"],
       ["moi", m ? "#/compte" : "#/connexion", "👤", m && m.profil ? "Moi" : "Connexion"],
     ];
@@ -2308,6 +2310,406 @@
     majTout();
   };
 
+  /* =====================================================================
+     MINI-JEUX : Aetherdle, Qui suis-je ?, Bataille de cartes, Grand Tournoi
+     ===================================================================== */
+  const JEUX = [
+    ["aetherdle", "🔍", "Aetherdle", "Le personnage du jour : devine-le en un minimum d'essais."],
+    ["qui", "🕵️", "Qui suis-je ?", "Des indices de plus en plus clairs : trouve le personnage avant la fin."],
+    ["cartes", "🃏", "Bataille de cartes", "Ton deck de personnages contre celui de l'ordinateur, aux vrais dés."],
+    ["tournoi", "🏆", "Grand Tournoi", "Tous les personnages s'affrontent jusqu'au champion."],
+  ];
+  const alea = (n) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+  const d15 = () => 1 + alea(DE);
+  const melanger = (t) => { const a = [...t]; for (let i = a.length - 1; i > 0; i--) { const j = alea(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const hachage = (s) => { let h = 2166136261; for (const c of String(s)) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619) >>> 0; } return h; };
+  const jourLocal = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const numeroJour = (j) => Math.round((new Date(j + "T12:00:00") - new Date("2026-11-11T12:00:00")) / 86400000) + 1;
+  const persosJeu = () => [...indexParId.values()].filter(estPerso).sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
+  const infoPerso = (f, re) => { const i = (f.infos || []).find((x) => re.test(normal(x.cle)) && String(x.valeur || "").trim()); return i ? sansMarkdown(i.valeur).replace(/\s+/g, " ").trim().slice(0, 60) : ""; };
+  const CHAMPS_JEU = [
+    ["Race", /race|peuple|espece/],
+    ["Rôle", /role|classe|metier/],
+    ["Affiliation", /affiliation|faction|guilde/],
+    ["Origine", /lieu|origine|royaume/],
+    ["Statut", /statut/],
+  ];
+  let desJeux = {};
+  const forces = (f) => { const b = bonusFiche(f, desJeux); return { attaque: b.attaque.bonus, defense: b.defense.bonus, soutien: b.soutien.bonus }; };
+  const puissance = (f) => { const x = forces(f); return x.attaque + x.defense + x.soutien; };
+  const vignette = (f, cls = "") => urlSure(f.image_url) ? `<img class="vignette ${cls}" src="${esc(f.image_url)}" alt="" loading="lazy">` : `<span class="vignette sans-image ${cls}">${esc((f.titre || "?").slice(0, 1))}</span>`;
+  const enTete = (ic, nom, sous) => `<div class="fil"><a href="#/jeux">🎮 Mini-jeux</a></div>
+    <div class="entete-page"><div><h1><span class="ic-titre">${ic}</span>${esc(nom)}</h1>${sous ? `<p class="discret">${sous}</p>` : ""}</div></div>`;
+  async function sauverScore(jeu, score, details) {
+    if (!estMembre()) return;
+    try { await api.enregistrerScore({ jeu, jour: jourLocal(), score, details }); } catch (e) { console.warn(e); }
+  }
+  const champSaisie = (id, persos, ph) => `<form class="rangee jeu-saisie" id="${id}">
+      <input name="nom" list="${id}-liste" autocomplete="off" placeholder="${esc(ph)}" required>
+      <datalist id="${id}-liste">${persos.map((f) => `<option value="${esc(f.titre)}">`).join("")}</datalist>
+      <button class="btn btn-or">Valider</button></form>`;
+  const trouverPerso = (persos, nom) => persos.find((f) => normal(f.titre) === normal(nom));
+
+  /* ---------- Menu ---------- */
+  pages.jeux = async (arg) => {
+    const [fiches, des] = await Promise.all([majIndexTitres(), api.listerDes().catch(() => ({}))]);
+    desJeux = des || {};
+    const persos = fiches.filter(estPerso);
+    if (arg && pages.jeux[arg]) return pages.jeux[arg](persos);
+    const depuis = jourLocal(new Date(Date.now() - 30 * 86400000));
+    const [scores, auteurs] = await Promise.all([api.listerScores(depuis).catch(() => []), auteursMap()]);
+    const pseudo = (id) => esc((auteurs.get(id) || {}).pseudo || "?");
+    const auj = jourLocal();
+    const dle = scores.filter((s) => s.jeu === "aetherdle" && s.jour === auj).sort((a, b) => a.score - b.score || a.cree_le.localeCompare(b.cree_le));
+    const somme = (jeu) => {
+      const m = new Map();
+      scores.filter((s) => s.jeu === jeu).forEach((s) => m.set(s.user_id, (m.get(s.user_id) || 0) + s.score));
+      return [...m.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    };
+    const series = (() => {
+      const parJoueur = new Map();
+      scores.filter((s) => s.jeu === "aetherdle").forEach((s) => { if (!parJoueur.has(s.user_id)) parJoueur.set(s.user_id, new Set()); parJoueur.get(s.user_id).add(s.jour); });
+      const hier = jourLocal(new Date(Date.now() - 86400000));
+      return [...parJoueur.entries()].map(([id, jours]) => {
+        let n = 0, d = new Date(); if (!jours.has(auj)) { if (!jours.has(hier)) return [id, 0]; d = new Date(Date.now() - 86400000); }
+        while (jours.has(jourLocal(d))) { n++; d = new Date(d.getTime() - 86400000); }
+        return [id, n];
+      }).filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    })();
+    const tableau = (titre, lignes, unite) => `<div class="classement-bloc"><h3>${titre}</h3>${lignes.length ? `<ol class="classement">${lignes.map(([id, v], i) => `<li><span class="cl-rang">${["🥇", "🥈", "🥉"][i] || i + 1}</span><span class="cl-nom">${pseudo(id)}</span><b>${v}</b> <small class="discret">${unite(v)}</small></li>`).join("")}</ol>` : `<p class="discret petit-texte">Personne pour l'instant.</p>`}</div>`;
+    return `
+      <div class="entete-page"><div><h1><span class="ic-titre">🎮</span>Mini-jeux</h1>
+        <p class="discret">Des jeux avec les personnages du wiki.${persos.length < 2 ? " Il faut au moins deux fiches de personnage pour jouer." : ""}</p></div></div>
+      <div class="grille-jeux">${JEUX.map(([id, ic, nom, desc]) => `
+        <a class="carte-jeu" href="#/jeux/${id}"><span class="cj-ic">${ic}</span><span class="cj-nom">${esc(nom)}</span><span class="discret petit-texte">${esc(desc)}</span></a>`).join("")}</div>
+      <h2 class="titre-section">🏅 Classements</h2>
+      ${!estMembre() ? `<p class="discret petit-texte">Connecte-toi avec un compte membre pour que tes scores comptent.</p>` : ""}
+      <div class="classements">
+        ${tableau(`🔍 Aetherdle n°${numeroJour(auj)} (aujourd'hui)`, dle.map((s) => [s.user_id, s.score]), (v) => "essai" + (v > 1 ? "s" : ""))}
+        ${tableau("🔥 Séries Aetherdle", series, () => "jours de suite")}
+        ${tableau("🕵️ Qui suis-je ? (30 jours)", somme("qui"), () => "points")}
+        ${tableau("🃏 Bataille de cartes (30 jours)", somme("cartes"), (v) => "victoire" + (v > 1 ? "s" : ""))}
+        ${tableau("🏆 Pronostics du tournoi (30 jours)", somme("tournoi"), () => "bons pronostics")}
+      </div>`;
+  };
+  pages.jeux.apres = (arg) => { if (arg && pages.jeux[arg] && pages.jeux[arg].apres) pages.jeux[arg].apres(); };
+
+  /* ---------- Aetherdle ---------- */
+  const candidatsDle = (persos) => persos.filter((f) => CHAMPS_JEU.filter(([, re]) => infoPerso(f, re)).length >= 2);
+  const secretDu = (cands, jour) => cands.reduce((m, f) => (!m || hachage(jour + "|" + f.id) < hachage(jour + "|" + m.id) ? f : m), null);
+  const motsDe = (t) => normal(t).split(/[^a-z0-9]+/).filter((m) => m.length > 2 && !["les", "des", "del", "une", "the"].includes(m));
+  function comparer(a, b) {
+    if (!a && !b) return "vert";
+    if (!a || !b) return "rouge";
+    if (normal(a) === normal(b)) return "vert";
+    const mb = new Set(motsDe(b));
+    return motsDe(a).some((m) => mb.has(m)) ? "orange" : "rouge";
+  }
+  pages.jeux.aetherdle = (persos) => {
+    const cands = candidatsDle(persos);
+    if (cands.length < 2) return enTete("🔍", "Aetherdle") + `<p class="note">Il faut au moins deux personnages dont la fiche a des infos remplies (race, rôle, affiliation, lieu d'origine, statut).</p>`;
+    const jour = jourLocal(), hier = jourLocal(new Date(Date.now() - 86400000));
+    const secretHier = secretDu(cands, hier);
+    return enTete("🔍", `Aetherdle n°${numeroJour(jour)}`, "Un personnage secret par jour, le même pour tout le monde. Propose un nom : chaque case te dit si tu chauffes.") + `
+      <section class="panneau">
+        ${champSaisie("dle-form", persos, "Nom d'un personnage…")}
+        <div class="legende-dle"><span class="cdle vert">juste</span><span class="cdle orange">en partie</span><span class="cdle rouge">faux</span><span class="cdle">⬆️ secret plus puissant</span><span class="cdle">⬇️ moins puissant</span></div>
+        <div class="dle-grille" id="dle-grille"></div>
+        <div id="dle-fin"></div>
+      </section>
+      ${secretHier ? `<p class="discret petit-texte">Le personnage d'hier était : <a href="#/f/${encodeURIComponent(secretHier.id)}">${esc(secretHier.titre)}</a></p>` : ""}`;
+  };
+  pages.jeux.aetherdle.apres = () => {
+    const persos = persosJeu(), cands = candidatsDle(persos);
+    if (cands.length < 2) return;
+    const jour = jourLocal(), secret = secretDu(cands, jour), cle = "aetherdle_" + jour;
+    let essais = lireLS(cle, []).filter((id) => indexParId.has(id));
+    const ligne = (f) => {
+      const cases = CHAMPS_JEU.map(([nom, re]) => { const v = infoPerso(f, re); return { nom, v: v || "—", c: comparer(v, infoPerso(secret, re)) }; });
+      const p = puissance(f), ps = puissance(secret);
+      cases.push({ nom: "Puissance", v: p + (p === ps ? "" : p < ps ? " ⬆️" : " ⬇️"), c: p === ps ? "vert" : Math.abs(p - ps) <= 5 ? "orange" : "rouge" });
+      return cases;
+    };
+    const emoji = { vert: "🟩", orange: "🟨", rouge: "🟥" };
+    const dessiner = () => {
+      const gagne = essais.includes(secret.id);
+      $("#dle-grille").innerHTML = essais.length ? `<div class="dle-ligne dle-tete"><span>Perso</span>${[...CHAMPS_JEU.map(([n]) => n), "Puissance"].map((n) => `<span>${n}</span>`).join("")}</div>` +
+        [...essais].reverse().map((id) => { const f = indexParId.get(id); return `<div class="dle-ligne"><span class="cdle perso ${id === secret.id ? "vert" : ""}">${vignette(f)}<small>${esc(f.titre)}</small></span>${ligne(f).map((c) => `<span class="cdle ${c.c}">${esc(c.v)}</span>`).join("")}</div>`; }).join("") : "";
+      $("#dle-form").hidden = gagne;
+      if (gagne) {
+        const n = essais.length;
+        const partage = `🔍 Aetherdle n°${numeroJour(jour)} — trouvé en ${n} essai${n > 1 ? "s" : ""}\n` + essais.map((id) => ligne(indexParId.get(id)).map((c) => emoji[c.c]).join("")).join("\n") + `\n${location.origin + location.pathname}#/jeux/aetherdle`;
+        $("#dle-fin").innerHTML = `<div class="jeu-victoire"><div class="jv-titre">🎉 Trouvé en ${n} essai${n > 1 ? "s" : ""} !</div>
+          <p>C'était <a href="#/f/${encodeURIComponent(secret.id)}">${esc(secret.titre)}</a>. Reviens demain pour un nouveau personnage.</p>
+          <pre class="partage-dle">${esc(partage)}</pre>
+          <div class="rangee"><button class="btn btn-or" id="dle-copier">📋 Copier pour Discord</button></div></div>`;
+        $("#dle-copier").onclick = () => copier(partage);
+        if (!lireLS(cle + "_envoye", false)) { ecrireLS(cle + "_envoye", true); sauverScore("aetherdle", n, { essais }); }
+      } else $("#dle-fin").innerHTML = essais.length ? `<p class="discret petit-texte">${essais.length} essai${essais.length > 1 ? "s" : ""}…</p>` : "";
+    };
+    $("#dle-form").onsubmit = (e) => {
+      e.preventDefault();
+      const f = trouverPerso(persos, e.target.nom.value);
+      if (!f) return toast("Ce personnage n'existe pas dans le wiki.", "erreur");
+      if (essais.includes(f.id)) return toast("Tu l'as déjà proposé.", "erreur");
+      essais.push(f.id); ecrireLS(cle, essais); e.target.nom.value = ""; dessiner();
+    };
+    dessiner();
+  };
+
+  /* ---------- Qui suis-je ? ---------- */
+  function indicesDe(f) {
+    // du plus vague au plus révélateur
+    const champ = (nom) => { const [, re] = CHAMPS_JEU.find(([n]) => n === nom); const v = infoPerso(f, re); return v ? `${nom} : <b>${esc(v)}</b>` : null; };
+    const x = forces(f);
+    const l = [champ("Statut"), `Ses dés : ⚔️ ${signe(x.attaque)} · 🛡️ ${signe(x.defense)} · 💚 ${signe(x.soutien)}`, champ("Rôle"), champ("Origine"), champ("Affiliation"), champ("Race")].filter(Boolean);
+    if (f.resume) {
+      // on cache le nom du personnage dans son résumé
+      let r = sansMarkdown(f.resume).normalize("NFD");
+      motsDe(f.titre).forEach((m) => { r = r.replace(new RegExp(m.split("").map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\u0300-\\u036f]*").join(""), "gi"), "███"); });
+      r = r.normalize("NFC");
+      l.push(`On dit de lui ou d'elle : « ${esc(r.slice(0, 220))} »`);
+    }
+    if (urlSure(f.image_url)) l.push(`<img class="indice-image" src="${esc(f.image_url)}" alt="">`);
+    return l;
+  }
+  pages.jeux.qui = (persos) => {
+    if (persos.filter((f) => indicesDe(f).length >= 3).length < 2) return enTete("🕵️", "Qui suis-je ?") + `<p class="note">Il faut au moins deux personnages avec assez d'infos sur leur fiche.</p>`;
+    return enTete("🕵️", "Qui suis-je ?", "Moins tu utilises d'indices, plus tu gagnes de points. Une mauvaise réponse dévoile l'indice suivant.") + `
+      <section class="panneau"><div id="qui-zone"></div></section>`;
+  };
+  pages.jeux.qui.apres = () => {
+    const persos = persosJeu(), jouables = persos.filter((f) => indicesDe(f).length >= 3);
+    let total = 0, joues = 0, deja = [];
+    const manche = () => {
+      const libres = jouables.filter((f) => !deja.includes(f.id));
+      if (!libres.length) deja = [];
+      const f = (libres.length ? libres : jouables)[alea((libres.length ? libres : jouables).length)];
+      deja.push(f.id);
+      const ind = indicesDe(f), max = ind.length;
+      let vus = 1, fini = false;
+      const dessiner = (msg) => {
+        const pts = Math.max(1, max + 1 - vus);
+        $("#qui-zone").innerHTML = `
+          <div class="qui-score">Score : <b>${total}</b> point${total > 1 ? "s" : ""} · ${joues} personnage${joues > 1 ? "s" : ""}</div>
+          <ol class="indices">${ind.slice(0, vus).map((t) => `<li>${t}</li>`).join("")}</ol>
+          ${fini ? "" : `<p class="discret petit-texte">Indice ${vus}/${max} · trouve-le maintenant pour <b>${pts}</b> point${pts > 1 ? "s" : ""}</p>
+          ${champSaisie("qui-form", persos, "C'est qui ?")}
+          <div class="rangee"><button class="btn petit" id="qui-indice" ${vus >= max ? "disabled" : ""}>💡 Indice suivant</button><button class="btn petit btn-danger" id="qui-abandon">Abandonner</button></div>`}
+          ${msg || ""}`;
+        if (fini) { $("#qui-suivant").onclick = manche; return; }
+        $("#qui-indice").onclick = () => { vus = Math.min(max, vus + 1); dessiner(); };
+        $("#qui-abandon").onclick = () => { fini = true; joues++; dessiner(`<div class="jeu-defaite">C'était <a href="#/f/${encodeURIComponent(f.id)}">${esc(f.titre)}</a>.</div><button class="btn btn-or" id="qui-suivant">Personnage suivant →</button>`); };
+        $("#qui-form").onsubmit = (e) => {
+          e.preventDefault();
+          const g = trouverPerso(persos, e.target.nom.value);
+          if (!g) return toast("Ce personnage n'existe pas dans le wiki.", "erreur");
+          if (g.id === f.id) {
+            fini = true; total += pts; joues++;
+            sauverScore("qui", pts, { fiche: f.id, indices: vus });
+            dessiner(`<div class="jeu-victoire"><div class="jv-titre">🎉 Bravo, c'est ${esc(f.titre)} ! +${pts} point${pts > 1 ? "s" : ""}</div>${vignette(f, "grande")}</div><button class="btn btn-or" id="qui-suivant">Personnage suivant →</button>`);
+          } else if (vus >= max) {
+            fini = true; joues++;
+            dessiner(`<div class="jeu-defaite">Raté, ce n'est pas ${esc(g.titre)}. C'était <a href="#/f/${encodeURIComponent(f.id)}">${esc(f.titre)}</a>.</div><button class="btn btn-or" id="qui-suivant">Personnage suivant →</button>`);
+          } else { vus++; dessiner(`<p class="note erreur-note">Non, ce n'est pas ${esc(g.titre)}. Nouvel indice !</p>`); }
+        };
+      };
+      dessiner();
+    };
+    manche();
+  };
+
+  /* ---------- Bataille de cartes ---------- */
+  const STATS = [["attaque", "⚔️", "ATT"], ["defense", "🛡️", "DEF"], ["soutien", "💚", "SOU"]];
+  const htmlCarteJeu = (f, opts = {}) => { const x = forces(f); return `
+    <div class="carte-bataille ${opts.cls || ""}" ${opts.id ? `data-carte="${esc(f.id)}"` : ""}>
+      <div class="cb-image">${vignette(f, "cb-img")}</div>
+      <div class="cb-nom">${esc(f.titre)}</div>
+      <div class="cb-stats">${STATS.map(([t, ic, n]) => `<span class="${opts.stat === t ? "choisie" : ""}">${ic} ${n} <b>${x[t]}</b></span>`).join("")}</div>
+    </div>`; };
+  pages.jeux.cartes = (persos) => {
+    if (persos.length < 4) return enTete("🃏", "Bataille de cartes") + `<p class="note">Il faut au moins quatre fiches de personnage pour jouer.</p>`;
+    return enTete("🃏", "Bataille de cartes", `Chaque manche : choisis une carte et une caractéristique. L'ordinateur joue une carte, puis chacun lance 1d${DE} + le bonus de la carte. Le plus haut gagne la manche.`) + `
+      <section class="panneau" id="cartes-zone"></section>`;
+  };
+  pages.jeux.cartes.apres = () => {
+    const persos = persosJeu();
+    const taille = Math.min(5, Math.floor(persos.length / 2));
+    let main, ordi, points, manches, carteChoisie, enJeu;
+    const nouvelle = () => {
+      const m = melanger(persos);
+      main = m.slice(0, taille); ordi = m.slice(taille, taille * 2);
+      points = { moi: 0, ordi: 0 }; manches = []; carteChoisie = null; enJeu = false;
+      dessiner();
+    };
+    const dessiner = (resultat) => {
+      const fin = !main.length;
+      const z = $("#cartes-zone");
+      z.innerHTML = `
+        <div class="score-bataille"><span>Toi <b>${points.moi}</b></span><span class="discret">manche ${Math.min(manches.length + 1, taille)}/${taille}</span><span><b>${points.ordi}</b> Ordinateur</span></div>
+        ${resultat || ""}
+        ${fin ? (() => {
+          const g = points.moi > points.ordi, e = points.moi === points.ordi;
+          return `<div class="${g ? "jeu-victoire" : "jeu-defaite"}"><div class="jv-titre">${g ? "🏆 Victoire !" : e ? "⚖️ Égalité" : "💀 Défaite…"}</div><p>${points.moi} manche${points.moi > 1 ? "s" : ""} à ${points.ordi}.</p></div>
+            <div class="rangee"><button class="btn btn-or" id="cartes-rejouer">🔄 Nouvelle partie</button></div>`;
+        })() : `
+        <p class="discret petit-texte">${carteChoisie ? "Choisis la caractéristique à comparer :" : `Ta main (${main.length} carte${main.length > 1 ? "s" : ""}) — touche une carte :`}</p>
+        ${carteChoisie ? `<div class="choix-stat">${STATS.map(([t, ic, n]) => `<button class="btn" data-stat="${t}">${ic} ${infoType(t).nom} <b>${forces(carteChoisie)[t]}</b></button>`).join("")}<button class="btn petit" id="cartes-annuler">↩ Autre carte</button></div>` : ""}
+        <div class="main-cartes">${main.map((f) => htmlCarteJeu(f, { id: true, cls: carteChoisie && carteChoisie.id === f.id ? "selection" : "" })).join("")}</div>
+        <p class="discret petit-texte">L'ordinateur a encore ${ordi.length} carte${ordi.length > 1 ? "s" : ""} cachée${ordi.length > 1 ? "s" : ""}.</p>`}`;
+      if (fin) { $("#cartes-rejouer").onclick = nouvelle; return; }
+      $$("[data-carte]", z).forEach((c) => (c.onclick = () => { if (enJeu) return; carteChoisie = main.find((f) => f.id === c.dataset.carte); dessiner(resultat); }));
+      const an = $("#cartes-annuler"); if (an) an.onclick = () => { carteChoisie = null; dessiner(resultat); };
+      $$("[data-stat]", z).forEach((b) => (b.onclick = () => jouer(b.dataset.stat)));
+    };
+    const jouer = (stat) => {
+      if (enJeu || !carteChoisie) return;
+      enJeu = true;
+      // l'ordinateur : une fois sur deux sa meilleure carte pour cette caractéristique, sinon au hasard
+      const tri = [...ordi].sort((a, b) => forces(b)[stat] - forces(a)[stat]);
+      const co = alea(2) ? tri[0] : ordi[alea(ordi.length)];
+      const moi = carteChoisie;
+      let dm, dor, tm, to, relances = 0;
+      do { dm = d15(); dor = d15(); tm = dm + forces(moi)[stat]; to = dor + forces(co)[stat]; relances++; } while (tm === to && relances < 5);
+      const gagne = tm > to ? "moi" : tm < to ? "ordi" : "egal";
+      if (gagne !== "egal") points[gagne]++;
+      main = main.filter((f) => f !== moi); ordi = ordi.filter((f) => f !== co);
+      manches.push(gagne); carteChoisie = null;
+      const [, ic] = STATS.find(([t]) => t === stat);
+      const res = `<div class="duel-cartes">
+          <div class="${gagne === "moi" ? "gagnante" : ""}">${htmlCarteJeu(moi, { stat })}<div class="dc-jet">🎲 ${dm} ${signe(forces(moi)[stat])} = <b>${tm}</b></div></div>
+          <div class="dc-vs">${ic}<br>VS</div>
+          <div class="${gagne === "ordi" ? "gagnante" : ""}">${htmlCarteJeu(co, { stat })}<div class="dc-jet">🎲 ${dor} ${signe(forces(co)[stat])} = <b>${to}</b></div></div>
+        </div><p class="verdict-manche">${gagne === "moi" ? "✅ Tu gagnes la manche !" : gagne === "ordi" ? "❌ L'ordinateur gagne la manche." : "⚖️ Égalité parfaite."}</p>`;
+      if (!main.length && points.moi > points.ordi) sauverScore("cartes", 1, { manches: points });
+      setTimeout(() => { enJeu = false; dessiner(res); }, 50);
+    };
+    nouvelle();
+  };
+
+  /* ---------- Grand Tournoi ---------- */
+  const CLE_TOURNOI = "aetheria_tournoi";
+  function duel(a, b) {
+    const fa = forces(a), fb = forces(b), echanges = [];
+    let da = 0, db = 0, n = 0;
+    while (n < 3 || (da === db && n < 8)) {
+      n++;
+      const x1 = d15(), y1 = d15(), x2 = d15(), y2 = d15();
+      const ta = x1 + fa.attaque, tdb = y1 + fb.defense, tb = x2 + fb.attaque, tda = y2 + fa.defense;
+      const coupA = Math.max(0, ta - tdb), coupB = Math.max(0, tb - tda);
+      da += coupA; db += coupB;
+      echanges.push({ ta, tdb, tb, tda, coupA, coupB, x1, y1, x2, y2 });
+    }
+    const gagnant = da > db ? a.id : db > da ? b.id : alea(2) ? a.id : b.id;
+    return { degatsA: da, degatsB: db, echanges, gagnant, pile: da === db };
+  }
+  pages.jeux.tournoi = (persos) => {
+    if (persos.length < 2) return enTete("🏆", "Grand Tournoi") + `<p class="note">Il faut au moins deux fiches de personnage.</p>`;
+    return enTete("🏆", "Grand Tournoi", "Chaque duel se joue en 3 échanges aux vrais dés : chacun attaque, l'autre se défend, on additionne les dégâts. Avant chaque duel, fais ton pronostic !") + `
+      <section class="panneau" id="tournoi-zone"></section>`;
+  };
+  pages.jeux.tournoi.apres = () => {
+    const persos = persosJeu();
+    let T = lireLS(CLE_TOURNOI, null);
+    if (T && !T.tours.flat().every((m) => [m.a, m.b].every((id) => !id || indexParId.has(id)))) T = null;
+    const nom = (id) => (indexParId.get(id) || { titre: "?" }).titre;
+    const sauver = () => ecrireLS(CLE_TOURNOI, T);
+    const z = $("#tournoi-zone");
+    const nomsTours = (n) => (n === 1 ? "Finale" : n === 2 ? "Demi-finales" : n === 4 ? "Quarts de finale" : n === 8 ? "Huitièmes de finale" : `Tour à ${n * 2}`);
+    const preparer = () => {
+      const choisis = new Set(persos.map((f) => f.id));
+      const dessinerChoix = () => {
+        z.innerHTML = `<h2>Participants</h2>
+          <p class="discret petit-texte">Touche un personnage pour le retirer ou le remettre. ${choisis.size} participant${choisis.size > 1 ? "s" : ""}.</p>
+          <div class="roue-noms">${persos.map((f) => `<button type="button" class="nom-roue ${choisis.has(f.id) ? "actif" : ""}" data-p="${esc(f.id)}">${choisis.has(f.id) ? "✓ " : ""}${esc(f.titre)}</button>`).join("")}</div>
+          <div class="rangee"><button class="btn btn-or" id="t-lancer" ${choisis.size < 2 ? "disabled" : ""}>🏆 Lancer le tournoi</button></div>`;
+        $$("[data-p]", z).forEach((b) => (b.onclick = () => { choisis.has(b.dataset.p) ? choisis.delete(b.dataset.p) : choisis.add(b.dataset.p); dessinerChoix(); }));
+        $("#t-lancer").onclick = () => {
+          const ids = melanger([...choisis]);
+          let taille = 1; while (taille < ids.length) taille *= 2;
+          const byes = taille - ids.length, premier = [];
+          // les premiers ont un « bye » (qualifiés d'office), les autres s'affrontent
+          let k = 0;
+          for (let i = 0; i < taille / 2; i++) {
+            if (i < byes) premier.push({ a: ids[k++], b: null, gagnant: null });
+            else premier.push({ a: ids[k++], b: ids[k++], gagnant: null });
+          }
+          premier.forEach((m) => { if (!m.b) m.gagnant = m.a; });
+          T = { tours: [premier], prono: 0, pronoTotal: 0, cree: Date.now() };
+          sauver(); dessiner();
+        };
+      };
+      dessinerChoix();
+    };
+    const avancer = () => {
+      const dernier = T.tours[T.tours.length - 1];
+      if (dernier.length > 1 && dernier.every((m) => m.gagnant)) {
+        const suivant = [];
+        for (let i = 0; i < dernier.length; i += 2) suivant.push({ a: dernier[i].gagnant, b: dernier[i + 1].gagnant, gagnant: null });
+        T.tours.push(suivant);
+      }
+    };
+    const resumeDuel = (m) => {
+      const r = m.duel;
+      return r.echanges.map((e, i) => `Échange ${i + 1} : ${nom(m.a)} attaque ${e.ta} contre ${e.tdb} → ${e.coupA} dégât(s) ; ${nom(m.b)} attaque ${e.tb} contre ${e.tda} → ${e.coupB} dégât(s).`).join("\n") +
+        `\nTotal : ${nom(m.a)} inflige ${r.degatsA}, ${nom(m.b)} inflige ${r.degatsB}. Vainqueur : ${nom(m.gagnant)}${r.pile ? " (départagé au dernier souffle)" : ""}.`;
+    };
+    const htmlMatch = (m, ti, mi) => {
+      if (!m.b) return `<div class="match bye"><span class="gagne">${esc(nom(m.a))}</span> <small class="discret">qualifié d'office</small></div>`;
+      const fini = !!m.gagnant;
+      return `<div class="match ${fini ? "fini" : ""}">
+        <div class="m-ligne"><span class="${m.gagnant === m.a ? "gagne" : fini ? "perd" : ""}">${esc(nom(m.a))}</span>${fini ? `<b>${m.duel.degatsA}</b>` : ""}</div>
+        <div class="m-ligne"><span class="${m.gagnant === m.b ? "gagne" : fini ? "perd" : ""}">${esc(nom(m.b))}</span>${fini ? `<b>${m.duel.degatsB}</b>` : ""}</div>
+        ${fini ? `<details><summary>Voir le combat${m.prono ? (m.prono === m.gagnant ? " · ✅ pronostic juste" : " · ❌ pronostic raté") : ""}</summary>
+          <ol class="echanges">${m.duel.echanges.map((e) => `<li>⚔️ ${esc(nom(m.a))} ${e.ta} vs 🛡️ ${e.tdb} → <b>${e.coupA}</b> · ⚔️ ${esc(nom(m.b))} ${e.tb} vs 🛡️ ${e.tda} → <b>${e.coupB}</b></li>`).join("")}</ol>
+          ${m.recit ? `<div class="contenu ia-texte">${markdown(m.recit)}</div>` : estMembre() ? `<button class="btn petit" data-recit="${ti}-${mi}">🤖 Raconter ce combat</button>` : ""}
+          <div data-recit-zone="${ti}-${mi}"></div></details>` : ""}
+      </div>`;
+    };
+    const dessiner = () => {
+      if (!T) return preparer();
+      avancer(); sauver();
+      const dernier = T.tours[T.tours.length - 1];
+      const champion = dernier.length === 1 && dernier[0].gagnant;
+      const prochain = T.tours.flatMap((t, ti) => t.map((m, mi) => ({ m, ti, mi }))).find(({ m }) => !m.gagnant);
+      z.innerHTML = `
+        ${champion ? `<div class="jeu-victoire champion"><div class="jv-titre">👑 ${esc(nom(champion))} remporte le Grand Tournoi !</div>${vignette(indexParId.get(champion), "grande")}<p>Pronostics justes : <b>${T.prono}</b> sur ${T.pronoTotal}.</p></div>` : ""}
+        ${prochain ? `<div class="prochain-duel">
+          <h2>${nomsTours(T.tours[prochain.ti].length)} — prochain duel</h2>
+          <div class="duel-cartes">${htmlCarteJeu(indexParId.get(prochain.m.a))}<div class="dc-vs">VS</div>${htmlCarteJeu(indexParId.get(prochain.m.b))}</div>
+          <p class="discret petit-texte">Ton pronostic :</p>
+          <div class="rangee pronos"><button class="btn ${prochain.m.prono === prochain.m.a ? "btn-or" : ""}" data-prono="${esc(prochain.m.a)}">${esc(nom(prochain.m.a))}</button><button class="btn ${prochain.m.prono === prochain.m.b ? "btn-or" : ""}" data-prono="${esc(prochain.m.b)}">${esc(nom(prochain.m.b))}</button></div>
+          <div class="rangee"><button class="btn btn-or large" id="t-combat">⚔️ Lancer le combat</button><button class="btn petit" id="t-tour">⏩ Jouer tout le tour</button></div>
+        </div>` : ""}
+        ${T.tours.map((t, ti) => `<h3 class="titre-tour">${nomsTours(t.length)}</h3><div class="tableau-tour">${t.map((m, mi) => htmlMatch(m, ti, mi)).join("")}</div>`).reverse().join("")}
+        ${champion ? htmlEnvoiDiscord("ed-tournoi") : ""}
+        <div class="rangee"><button class="btn petit btn-danger" id="t-nouveau">🔄 Nouveau tournoi</button></div>`;
+      $("#t-nouveau").onclick = () => { if (confirm("Recommencer un nouveau tournoi ?")) { T = null; sauver(); preparer(); } };
+      if (champion) brancherEnvoiDiscord($("#ed-tournoi"), () => ({ type: "jeu", titre: `🏆 ${nom(champion)} remporte le Grand Tournoi d'Aetheria !`,
+        texte: T.tours.map((t) => `**${nomsTours(t.length)}** : ` + t.filter((m) => m.b).map((m) => `${nom(m.gagnant)} bat ${nom(m.gagnant === m.a ? m.b : m.a)} (${Math.max(m.duel.degatsA, m.duel.degatsB)}-${Math.min(m.duel.degatsA, m.duel.degatsB)})`).join(", ")).filter((l) => !/: $/.test(l)).join("\n") }));
+      $$("[data-prono]", z).forEach((b) => (b.onclick = () => { prochain.m.prono = b.dataset.prono; sauver(); dessiner(); }));
+      const jouerMatch = (m) => {
+        m.duel = duel(indexParId.get(m.a), indexParId.get(m.b)); m.gagnant = m.duel.gagnant;
+        if (m.prono) { T.pronoTotal++; if (m.prono === m.gagnant) { T.prono++; sauverScore("tournoi", 1, { duel: [m.a, m.b] }); } }
+      };
+      const bc = $("#t-combat");
+      if (bc) bc.onclick = () => { jouerMatch(prochain.m); sauver(); dessiner(); };
+      const bt = $("#t-tour");
+      if (bt) bt.onclick = () => { T.tours[prochain.ti].filter((m) => !m.gagnant).forEach(jouerMatch); sauver(); dessiner(); };
+      $$("[data-recit]", z).forEach((b) => (b.onclick = async () => {
+        const [ti, mi] = b.dataset.recit.split("-").map(Number), m = T.tours[ti][mi];
+        const zr = $(`[data-recit-zone="${ti}-${mi}"]`, z);
+        b.disabled = true;
+        const stop = attenteIA(zr, ["L'IA relit les deux fiches…", "Elle suit les jets de dés…", "Elle écrit le combat…"]);
+        try {
+          const r = await avecDelai(api.ia("question", { question: `Raconte en 8 à 12 lignes, de façon épique et vivante, ce duel du Grand Tournoi d'Aetheria entre ${nom(m.a)} et ${nom(m.b)}. Respecte leurs fiches (pouvoirs, armes, style, personnalité) et suis exactement le déroulé des dés ci-dessous : chaque échange doit correspondre au résultat (un gros écart = un coup qui porte vraiment, 0 dégât = une attaque parée ou esquivée). Termine par la victoire de ${nom(m.gagnant)}. Réponds seulement avec le récit.\n\n${resumeDuel(m)}` }));
+          stop(); m.recit = r.texte; sauver(); dessiner();
+        } catch (e) { stop(); zr.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; b.disabled = false; }
+      }));
+    };
+    dessiner();
+  };
+
   /* ---------- Connexion / inscription / compte ---------- */
   pages.connexion = async () => {
     if (moi()) { location.hash = "#/compte"; return ""; }
@@ -2489,7 +2891,7 @@
     const routes = {
       "": [pages.accueil], wiki: [pages.wiki], c: [pages.categorie], f: [pages.fiche], nouveau: [pages.editeur], editer: [pages.editeur],
       recherche: [pages.recherche], joueurs: [pages.joueurs], joueur: [pages.joueur], connexion: [pages.connexion],
-      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], des: [pages.des], ia: [pages.ia], "creer-ia": [pages.creerIA],
+      inscription: [pages.inscription], compte: [pages.compte], admin: [pages.admin], roue: [pages.roue], jeux: [pages.jeux], des: [pages.des], ia: [pages.ia], "creer-ia": [pages.creerIA],
     };
     const [page] = routes[morceaux[0] || ""] || [null];
     const arg = morceaux[0] === "nouveau" ? null : morceaux[1];

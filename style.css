@@ -587,3 +587,70 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .btn-discord { background: #5865f2; border-color: #5865f2; color: #fff; }
 .btn-discord:disabled { opacity: 0.75; }
 .carte-resultat .envoi-discord { justify-content: center; }
+
+/* ---------- Mini-jeux ---------- */
+.grille-jeux { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 12px 0 20px; }
+.carte-jeu { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--nuit-2); color: var(--texte); text-decoration: none; transition: 0.2s; }
+.carte-jeu:hover, .carte-jeu:focus { border-color: var(--or); transform: translateY(-2px); }
+.cj-ic { font-size: 2rem; }
+.cj-nom { font-family: var(--titres); color: var(--or); font-size: 1.05rem; }
+.classements { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.classement-bloc { padding: 12px 14px; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--nuit-2); }
+.classement-bloc h3 { margin: 0 0 8px; font-size: 0.95rem; font-family: var(--titres); color: var(--or); }
+.classement { list-style: none; margin: 0; padding: 0; font: 0.92rem system-ui, sans-serif; }
+.classement li { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.cl-rang { width: 1.8em; text-align: center; }
+.cl-nom { flex: 1; }
+.jeu-saisie input { flex: 1 1 160px; min-width: 0; }
+.vignette { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--nuit-3); color: var(--or); font-family: var(--titres); }
+.vignette.grande { width: 110px; height: 110px; margin: 8px auto; display: block; border-radius: 14px; }
+.legende-dle { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; font: 0.75rem system-ui, sans-serif; }
+.dle-grille { overflow-x: auto; }
+.dle-ligne { display: grid; grid-template-columns: 76px repeat(6, minmax(64px, 1fr)); gap: 4px; margin-bottom: 4px; min-width: 470px; }
+.dle-tete span { font: 600 0.7rem system-ui, sans-serif; color: var(--texte-doux); text-align: center; }
+.cdle { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; padding: 4px; border-radius: 8px; background: var(--nuit-3); font: 0.74rem/1.2 system-ui, sans-serif; text-align: center; word-break: break-word; }
+.legende-dle .cdle { min-height: 0; padding: 3px 8px; }
+.cdle.vert { background: #2e7d4f; color: #fff; }
+.cdle.orange { background: #b8892a; color: #fff; }
+.cdle.rouge { background: #8c3a3a; color: #fff; }
+.cdle.perso small { font-size: 0.66rem; }
+.cdle.perso .vignette { width: 34px; height: 34px; }
+.jeu-victoire, .jeu-defaite { margin: 14px 0; padding: 14px; border-radius: var(--rayon); text-align: center; border: 1px solid var(--or); background: rgba(227, 184, 102, 0.08); }
+.jeu-defaite { border-color: var(--rouge); background: rgba(224, 112, 112, 0.08); }
+.jv-titre { font: 700 1.2rem var(--titres); color: var(--or-vif); }
+.partage-dle { white-space: pre-wrap; text-align: left; font-size: 0.85rem; background: var(--nuit); padding: 10px; border-radius: 8px; }
+.qui-score { font-family: var(--titres); color: var(--or); margin-bottom: 8px; }
+.indices { padding-left: 1.3em; margin: 0 0 10px; }
+.indices li { padding: 6px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.indice-image { width: 120px; height: 120px; object-fit: cover; border-radius: 12px; filter: blur(7px) saturate(0.6); display: block; margin-top: 6px; }
+.score-bataille { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--titres); color: var(--or); margin-bottom: 10px; }
+.score-bataille b { font-size: 1.5rem; }
+.main-cartes { display: flex; gap: 10px; overflow-x: auto; padding: 6px 2px 12px; }
+.carte-bataille { flex: none; width: 128px; border: 1px solid var(--bord); border-radius: 12px; background: linear-gradient(180deg, var(--nuit-3), var(--nuit-2)); padding: 8px; text-align: center; cursor: pointer; transition: 0.15s; }
+.carte-bataille.selection { border-color: var(--or); box-shadow: 0 0 0 2px var(--or); transform: translateY(-4px); }
+.cb-image .vignette { width: 100%; height: 96px; border-radius: 8px; }
+.cb-nom { font: 600 0.85rem var(--titres); margin: 6px 0 4px; color: var(--or-vif); word-break: break-word; }
+.cb-stats { display: flex; flex-direction: column; gap: 2px; font: 0.75rem system-ui, sans-serif; }
+.cb-stats .choisie { color: var(--or-vif); font-weight: 700; }
+.choix-stat { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.duel-cartes { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 8px 0; }
+.duel-cartes .carte-bataille { cursor: default; }
+.duel-cartes .gagnante .carte-bataille { border-color: var(--vert); box-shadow: 0 0 0 2px var(--vert); }
+.dc-vs { font: 700 0.9rem var(--titres); color: var(--or); text-align: center; }
+.dc-jet { text-align: center; font: 0.8rem system-ui, sans-serif; margin-top: 4px; }
+.verdict-manche { text-align: center; font-weight: 600; }
+.prochain-duel { border-bottom: 1px solid var(--bord); padding-bottom: 12px; margin-bottom: 8px; }
+.prochain-duel h2 { font-size: 1.05rem; margin: 0 0 6px; }
+.pronos .btn { flex: 1; }
+.titre-tour { font: 600 0.95rem var(--titres); color: var(--or); margin: 16px 0 6px; }
+.tableau-tour { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.match { padding: 8px 10px; border: 1px solid var(--bord); border-radius: 10px; background: var(--nuit-2); font: 0.9rem system-ui, sans-serif; }
+.match.bye { color: var(--texte-doux); }
+.m-ligne { display: flex; justify-content: space-between; padding: 2px 0; }
+.m-ligne .gagne, .match .gagne { color: var(--vert); font-weight: 700; }
+.m-ligne .perd { color: var(--texte-doux); text-decoration: line-through; }
+.match details { margin-top: 6px; }
+.match summary { cursor: pointer; color: var(--or); font-size: 0.8rem; }
+.echanges { padding-left: 1.2em; font-size: 0.78rem; }
+.champion .jv-titre { font-size: 1.35rem; }
+.onglets-bas .o-nom { font-size: 0.68rem; }

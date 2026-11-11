@@ -460,6 +460,8 @@ async function envoyerDiscord(profil, corps) {
       ],
       description: corps.scenario ? court(corps.scenario, 3500) : undefined,
     };
+  } else if (corps.type === "jeu") {
+    embed = { title: court(corps.titre || "Mini-jeu", 250), color: 0xf5d08a, description: court(corps.texte, 3500) || undefined };
   } else throw new ErreurIA("Type d'envoi inconnu.");
   embed.footer = pied;
   embed.timestamp = new Date().toISOString();

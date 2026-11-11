@@ -286,6 +286,17 @@
       erreur(error);
     }
 
+    /* ---- Mini-jeux ---- */
+    async enregistrerScore({ jeu, jour, score, details }) {
+      const { error } = await this.sb.from("jeux_scores").insert({ jeu, jour, score, details: details || null });
+      if (error && !/duplicate|unique/i.test(error.message || "")) erreur(error);
+    }
+    async listerScores(depuis) {
+      const { data, error } = await this.sb.from("jeux_scores").select("jeu,user_id,jour,score,cree_le").gte("jour", depuis).order("cree_le", { ascending: false }).limit(5000);
+      if (error) return [];
+      return data;
+    }
+
     /* ---- Assistant IA ---- */
     async ia(mode, params = {}) {
       const { data, error } = await this.sb.functions.invoke("aetheria-ia", { body: { mode, ...params } });
@@ -469,6 +480,12 @@
     async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
     async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
 
+    async enregistrerScore({ jeu, jour, score, details }) {
+      const s = this._lire(); s.jeux_scores = s.jeux_scores || [];
+      if (jeu === "aetherdle" && s.jeux_scores.some((x) => x.jeu === jeu && x.jour === jour && x.user_id === this.moi.user.id)) return;
+      s.jeux_scores.push({ jeu, jour, score, details, user_id: this.moi.user.id, cree_le: new Date().toISOString() }); this._ecrire();
+    }
+    async listerScores(depuis) { return (this._lire().jeux_scores || []).filter((x) => x.jour >= depuis); }
     async listerRouesPerso(ficheId) { return (this._lire().roues_perso || []).filter((r) => !ficheId || r.fiche_id === ficheId); }
     async creerRouePerso({ fiche_id, nom, description, elements }) {
       const s = this._lire(); s.roues_perso = s.roues_perso || [];
