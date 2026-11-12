@@ -2849,19 +2849,21 @@
     arcane: { c1: "#ff7af0", c2: "#7a2ad0", glow: "#ff9af5", nom: "arcane" },
     physique: { c1: "#ffffff", c2: "#b8c0d8", glow: "#ffffff", nom: "physique" },
   };
+  // mots cherchés au DÉBUT d'un mot (« sceau » ne doit pas compter comme « eau », ni « flamme » comme « âme »)
+  const motsDebut = (l) => new RegExp("\\b(?:" + l.join("|") + ")");
   const MOTS_ELEMENTS = [
-    ["sang", /sang|sangl|hemo|vampir|morsure|saign|ecarlate|pourpre/],
-    ["feu", /feu|flamm|brul|braise|incend|ignis|pyro|enfer|magma|lave|solaire|soleil|cendr|brasier/],
-    ["glace", /glac|gel|givr|neige|frimas|cryo|froid|blizzard/],
-    ["foudre", /foudr|eclair|tonnerr|electr|orage|fulgur/],
-    ["lumiere", /lumi|sacre|divin|celest|benedic|aur[ae]|radian|saint|halo|ange|clart/],
-    ["ombre", /ombr|tenebr|nuit|noir|abyss|neant|obscur|spectr|ame|maudi|malefi|demon/],
-    ["poison", /poison|venin|toxi|acide|miasm/],
-    ["nature", /natur|lian|ronc|vegetal|fleur|plante|feuill|racine|bois|foret|sylv|epine/],
-    ["eau", /eau|vague|maree|ocean|mer\b|aqua|torrent|pluie|chant|sirene|ecume/],
-    ["vent", /vent|tornad|tempet|souffl|ouragan|bourrasqu|air\b|plume|aile/],
-    ["terre", /terre|roch|pierr|seism|sol\b|montagn|sable|gravat/],
-    ["arcane", /arcan|runi|rune|mana|astral|etoil|cosm|sort|magi|ether|illusion|carte|psych/],
+    ["arcane", motsDebut(["mots?\\b", "parole", "verbe", "ecritur", "sceau", "sceaux", "scell", "arcan", "rune", "runiq", "mana", "astral", "etoil", "cosm", "sortileg", "magie pure", "ether", "illusion", "carte", "psych", "glyphe", "portail", "dimension"])],
+    ["sang", motsDebut(["sang", "hemo", "vampir", "morsure", "saign", "ecarlate", "pourpre"])],
+    ["feu", motsDebut(["feu", "feux", "flamm", "brul", "braise", "incend", "ignis", "pyro", "magma", "lave", "solaire", "soleil", "cendre", "brasier", "fournaise"])],
+    ["glace", motsDebut(["glac", "gel", "givr", "neige", "frimas", "cryo", "froid", "blizzard"])],
+    ["foudre", motsDebut(["foudr", "eclair", "tonnerr", "electr", "orage", "fulgur"])],
+    ["lumiere", motsDebut(["lumi", "sacre", "divin", "celest", "benedic", "aura", "radian", "saint", "halo", "clarte"])],
+    ["ombre", motsDebut(["ombre", "tenebr", "nuit", "abyss", "neant", "obscur", "spectr", "ames?\\b", "maudi", "malefi", "demon"])],
+    ["poison", motsDebut(["poison", "venin", "toxi", "acide", "miasme"])],
+    ["nature", motsDebut(["natur", "liane", "ronce", "vegetal", "fleur", "plante", "feuill", "racine", "foret", "sylv", "epine"])],
+    ["eau", motsDebut(["eau\\b", "eaux\\b", "vague", "maree", "ocean", "mer\\b", "mers\\b", "aqua", "aquat", "torrent", "pluie", "sirene", "ecume", "hydro"])],
+    ["vent", motsDebut(["vent", "tornade", "tempete", "souffl", "ouragan", "bourrasque", "air\\b", "plume", "aile"])],
+    ["terre", motsDebut(["terre", "roche", "rocher", "pierre", "seism", "sol\\b", "montagne", "sable", "gravat"])],
   ];
   const ELEMENT_RACE = [[/vampir/, "sang"], [/demon|oni/, "feu"], [/archange|ange|celest/, "lumiere"], [/sirene/, "eau"], [/elfe noir|dechu/, "ombre"], [/elfe/, "nature"], [/dieu/, "arcane"]];
   function elementDe(c, u) {
@@ -3395,13 +3397,44 @@
     for (const [re, e] of ELEMENT_RACE) if (re.test(race)) return e;
     return "physique";
   }
+  // Le nom de la magie écrit sur la fiche (case « Magie », « Pouvoir »… ou « magie des … » dans le résumé)
+  function magieDe(f) {
+    const info = (f.infos || []).find((i) => /magie|pouvoir|capacit|\bdon\b|affinit|element|aptitude/.test(normal(i.cle)) && String(i.valeur || "").trim());
+    let t = info ? sansMarkdown(info.valeur) : "";
+    if (!t) { const m = sansMarkdown(`${f.resume || ""}`).match(/magie\s+(?:des|du|de la|de l'|de l’|d'|d’|de)\s*([a-zàâäéèêëîïôöùûüç' -]{3,30})/i); if (m) t = m[1]; }
+    t = t.split(/[,;.()/\n]| et /)[0].replace(/^\s*(la |le |les |l'|l’)?magie\s+(des|du|de la|de l'|de l’|d'|d’|de)\s*/i, "").replace(/^(la |le |les |l'|l’)/i, "").trim();
+    if (!t || t.length > 28 || /^(aucun|aucune|non|inconnu|rien|\?)/i.test(t)) return null;
+    return t.toLowerCase();
+  }
+  const deMot = (m) => (/^[aeiouyhàâéèêîôû]/i.test(m) ? "d'" : "de ") + m;
+  // Magies spéciales : de vrais kits de compétences, utilisés quand l'IA n'a pas encore fait le personnage
+  const KITS_MAGIE = [
+    { re: motsDebut(["sceau", "sceaux", "scell", "fuin", "glyphe"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Sceau de guérison", "soin", "allie", 1, 0, "Un sceau se pose sur la blessure et la referme."] : ["Rupture de sceau", "degats", "ennemi", 1, 0, "Il brise un sceau et libère l'énergie qu'il contenait."],
+      ["Sceau d'entrave", "etourdir", "ennemi", 2, 2, "Un sceau s'imprime sur l'ennemi et bloque ses mouvements."],
+      ["Sceau de scellement", "affaiblir", "ennemi", 2, 2, "Le sceau enferme une partie du pouvoir de l'ennemi."],
+      ["Sceau protecteur", "bouclier", role === "soutien" ? "tous_allies" : "allie", 2, 3, "Un cercle de sceaux protège ses alliés."],
+    ] },
+    { re: motsDebut(["cartes?\\b", "jeu de cartes", "joker", "tarot", "atout"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Carte de Cœur ♥", "soin", "allie", 1, 0, "Une carte de cœur se dissout en lumière qui soigne."] : ["Carte de Pique ♠", "degats", "ennemi", 1, 0, "Une carte tranchante file vers l'ennemi."],
+      ["Carte de Carreau ♦", "affaiblir", "ennemi", 2, 2, "La réalité se tord autour de l'ennemi, qui frappe moins fort."],
+      ["Carte de Trèfle ♣", "bouclier", "allie", 2, 2, "Des cartes de trèfle forment un bouclier."],
+      ["Coup de Théâtre 🃏", "degats", "tous_ennemis", 3, 4, "Le Joker abat sa carte maîtresse : tout le camp adverse est frappé."],
+    ] },
+  ];
   function competencesLocales(f) {
     const x = forces(f), t = normal(`${f.resume || ""} ${(f.infos || []).map((i) => i.valeur).join(" ")}`);
     let role = x.soutien > x.attaque && x.soutien >= x.defense ? "soutien" : x.defense > x.attaque ? "defenseur" : "attaquant";
     if (/soign|guer|soin|medec|pretre|benedic/.test(t)) role = "soutien";
     else if (/bouclier|garde|protect|chevalier|paladin|sentinelle/.test(t)) role = "defenseur";
-    const el = elementDeFiche(f), n = NOMS_LOCAUX[el] || NOMS_LOCAUX.physique;
+    const el = elementDeFiche(f), mg = magieDe(f);
+    // avec une magie précise sur la fiche, les compétences portent son nom (ex : « Tempête de cartes », « Bouclier de mots »)
+    const n = mg ? [`Frappe ${deMot(mg)}`, `Éclat ${deMot(mg)}`, `Tempête ${deMot(mg)}`, `Emprise ${deMot(mg)}`, `Souffle ${deMot(mg)}`, `Rempart ${deMot(mg)}`, `Éveil ${deMot(mg)}`].map((x) => x.slice(0, 30))
+      : NOMS_LOCAUX[el] || NOMS_LOCAUX.physique;
     const c = (nom, type, cible, puissance, recharge, portee) => ({ nom, type, cible, puissance, recharge, element: el, portee, description: "" });
+    const texteMagie = normal(`${mg || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b/.test(normal(i.cle))).map((i) => i.valeur).join(" ")} ${f.resume || ""}`);
+    const special = KITS_MAGIE.find((k) => k.re.test(texteMagie));
+    if (special) return { fiche_id: f.id, role, puissance: puissance(f), competences: special.kit(role).map(([nom, type, cible, p, r, description]) => ({ nom, type, cible, puissance: p, recharge: r, element: special.el, portee: "distance", description })) };
     const competences = role === "soutien"
       ? [c(n[4], "soin", "allie", 1, 0, "distance"), c(n[6], "soin", "tous_allies", 2, 3, "distance"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[1], "degats", "ennemi", 2, 1, "distance")]
       : role === "defenseur"
@@ -3465,6 +3498,8 @@
     rp.forEach((p) => { const f = indexParId.get(p.fiche_id); if (f && puissance(f) !== p.puissance) changes[p.fiche_id] = puissance(f); });
     if (Object.keys(changes).length) { try { await api.rpgMajPuissance(changes); rp.forEach((p) => { if (changes[p.fiche_id] !== undefined) p.puissance = changes[p.fiche_id]; }); } catch (e) { console.warn(e); } }
     rp = rp.filter((p) => indexParId.has(p.fiche_id));
+    // compétences faites « sans IA » : recalculées avec les règles à jour (en attendant que l'IA les remplace)
+    rp.forEach((p) => { if (p.source === "local") { const l = competencesLocales(indexParId.get(p.fiche_id)); p.role = l.role; p.competences = l.competences; } });
     rar = raretesDe(rp);
     if (rp.length < 5) { z.innerHTML = `<p class="note">Il faut au moins 5 personnages prêts pour jouer (${rp.length} pour l'instant).</p>`; return; }
     try { profil = await api.rpgDemarrer(); collection = await api.rpgCollection(); }
@@ -3490,10 +3525,25 @@
       const tous = rp.map((p) => indexParId.get(p.fiche_id)).sort((a, b) => (RARETES[rar.get(b.id)].ordre - RARETES[rar.get(a.id)].ordre) || a.titre.localeCompare(b.titre, "fr"));
       const compte = (r) => [collection.filter((c) => rar.get(c.fiche_id) === r).length, tous.filter((f) => rar.get(f.id) === r).length];
       v.innerHTML = `<div class="compte-raretes">${Object.entries(RARETES).reverse().map(([k, r]) => { const [a, b] = compte(k); return `<span>${r.ic} ${r.nom} <b>${a}/${b}</b></span>`; }).join("")}</div>
+        ${(() => { const n = rp.filter((p) => p.source === "local").length; return n && estAdmin() ? `<div class="note">🛠️ ${n} personnage${n > 1 ? "s ont" : " a"} des compétences faites <b>sans IA</b> (l'IA était indisponible). <button class="btn petit btn-or" id="ameliorer-ia">🤖 Les faire refaire par l'IA</button><div id="ameliorer-zone" class="petit-texte"></div></div>` : ""; })()}
         <p class="discret petit-texte">Touche une carte pour voir ses compétences de jeu. Un doublon tiré donne une ⭐ (5 max), et chaque étoile rend le personnage plus fort.</p>
         <div class="grille-rpg">${tous.map((f) => { const i = infoDe(f.id), a = i.etoiles > 0; return carteRpg(f, i, { cls: a ? "" : "pas-obtenu", data: `data-voir="${esc(f.id)}"` }); }).join("")}</div>
         <div id="rpg-detail"></div>`;
       $$("[data-voir]", v).forEach((c) => (c.onclick = () => montrerDetail(c.dataset.voir)));
+      const bi = $("#ameliorer-ia");
+      if (bi) bi.onclick = async () => {
+        bi.disabled = true;
+        const zz = $("#ameliorer-zone"), locaux = rp.filter((p) => p.source === "local").map((p) => indexParId.get(p.fiche_id)).filter(Boolean);
+        let fait = 0;
+        for (let i = 0; i < locaux.length; i += 5) {
+          const lot = locaux.slice(i, i + 5);
+          zz.textContent = `⏳ L'IA lit les fiches… ${fait}/${locaux.length}`;
+          try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; }
+          catch (e) { zz.innerHTML = `⚠️ Arrêt à ${fait}/${locaux.length} : ${esc(e.message)}<br>Réessaie plus tard, ce qui est fait est gardé.`; bi.disabled = false; return; }
+        }
+        zz.textContent = `✅ ${fait} personnage${fait > 1 ? "s" : ""} refait${fait > 1 ? "s" : ""} par l'IA. Rechargement…`;
+        setTimeout(() => location.reload(), 1200);
+      };
     };
     const montrerDetail = (id) => {
       const f = indexParId.get(id), i = infoDe(id), x = forces(f), [ri, rn] = ROLES_RPG[i.role];
