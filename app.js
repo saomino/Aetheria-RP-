@@ -3421,22 +3421,84 @@
       ["Carte de Trèfle ♣", "bouclier", "allie", 2, 2, "Des cartes de trèfle forment un bouclier."],
       ["Coup de Théâtre 🃏", "degats", "tous_ennemis", 3, 4, "Le Joker abat sa carte maîtresse : tout le camp adverse est frappé."],
     ] },
+    { re: motsDebut(["metamorph", "transform", "change-forme", "changeforme", "polymorph", "lycan", "garou", "forme animale", "forme bestiale", "mue\\b"]), el: "nature", portee: "melee", kit: (role) => [
+      role === "soutien" ? ["Mue régénératrice", "soin", "allie", 1, 0, "Son corps se remodèle et referme les blessures."] : ["Griffes de bête", "degats", "ennemi", 1, 0, "Ses mains deviennent des griffes et lacèrent l'ennemi."],
+      ["Forme de colosse", "provocation", "soi", 2, 3, "Il prend une forme massive qui attire tous les coups."],
+      ["Fureur bestiale", "renfort", role === "soutien" ? "tous_allies" : "soi", 2, 3, "Il se transforme en prédateur et frappe bien plus fort."],
+      ["Charge du fauve", "etourdir", "ennemi", 2, 2, "Il bondit sous forme animale et renverse l'ennemi."],
+    ] },
+    { re: motsDebut(["illusion", "mirage", "leurre", "hallucin", "trompe"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Voile trompeur", "bouclier", "allie", 1, 0, "Une illusion cache l'allié aux yeux de l'ennemi."] : ["Lame illusoire", "degats", "ennemi", 1, 0, "Une arme imaginaire… qui fait de vrais dégâts."],
+      ["Mirage aveuglant", "etourdir", "ennemi", 2, 2, "L'ennemi est perdu dans un mirage et ne sait plus où frapper."],
+      ["Doubles trompeurs", "bouclier", "tous_allies", 2, 3, "Des copies illusoires détournent les attaques."],
+      ["Cauchemar éveillé", "affaiblir", "ennemi", 2, 2, "L'ennemi voit ses pires peurs et perd ses moyens."],
+    ] },
+    { re: motsDebut(["temps", "temporel", "chrono", "horloge", "sablier"]), el: "lumiere", kit: (role) => [
+      role === "soutien" ? ["Retour en arrière", "soin", "allie", 1, 0, "Il ramène le corps de l'allié à quelques instants plus tôt."] : ["Coup accéléré", "degats", "ennemi", 1, 0, "Il frappe si vite que le coup arrive avant d'être vu."],
+      ["Arrêt du temps", "etourdir", "ennemi", 3, 3, "Le temps se fige autour de l'ennemi."],
+      ["Ralentissement", "affaiblir", "ennemi", 2, 2, "L'ennemi bouge au ralenti."],
+      ["Accélération", "renfort", "tous_allies", 2, 3, "Le temps s'accélère pour ses alliés."],
+    ] },
+    { re: motsDebut(["gravit", "pesanteur", "apesanteur"]), el: "ombre", kit: (role) => [
+      role === "soutien" ? ["Allègement", "bouclier", "allie", 1, 0, "Les coups glissent sur l'allié, devenu léger."] : ["Poids écrasant", "degats", "ennemi", 1, 0, "La gravité s'abat sur l'ennemi."],
+      ["Puits gravitationnel", "degats", "tous_ennemis", 2, 3, "Tous les ennemis sont écrasés au sol."],
+      ["Cloué au sol", "etourdir", "ennemi", 2, 2, "L'ennemi est plaqué au sol et ne peut plus bouger."],
+      ["Fardeau", "affaiblir", "ennemi", 2, 2, "Chaque geste de l'ennemi pèse une tonne."],
+    ] },
+    { re: motsDebut(["invoc", "familier", "conjur", "esprit allie"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Esprit soigneur", "soin", "allie", 1, 0, "Une créature invoquée soigne l'allié."] : ["Assaut du familier", "degats", "ennemi", 1, 0, "Sa créature invoquée attaque."],
+      ["Gardien invoqué", "bouclier", "allie", 2, 2, "Un gardien apparaît pour protéger un allié."],
+      ["Horde", "degats", "tous_ennemis", 2, 3, "Plusieurs créatures surgissent et attaquent tout le monde."],
+      ["Entrave spectrale", "etourdir", "ennemi", 2, 2, "Les créatures retiennent l'ennemi."],
+    ] },
+    { re: motsDebut(["necro", "mort-vivant", "morts-vivants", "cadavre", "squelette", "zombie", "faucheur"]), el: "ombre", kit: (role) => [
+      role === "soutien" ? ["Vol de vie", "soin", "allie", 1, 0, "Il arrache un peu de vie à la mort pour soigner."] : ["Toucher de la mort", "degats", "ennemi", 1, 0, "Un froid mortel traverse l'ennemi."],
+      ["Armée des morts", "degats", "tous_ennemis", 2, 3, "Des morts se relèvent et attaquent."],
+      ["Malédiction funèbre", "affaiblir", "ennemi", 2, 2, "L'ennemi se vide de ses forces."],
+      ["Os protecteurs", "bouclier", "allie", 2, 2, "Une carapace d'os entoure un allié."],
+    ] },
+    { re: motsDebut(["telekin", "psychokin", "telepath", "psychi", "mental"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Lien mental", "renfort", "allie", 1, 0, "Il guide l'esprit de son allié, qui frappe juste."] : ["Projection mentale", "degats", "ennemi", 1, 0, "Une force invisible projette l'ennemi."],
+      ["Choc psychique", "etourdir", "ennemi", 2, 2, "L'esprit de l'ennemi se fige."],
+      ["Barrière mentale", "bouclier", "tous_allies", 2, 3, "Une force invisible repousse les coups."],
+      ["Domination", "affaiblir", "ennemi", 2, 2, "Il s'insinue dans l'esprit de l'ennemi et le fait hésiter."],
+    ] },
+    { re: motsDebut(["sonor", "musiq", "chant", "melodi", "barde", "vibration", "onde"]), el: "vent", kit: (role) => [
+      role === "soutien" ? ["Mélodie apaisante", "soin", "allie", 1, 0, "Une mélodie douce referme les blessures."] : ["Onde de choc", "degats", "ennemi", 1, 0, "Une onde sonore frappe l'ennemi."],
+      ["Cri assourdissant", "etourdir", "ennemi", 2, 2, "L'ennemi, sonné, ne peut plus agir."],
+      ["Chant de guerre", "renfort", "tous_allies", 2, 3, "Le rythme pousse ses alliés à frapper plus fort."],
+      ["Fausse note", "affaiblir", "ennemi", 2, 2, "Une vibration dérègle les gestes de l'ennemi."],
+    ] },
+    { re: motsDebut(["espace", "spatial", "portail", "teleport", "dimension", "distorsion"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Repli spatial", "bouclier", "allie", 1, 0, "Il déplace l'allié hors de portée au dernier moment."] : ["Coupure spatiale", "degats", "ennemi", 1, 0, "L'espace se déchire sur l'ennemi."],
+      ["Portail piège", "etourdir", "ennemi", 2, 2, "L'ennemi tombe dans un portail et revient trop tard."],
+      ["Effondrement", "degats", "tous_ennemis", 3, 4, "L'espace s'effondre sur tout le camp adverse."],
+      ["Distorsion", "affaiblir", "ennemi", 2, 2, "Les coups de l'ennemi n'arrivent plus où il vise."],
+    ] },
+    { re: motsDebut(["mots?\\b", "parole", "verbe", "incantation", "nom veritable", "vrais noms", "ecritur", "runes? parl"]), el: "arcane", kit: (role) => [
+      role === "soutien" ? ["Mot de guérison", "soin", "allie", 1, 0, "Il prononce « guéris » et la blessure se referme."] : ["Mot de pouvoir", "degats", "ennemi", 1, 0, "Un mot prononcé frappe comme un coup."],
+      ["« Arrête »", "etourdir", "ennemi", 3, 3, "Un seul mot, et l'ennemi est obligé d'obéir."],
+      ["« Protège »", "bouclier", "tous_allies", 2, 3, "Le mot se matérialise autour de ses alliés."],
+      ["« Faiblis »", "affaiblir", "ennemi", 2, 2, "Le mot s'imprime sur l'ennemi et le vide de sa force."],
+    ] },
   ];
   function competencesLocales(f) {
     const x = forces(f), t = normal(`${f.resume || ""} ${(f.infos || []).map((i) => i.valeur).join(" ")}`);
     let role = x.soutien > x.attaque && x.soutien >= x.defense ? "soutien" : x.defense > x.attaque ? "defenseur" : "attaquant";
-    if (/soign|guer|soin|medec|pretre|benedic/.test(t)) role = "soutien";
-    else if (/bouclier|garde|protect|chevalier|paladin|sentinelle/.test(t)) role = "defenseur";
+    if (/\b(soign|gueri|soin|medec|pretre|pretresse|benedic|infirm|herbor)/.test(t)) role = "soutien";
+    else if (/\b(bouclier|garde|protect|chevalier|paladin|sentinelle)/.test(t)) role = "defenseur";
     const el = elementDeFiche(f), mg = magieDe(f);
     // avec une magie précise sur la fiche, les compétences portent son nom (ex : « Tempête de cartes », « Bouclier de mots »)
     const n = mg ? [`Frappe ${deMot(mg)}`, `Éclat ${deMot(mg)}`, `Tempête ${deMot(mg)}`, `Emprise ${deMot(mg)}`, `Souffle ${deMot(mg)}`, `Rempart ${deMot(mg)}`, `Éveil ${deMot(mg)}`].map((x) => x.slice(0, 30))
       : NOMS_LOCAUX[el] || NOMS_LOCAUX.physique;
     const c = (nom, type, cible, puissance, recharge, portee) => ({ nom, type, cible, puissance, recharge, element: el, portee, description: "" });
-    const texteMagie = normal(`${mg || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b/.test(normal(i.cle))).map((i) => i.valeur).join(" ")} ${f.resume || ""}`);
+    // on ne regarde que ce qui parle de sa magie (pas tout le résumé : « en même temps » ne doit pas donner la magie du temps)
+    const autourMagie = (normal(sansMarkdown(f.resume || "")).match(/(?:magie|pouvoir|maitr|manipul|controle|utilise|art)\S*\s[^.;]{0,45}/g) || []).join(" ");
+    const texteMagie = normal(`${mg || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b|aptitude/.test(normal(i.cle))).map((i) => i.valeur).join(" ")} ${autourMagie}`);
     const special = KITS_MAGIE.find((k) => k.re.test(texteMagie));
-    if (special) return { fiche_id: f.id, role, puissance: puissance(f), competences: special.kit(role).map(([nom, type, cible, p, r, description]) => ({ nom, type, cible, puissance: p, recharge: r, element: special.el, portee: "distance", description })) };
+    if (special) return { fiche_id: f.id, role, puissance: puissance(f), competences: special.kit(role).map(([nom, type, cible, p, r, description]) => ({ nom, type, cible, puissance: p, recharge: r, element: special.el, portee: special.portee || (type === "provocation" ? "melee" : "distance"), description })) };
     const competences = role === "soutien"
-      ? [c(n[4], "soin", "allie", 1, 0, "distance"), c(n[6], "soin", "tous_allies", 2, 3, "distance"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[1], "degats", "ennemi", 2, 1, "distance")]
+      ? [c(n[4], "soin", "allie", 1, 0, "distance"), c(!mg && el === "physique" ? "Second souffle" : n[6], "soin", "tous_allies", 2, 3, "distance"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[1], "degats", "ennemi", 2, 1, "distance")]
       : role === "defenseur"
       ? [c(n[0], "degats", "ennemi", 1, 0, "melee"), c(NOMS_LOCAUX.physique[6], "provocation", "soi", 2, 3, "melee"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[3], "etourdir", "ennemi", 2, 2, "melee")]
       : [c(n[0], "degats", "ennemi", 1, 0, el === "physique" ? "melee" : "distance"), c(n[1], "degats", "ennemi", 3, 2, "distance"), c(n[2], "degats", "tous_ennemis", 2, 3, "distance"), c(n[3], x.attaque % 2 ? "etourdir" : "affaiblir", "ennemi", 2, 2, "distance")];
