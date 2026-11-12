@@ -744,3 +744,7 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .scene-hud .hud-eux { color: var(--rouge); }
 .attente-ia { text-align: center; color: var(--texte-doux); }
 .journal-details summary { cursor: pointer; color: var(--or); font-size: 0.85rem; margin: 6px 0; }
+.engrenage { display: inline-block; animation: tourne-engrenage 2s linear infinite; }
+@keyframes tourne-engrenage { to { transform: rotate(360deg); } }
+.barre-prepa.en-cours span { background: linear-gradient(90deg, var(--or), var(--or-vif), var(--or)); background-size: 200% 100%; animation: reflet 1.2s linear infinite; }
+@keyframes reflet { from { background-position: 200% 0; } to { background-position: 0 0; } }
