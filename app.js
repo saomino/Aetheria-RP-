@@ -3384,18 +3384,36 @@
     catch (e) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; return; }
     const manquants = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id));
     if (manquants.length) {
-      const LOT = 8; let fait = 0, erreurIA = null;
-      for (let i = 0; i < manquants.length; i += LOT) {
-        const lot = manquants.slice(i, i + LOT);
-        z.innerHTML = `<div class="prepa-rpg"><div class="jv-titre">⚙️ Préparation du jeu</div>
-          <p>L'IA crée les compétences de jeu de ${manquants.length} personnage${manquants.length > 1 ? "s" : ""}… (${fait}/${manquants.length})</p>
-          <div class="barre-prepa"><span style="width:${Math.round((fait / manquants.length) * 100)}%"></span></div>
+      // par paquets de 5, deux paquets en même temps ; la progression est enregistrée au fur et à mesure
+      const LOT = 5, lots = [];
+      for (let i = 0; i < manquants.length; i += LOT) lots.push(manquants.slice(i, i + LOT));
+      let fait = 0, erreurIA = null, prochain = 0;
+      const debut = Date.now();
+      const afficher = () => {
+        const sec = Math.round((Date.now() - debut) / 1000);
+        z.innerHTML = `<div class="prepa-rpg"><div class="jv-titre"><span class="engrenage">⚙️</span> Préparation du jeu</div>
+          <p>L'IA crée les compétences de jeu de ${manquants.length} personnage${manquants.length > 1 ? "s" : ""}… <b>${fait}/${manquants.length}</b></p>
+          <div class="barre-prepa en-cours"><span style="width:${Math.max(4, Math.round((fait / manquants.length) * 100))}%"></span></div>
+          <p class="discret petit-texte">⏱️ ${Math.floor(sec / 60) ? Math.floor(sec / 60) + " min " : ""}${sec % 60} s — compte environ 20 à 60 secondes par groupe de ${LOT}. Tu peux laisser la page ouverte : ce qui est fait est gardé, même si tu quittes.</p>
           <p class="discret petit-texte">C'est fait une seule fois par personnage, et ça ne compte pas dans ta limite d'IA. Les fiches ne sont pas modifiées.</p></div>`;
-        try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; }
-        catch (e) { erreurIA = e; break; }
-      }
+      };
+      afficher();
+      const minuteur = setInterval(afficher, 1000);
+      const travailleur = async () => {
+        while (prochain < lots.length && !erreurIA) {
+          const lot = lots[prochain++];
+          try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; afficher(); }
+          catch (e) { erreurIA = e; }
+        }
+      };
+      await Promise.all([travailleur(), travailleur()]);
+      clearInterval(minuteur);
       rp = await api.rpgPersos();
-      if (erreurIA) toast("Préparation incomplète : " + erreurIA.message, "erreur");
+      if (erreurIA) {
+        const reste = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id)).length;
+        if (rp.length < 5) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(erreurIA.message)}</p><button class="btn btn-or" onclick="location.reload()">Réessayer</button>`; return; }
+        toast(`${reste} personnage${reste > 1 ? "s" : ""} pas encore prêt${reste > 1 ? "s" : ""} (${erreurIA.message}). Ils seront préparés au prochain lancement.`, "erreur");
+      }
     }
     // 2) Mettre à jour la puissance (les dés ont pu changer) → la rareté suit
     const changes = {};
