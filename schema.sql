@@ -435,6 +435,136 @@ create policy "jeux_scores ajout" on public.jeux_scores for insert to authentica
 drop policy if exists "jeux_scores suppression admin" on public.jeux_scores;
 create policy "jeux_scores suppression admin" on public.jeux_scores for delete to authenticated using (public.est_admin());
 
+-- ---------- Jeu RPG gacha ----------
+-- Compétences DE JEU (créées par l'IA pour le jeu seulement, elles ne touchent pas aux fiches)
+create table if not exists public.rpg_persos (
+  fiche_id     uuid primary key references public.fiches(id) on delete cascade,
+  role         text not null check (role in ('defenseur', 'attaquant', 'soutien')),
+  competences  jsonb not null check (jsonb_typeof(competences) = 'array'),
+  puissance    int not null default 0 check (puissance between 0 and 300),
+  genere_le    timestamptz not null default now()
+);
+alter table public.rpg_persos enable row level security;
+drop policy if exists "rpg_persos lecture" on public.rpg_persos;
+create policy "rpg_persos lecture" on public.rpg_persos for select using (true);
+-- écriture : seulement par la fonction IA (clé serveur) et par rpg_maj_puissance
+
+-- Collection de chaque joueur
+create table if not exists public.rpg_collection (
+  user_id   uuid not null references public.profils(id) on delete cascade,
+  fiche_id  uuid not null references public.fiches(id) on delete cascade,
+  etoiles   int not null default 1 check (etoiles between 1 and 5),
+  obtenu_le timestamptz not null default now(),
+  primary key (user_id, fiche_id)
+);
+alter table public.rpg_collection enable row level security;
+drop policy if exists "rpg_collection lecture" on public.rpg_collection;
+create policy "rpg_collection lecture" on public.rpg_collection for select using (true);
+
+create table if not exists public.rpg_profil (
+  user_id            uuid primary key references public.profils(id) on delete cascade,
+  dernier_tirage     date,
+  tirages_bonus      int not null default 0 check (tirages_bonus between 0 and 50),
+  derniere_victoire  date,
+  victoires          int not null default 0,
+  defaites           int not null default 0,
+  palier             int not null default 1 check (palier between 1 and 99),
+  equipe             jsonb not null default '[]'::jsonb
+);
+alter table public.rpg_profil enable row level security;
+drop policy if exists "rpg_profil lecture" on public.rpg_profil;
+create policy "rpg_profil lecture" on public.rpg_profil for select using (true);
+
+-- Jour de jeu (heure de Bruxelles)
+create or replace function public.rpg_jour() returns date language sql stable as $$
+  select (now() at time zone 'Europe/Brussels')::date $$;
+
+-- Rareté selon la puissance (bonus de dés) : 5 % légendaires, 15 % épiques, 30 % rares, le reste communs
+create or replace function public.rpg_raretes() returns table (fiche_id uuid, rarete text)
+language sql stable security definer set search_path = public as $$
+  -- k = nombre de personnages au moins aussi puissants ; il y a toujours au moins 1 légendaire et 2 épiques
+  select p.fiche_id,
+    case when k <= greatest(1, ceil(n * 0.05)) then 'legendaire' when k <= greatest(2, ceil(n * 0.20)) then 'epique'
+         when k <= ceil(n * 0.50) then 'rare' else 'commun' end
+  from (select r.fiche_id, cume_dist() over (order by r.puissance desc) * count(*) over () as k, count(*) over () as n
+        from public.rpg_persos r join public.fiches f on f.id = r.fiche_id) p $$;
+
+create or replace function public.rpg_maj_puissance(valeurs jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare k text; v jsonb;
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  for k, v in select * from jsonb_each(valeurs) loop
+    update public.rpg_persos set puissance = greatest(0, least(300, (v #>> '{}')::int)) where fiche_id = k::uuid;
+  end loop;
+end $$;
+
+-- Premier lancement : 5 personnages communs au hasard
+create or replace function public.rpg_demarrer() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid();
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  insert into public.rpg_profil (user_id) values (moi) on conflict do nothing;
+  if not exists (select 1 from public.rpg_collection where user_id = moi) then
+    insert into public.rpg_collection (user_id, fiche_id)
+      select moi, r.fiche_id from public.rpg_raretes() r
+      order by (r.rarete = 'commun') desc, (r.rarete = 'rare') desc, random() limit 5
+    on conflict do nothing;
+  end if;
+  return (select to_jsonb(p) from public.rpg_profil p where user_id = moi);
+end $$;
+
+-- Tirage : 1 gratuit par jour + les tirages bonus (première victoire du jour)
+create or replace function public.rpg_tirer() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid(); p public.rpg_profil; x float := random(); rar text; choisi uuid; et int; nouveau boolean := false; gratuit boolean;
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  select * into p from public.rpg_profil where user_id = moi for update;
+  if not found then raise exception 'Lance d''abord le jeu.'; end if;
+  gratuit := p.dernier_tirage is null or p.dernier_tirage < public.rpg_jour();
+  if not gratuit and p.tirages_bonus <= 0 then raise exception 'Plus de tirage aujourd''hui : reviens demain (ou gagne un combat).'; end if;
+  rar := case when x < 0.02 then 'legendaire' when x < 0.12 then 'epique' when x < 0.40 then 'rare' else 'commun' end;
+  select r.fiche_id into choisi from public.rpg_raretes() r where r.rarete = rar order by random() limit 1;
+  if choisi is null then select r.fiche_id, r.rarete into choisi, rar from public.rpg_raretes() r order by random() limit 1; end if;
+  if choisi is null then raise exception 'Aucun personnage dans le jeu.'; end if;
+  if gratuit then update public.rpg_profil set dernier_tirage = public.rpg_jour() where user_id = moi;
+  else update public.rpg_profil set tirages_bonus = tirages_bonus - 1 where user_id = moi; end if;
+  insert into public.rpg_collection (user_id, fiche_id) values (moi, choisi)
+    on conflict (user_id, fiche_id) do update set etoiles = least(5, public.rpg_collection.etoiles + 1)
+    returning etoiles, (xmax = 0) into et, nouveau;
+  return jsonb_build_object('fiche_id', choisi, 'rarete', rar, 'etoiles', et, 'nouveau', nouveau, 'gratuit', gratuit);
+end $$;
+
+-- Fin de combat : victoire = palier + 1 (+ un tirage bonus la première fois du jour) ; défaite comptée
+create or replace function public.rpg_fin_combat(gagne boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare moi uuid := auth.uid(); bonus boolean := false;
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  if gagne then
+    select coalesce(derniere_victoire, '2000-01-01') < public.rpg_jour() into bonus from public.rpg_profil where user_id = moi;
+    update public.rpg_profil set victoires = victoires + 1, palier = least(99, palier + 1), derniere_victoire = public.rpg_jour(),
+      tirages_bonus = tirages_bonus + case when bonus then 1 else 0 end where user_id = moi;
+  else
+    update public.rpg_profil set defaites = defaites + 1 where user_id = moi;
+  end if;
+  return jsonb_build_object('bonus', coalesce(bonus, false));
+end $$;
+
+create or replace function public.rpg_sauver_equipe(ids jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  if jsonb_typeof(ids) <> 'array' or jsonb_array_length(ids) > 5 then raise exception 'Équipe invalide.'; end if;
+  update public.rpg_profil set equipe = ids where user_id = auth.uid();
+end $$;
+
+revoke all on function public.rpg_maj_puissance(jsonb), public.rpg_demarrer(), public.rpg_tirer(), public.rpg_fin_combat(boolean), public.rpg_sauver_equipe(jsonb) from public, anon;
+grant execute on function public.rpg_maj_puissance(jsonb), public.rpg_demarrer(), public.rpg_tirer(), public.rpg_fin_combat(boolean), public.rpg_sauver_equipe(jsonb) to authenticated;
+grant execute on function public.rpg_raretes(), public.rpg_jour() to anon, authenticated;
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

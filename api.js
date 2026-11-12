@@ -286,6 +286,28 @@
       erreur(error);
     }
 
+    /* ---- Jeu RPG ---- */
+    async rpgPersos() {
+      const { data, error } = await this.sb.from("rpg_persos").select("*");
+      if (error) { if (/rpg_persos/.test(error.message || "")) throw new Error("Le jeu n'est pas encore installé : relance le fichier schema.sql dans Supabase."); erreur(error); }
+      return data;
+    }
+    async rpgRpc(nom, args) {
+      const { data, error } = await this.sb.rpc(nom, args || {});
+      if (error) throw new Error(/function|schema cache/i.test(error.message || "") ? "Le jeu n'est pas encore installé : relance le fichier schema.sql dans Supabase." : error.message);
+      return data;
+    }
+    rpgMajPuissance(valeurs) { return this.rpgRpc("rpg_maj_puissance", { valeurs }); }
+    rpgDemarrer() { return this.rpgRpc("rpg_demarrer"); }
+    rpgTirer() { return this.rpgRpc("rpg_tirer"); }
+    rpgFinCombat(gagne) { return this.rpgRpc("rpg_fin_combat", { gagne }); }
+    rpgSauverEquipe(ids) { return this.rpgRpc("rpg_sauver_equipe", { ids }); }
+    async rpgCollection() {
+      const { data, error } = await this.sb.from("rpg_collection").select("fiche_id,etoiles,obtenu_le").eq("user_id", this.moi.user.id);
+      erreur(error);
+      return data;
+    }
+
     /* ---- Mini-jeux ---- */
     async enregistrerScore({ jeu, jour, score, details }) {
       const { error } = await this.sb.from("jeux_scores").insert({ jeu, jour, score, details: details || null });
@@ -479,6 +501,45 @@
     }
     async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
     async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
+
+    /* Jeu RPG (démo : tout en local, même logique que le serveur) */
+    _rpg() { const s = this._lire(); s.rpg = s.rpg || { persos: [], collection: [], profil: null }; return s; }
+    async rpgPersos() { return this._rpg().rpg.persos.filter((p) => this._lire().fiches.some((f) => f.id === p.fiche_id)); }
+    async rpgMajPuissance(v) { const s = this._rpg(); s.rpg.persos.forEach((p) => { if (v[p.fiche_id] !== undefined) p.puissance = Math.max(0, Math.min(300, Math.round(v[p.fiche_id]))); }); this._ecrire(); }
+    _raretes() {
+      const l = this._rpg().rpg.persos, n = l.length, m = new Map();
+      l.forEach((p) => { const k = l.filter((q) => q.puissance >= p.puissance).length; m.set(p.fiche_id, k <= Math.max(1, Math.ceil(n * 0.05)) ? "legendaire" : k <= Math.max(2, Math.ceil(n * 0.2)) ? "epique" : k <= Math.ceil(n * 0.5) ? "rare" : "commun"); });
+      return m;
+    }
+    _jour() { return new Intl.DateTimeFormat("sv", { timeZone: "Europe/Brussels" }).format(new Date()); }
+    async rpgDemarrer() {
+      const s = this._rpg(), r = s.rpg;
+      if (!r.profil) r.profil = { dernier_tirage: null, tirages_bonus: 0, derniere_victoire: null, victoires: 0, defaites: 0, palier: 1, equipe: [] };
+      if (!r.collection.length) {
+        const ra = this._raretes(), ordre = { commun: 0, rare: 1, epique: 2, legendaire: 3 };
+        [...ra.entries()].sort((a, b) => ordre[a[1]] - ordre[b[1]] || Math.random() - 0.5).slice(0, 5).forEach(([id]) => r.collection.push({ fiche_id: id, etoiles: 1, obtenu_le: new Date().toISOString() }));
+      }
+      this._ecrire(); return { ...r.profil };
+    }
+    async rpgCollection() { return this._rpg().rpg.collection; }
+    async rpgTirer() {
+      const s = this._rpg(), r = s.rpg, p = r.profil, auj = this._jour();
+      const gratuit = !p.dernier_tirage || p.dernier_tirage < auj;
+      if (!gratuit && p.tirages_bonus <= 0) throw new Error("Plus de tirage aujourd'hui : reviens demain (ou gagne un combat).");
+      const x = Math.random(); let rar = x < 0.02 ? "legendaire" : x < 0.12 ? "epique" : x < 0.4 ? "rare" : "commun";
+      const ra = [...this._raretes().entries()]; let l = ra.filter(([, v]) => v === rar); if (!l.length) l = ra;
+      const [id, rr] = l[Math.floor(Math.random() * l.length)];
+      if (gratuit) p.dernier_tirage = auj; else p.tirages_bonus--;
+      let c = r.collection.find((x) => x.fiche_id === id), nouveau = !c;
+      if (c) c.etoiles = Math.min(5, c.etoiles + 1); else r.collection.push(c = { fiche_id: id, etoiles: 1, obtenu_le: new Date().toISOString() });
+      this._ecrire(); return { fiche_id: id, rarete: rr, etoiles: c.etoiles, nouveau, gratuit };
+    }
+    async rpgFinCombat(gagne) {
+      const p = this._rpg().rpg.profil, auj = this._jour(); let bonus = false;
+      if (gagne) { bonus = !p.derniere_victoire || p.derniere_victoire < auj; p.victoires++; p.palier = Math.min(99, p.palier + 1); p.derniere_victoire = auj; if (bonus) p.tirages_bonus++; } else p.defaites++;
+      this._ecrire(); return { bonus };
+    }
+    async rpgSauverEquipe(ids) { this._rpg().rpg.profil.equipe = ids; this._ecrire(); }
 
     async enregistrerScore({ jeu, jour, score, details }) {
       const s = this._lire(); s.jeux_scores = s.jeux_scores || [];

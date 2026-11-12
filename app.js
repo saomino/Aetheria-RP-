@@ -2314,6 +2314,7 @@
      MINI-JEUX : Aetherdle, Qui suis-je ?, Bataille de cartes, Grand Tournoi
      ===================================================================== */
   const JEUX = [
+    ["rpg", "⚔️", "Aetheria Tactics", "RPG gacha : collectionne les personnages, monte ton équipe de 5 et combats."],
     ["aetherdle", "🔍", "Aetherdle", "Le personnage du jour : devine-le en un minimum d'essais."],
     ["qui", "🕵️", "Qui suis-je ?", "Des indices de plus en plus clairs : trouve le personnage avant la fin."],
     ["cartes", "🃏", "Bataille de cartes", "Ton deck de personnages contre celui de l'ordinateur, aux vrais dés."],
@@ -2707,6 +2708,944 @@
         } catch (e) { stop(); zr.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; b.disabled = false; }
       }));
     };
+    dessiner();
+  };
+
+  /* =====================================================================
+     JEU RPG : collection gacha + combats 5 contre 5 au tour par tour
+     ===================================================================== */
+  const RARETES = {
+    commun: { nom: "Commun", ic: "⚪", ordre: 0 },
+    rare: { nom: "Rare", ic: "🔵", ordre: 1 },
+    epique: { nom: "Épique", ic: "🟣", ordre: 2 },
+    legendaire: { nom: "Légendaire", ic: "🟡", ordre: 3 },
+  };
+  const ROLES_RPG = { defenseur: ["🛡️", "Défenseur"], attaquant: ["⚔️", "Attaquant"], soutien: ["💚", "Soutien"] };
+  const TYPES_RPG = { degats: "💥", soin: "💚", bouclier: "🔰", provocation: "😤", etourdir: "💫", renfort: "📯", affaiblir: "🥀" };
+  const CIBLES_RPG = { ennemi: "un ennemi", tous_ennemis: "tous les ennemis", allie: "un allié", tous_allies: "toute l'équipe", soi: "lui-même" };
+  const MULT = [0, 1, 1.45, 1.9];
+  const jourBruxelles = () => new Intl.DateTimeFormat("sv", { timeZone: "Europe/Brussels" }).format(new Date());
+  const raretesDe = (rp) => {
+    const l = rp.filter((p) => indexParId.has(p.fiche_id)), n = l.length, m = new Map();
+    l.forEach((p) => { const k = l.filter((q) => q.puissance >= p.puissance).length; m.set(p.fiche_id, k <= Math.max(1, Math.ceil(n * 0.05)) ? "legendaire" : k <= Math.max(2, Math.ceil(n * 0.2)) ? "epique" : k <= Math.ceil(n * 0.5) ? "rare" : "commun"); });
+    return m;
+  };
+  const etoilesHtml = (n) => `<span class="etoiles">${"★".repeat(n)}<span class="etoiles-vides">${"★".repeat(5 - n)}</span></span>`;
+  const descComp = (c) => `${TYPES_RPG[c.type] || ""} ${esc(c.nom)}${c.recharge ? ` <small class="discret">⏳${c.recharge}</small>` : ""}`;
+  const texteComp = (c) => `${{ degats: "Dégâts", soin: "Soin", bouclier: "Bouclier", provocation: "Provocation", etourdir: "Étourdit", renfort: "Renfort", affaiblir: "Affaiblit" }[c.type]} ${["", "faible", "moyen", "fort"][c.puissance] || ""} sur ${CIBLES_RPG[c.cible] || c.cible}${c.recharge ? ` · recharge ${c.recharge} tour${c.recharge > 1 ? "s" : ""}` : ""}`;
+
+  function carteRpg(f, info, opts = {}) {
+    const rar = RARETES[info.rarete] || RARETES.commun, [ri, rn] = ROLES_RPG[info.role] || ROLES_RPG.attaquant;
+    return `<div class="carte-rpg r-${info.rarete || "commun"} ${opts.cls || ""}" ${opts.data || ""}>
+      <div class="cr-haut"><span title="${rar.nom}">${rar.ic}</span>${info.etoiles ? etoilesHtml(info.etoiles) : ""}<span title="${rn}">${ri}</span></div>
+      <div class="cr-img">${vignette(f, "cb-img")}</div>
+      <div class="cr-nomp">${opts.cache ? "???" : esc(f.titre)}</div>
+      ${(() => { const x = forces(f); return `<div class="cr-stats"><span>⚔️${x.attaque}</span><span>🛡️${x.defense}</span><span>💚${x.soutien}</span></div>`; })()}
+      <div class="cr-rarete">${rar.nom} · ${rn}</div>
+      ${opts.badge ? `<div class="cr-badge">${opts.badge}</div>` : ""}
+    </div>`;
+  }
+
+  /* ---------- Moteur de combat ---------- */
+  function creerUnite(f, rp, etoiles, camp, ligne, mult = 1) {
+    const x = forces(f), e = (1 + 0.08 * (etoiles - 1)) * mult;
+    const pvMax = Math.round((70 + x.defense * 4 + x.soutien * 1.5 + (rp.role === "defenseur" ? 50 : 0)) * e);
+    return {
+      uid: camp + ":" + f.id, f, nom: f.titre, camp, ligne, role: rp.role, etoiles,
+      comp: rp.competences.map((c) => ({ ...c, attente: 0 })),
+      pv: pvMax, pvMax, att: x.attaque * e, def: x.defense * e, sou: x.soutien * e,
+      bouclier: 0, provoc: 0, etourdi: 0, renfort: 0, faible: 0,
+    };
+  }
+  const vivants = (l) => l.filter((u) => u.pv > 0);
+  function ciblesValides(combat, u, c) {
+    const amis = u.camp === "moi" ? combat.moi : combat.eux, ennemis = u.camp === "moi" ? combat.eux : combat.moi;
+    if (c.cible === "soi") return [u];
+    if (c.cible === "allie" || c.cible === "tous_allies") return vivants(amis);
+    const v = vivants(ennemis);
+    if (c.cible === "tous_ennemis") return v;
+    const prov = v.filter((x) => x.provoc > 0);
+    if (prov.length) return prov;
+    const avant = v.filter((x) => x.ligne === "avant");
+    return avant.length ? avant : v;
+  }
+  function appliquer(combat, u, c, cible) {
+    const log = [], evts = [], aoe = c.cible.startsWith("tous");
+    const cibles = c.cible === "tous_ennemis" || c.cible === "tous_allies" ? ciblesValides(combat, u, c) : [cible || u];
+    const m = MULT[c.puissance] || 1;
+    c.attente = c.recharge;
+    log.push(`<b class="camp-${u.camp}">${esc(u.nom)}</b> utilise <b>${esc(c.nom)}</b>`);
+    cibles.forEach((t) => {
+      const d = d15(), crit = d === DE;
+      if (["degats", "etourdir", "affaiblir"].includes(c.type)) {
+        if (d === 1 && c.type === "degats") { log.push(`🎲1 — ${esc(t.nom)} esquive !`); evts.push({ t, kind: "esquive" }); return; }
+        const coef = { degats: 1, etourdir: 0.6, affaiblir: 0.45 }[c.type] * (aoe ? 0.6 : 1);
+        let dmg = ((d + u.att) * 1.6 * m * coef + 2) * (u.renfort > 0 ? 1.3 : 1) * (u.faible > 0 ? 0.7 : 1) * (crit ? 1.5 : 1) * combat.fatigue - t.def * 0.35;
+        dmg = Math.max(1, Math.round(dmg));
+        const absorbe = Math.min(t.bouclier, dmg);
+        t.bouclier -= absorbe; t.pv = Math.max(0, t.pv - (dmg - absorbe));
+        let txt = `🎲${d}${crit ? " CRITIQUE" : ""} → ${esc(t.nom)} −${dmg - absorbe}${absorbe ? ` (🔰${absorbe} absorbés)` : ""}`;
+        if (c.type === "etourdir" && t.pv > 0 && d + c.puissance * 2 >= 11) { t.etourdi = 1; txt += " 💫 étourdi"; }
+        if (c.type === "affaiblir" && t.pv > 0) { t.faible = 2; txt += " 🥀 affaibli"; }
+        if (t.pv <= 0) txt += ` ☠️ <b>${esc(t.nom)} est K.O.</b>`;
+        log.push(txt);
+        evts.push({ t, kind: "degats", valeur: dmg - absorbe, absorbe, crit, pv: t.pv, bouclier: t.bouclier, etourdi: t.etourdi > 0 && c.type === "etourdir", faible: c.type === "affaiblir" });
+      } else if (c.type === "soin") {
+        const soin = Math.round((d * 0.7 + u.sou * 0.9 + 3) * m * (aoe ? 0.5 : 1) * (crit ? 1.5 : 1) / combat.fatigue);
+        const avant = t.pv; t.pv = Math.min(t.pvMax, t.pv + soin);
+        log.push(`🎲${d} → ${esc(t.nom)} +${t.pv - avant} PV`);
+        evts.push({ t, kind: "soin", valeur: t.pv - avant, crit, pv: t.pv });
+      } else if (c.type === "bouclier") {
+        const b = Math.round((d + u.sou * 0.6 + u.def * 0.6 + 4) * m * (aoe ? 0.6 : 1));
+        t.bouclier = Math.min(Math.round(t.pvMax * 0.6), t.bouclier + b);
+        log.push(`🎲${d} → 🔰 ${esc(t.nom)} +${b} de bouclier`);
+        evts.push({ t, kind: "bouclier", valeur: b, bouclier: t.bouclier });
+      } else if (c.type === "provocation") {
+        u.provoc = 2;
+        const b = Math.round((d + u.def) * 0.5 * m);
+        u.bouclier = Math.min(Math.round(u.pvMax * 0.6), u.bouclier + b);
+        log.push(`😤 attire tous les coups pendant 2 tours (+🔰${b})`);
+        evts.push({ t: u, kind: "provocation", valeur: b, bouclier: u.bouclier });
+      } else if (c.type === "renfort") {
+        t.renfort = 2;
+        log.push(`📯 ${esc(t.nom)} frappe plus fort pendant 2 tours`);
+        evts.push({ t, kind: "renfort" });
+      }
+    });
+    log.evts = evts;
+    return log;
+  }
+  function choixIA(combat, u) {
+    const prets = u.comp.filter((c) => c.attente <= 0);
+    const amis = vivants(u.camp === "moi" ? combat.moi : combat.eux);
+    const blesses = amis.filter((a) => a.pv / a.pvMax < 0.55).sort((a, b) => a.pv / a.pvMax - b.pv / b.pvMax);
+    const plusFaible = (l) => [...l].sort((a, b) => a.pv - b.pv)[0];
+    const trouver = (types) => prets.filter((c) => types.includes(c.type)).sort((a, b) => b.puissance - a.puissance)[0];
+    let c;
+    if (blesses.length && (c = trouver(["soin"]))) return { c, cible: c.cible === "allie" ? blesses[0] : null };
+    if (u.role === "defenseur" && u.provoc <= 0 && amis.some((a) => a !== u && a.pv / a.pvMax < 0.8) && (c = trouver(["provocation"]))) return { c, cible: u };
+    if (amis.some((a) => a.pv / a.pvMax < 0.75) && (c = trouver(["bouclier"]))) return { c, cible: c.cible === "allie" ? plusFaible(amis) : u };
+    if (!amis.some((a) => a.renfort > 0) && alea(2) && (c = trouver(["renfort"]))) return { c, cible: c.cible === "allie" ? amis.sort((a, b) => b.att - a.att)[0] : u };
+    if (alea(2) && (c = trouver(["etourdir", "affaiblir"]))) return { c, cible: plusFaible(ciblesValides(combat, u, c)) };
+    c = trouver(["degats"]) || prets.find((x) => !["soin", "bouclier", "renfort", "provocation"].includes(x.type)) || u.comp[0];
+    const v = ciblesValides(combat, u, c);
+    return { c, cible: c.cible.startsWith("tous") || c.cible === "soi" ? null : (["soin", "bouclier", "renfort"].includes(c.type) ? plusFaible(v) : plusFaible(v)) };
+  }
+
+  /* ---------- Page ---------- */
+  /* ---------- Scène de combat animée (canvas 2D) ---------- */
+  const ELEMENTS = {
+    sang: { c1: "#c0102a", c2: "#5a0010", glow: "#ff2a4a", nom: "sang" },
+    feu: { c1: "#ffb020", c2: "#ff4a00", glow: "#ff8a1a", nom: "feu" },
+    glace: { c1: "#c8f0ff", c2: "#5ab8f0", glow: "#9ee6ff", nom: "glace" },
+    foudre: { c1: "#fff7a0", c2: "#b48cff", glow: "#e8e0ff", nom: "foudre" },
+    lumiere: { c1: "#fff6d0", c2: "#f5c542", glow: "#ffe58a", nom: "lumière" },
+    ombre: { c1: "#7a3cff", c2: "#1a0830", glow: "#9a5cff", nom: "ombre" },
+    nature: { c1: "#7fe07a", c2: "#2e7d32", glow: "#a8ff9a", nom: "nature" },
+    poison: { c1: "#b4f03c", c2: "#4a7a10", glow: "#c8ff50", nom: "poison" },
+    eau: { c1: "#7ad0ff", c2: "#1a6ad0", glow: "#9adcff", nom: "eau" },
+    vent: { c1: "#f0fff8", c2: "#9ad8c8", glow: "#ffffff", nom: "vent" },
+    terre: { c1: "#c89a5a", c2: "#6a4a2a", glow: "#e0b070", nom: "terre" },
+    arcane: { c1: "#ff7af0", c2: "#7a2ad0", glow: "#ff9af5", nom: "arcane" },
+    physique: { c1: "#ffffff", c2: "#b8c0d8", glow: "#ffffff", nom: "physique" },
+  };
+  const MOTS_ELEMENTS = [
+    ["sang", /sang|sangl|hemo|vampir|morsure|saign|ecarlate|pourpre/],
+    ["feu", /feu|flamm|brul|braise|incend|ignis|pyro|enfer|magma|lave|solaire|soleil|cendr|brasier/],
+    ["glace", /glac|gel|givr|neige|frimas|cryo|froid|blizzard/],
+    ["foudre", /foudr|eclair|tonnerr|electr|orage|fulgur/],
+    ["lumiere", /lumi|sacre|divin|celest|benedic|aur[ae]|radian|saint|halo|ange|clart/],
+    ["ombre", /ombr|tenebr|nuit|noir|abyss|neant|obscur|spectr|ame|maudi|malefi|demon/],
+    ["poison", /poison|venin|toxi|acide|miasm/],
+    ["nature", /natur|lian|ronc|vegetal|fleur|plante|feuill|racine|bois|foret|sylv|epine/],
+    ["eau", /eau|vague|maree|ocean|mer\b|aqua|torrent|pluie|chant|sirene|ecume/],
+    ["vent", /vent|tornad|tempet|souffl|ouragan|bourrasqu|air\b|plume|aile/],
+    ["terre", /terre|roch|pierr|seism|sol\b|montagn|sable|gravat/],
+    ["arcane", /arcan|runi|rune|mana|astral|etoil|cosm|sort|magi|ether|illusion|carte|psych/],
+  ];
+  const ELEMENT_RACE = [[/vampir/, "sang"], [/demon|oni/, "feu"], [/archange|ange|celest/, "lumiere"], [/sirene/, "eau"], [/elfe noir|dechu/, "ombre"], [/elfe/, "nature"], [/dieu/, "arcane"]];
+  function elementDe(c, u) {
+    if (c.element && ELEMENTS[c.element]) return c.element;
+    const t = normal(`${c.nom} ${c.description || ""}`);
+    for (const [e, re] of MOTS_ELEMENTS) if (re.test(t)) return e;
+    if (c.type === "soin") return "lumiere";
+    if (c.type === "bouclier") return "arcane";
+    if (c.type === "provocation" || c.type === "renfort") return "physique";
+    const race = normal(infoPerso(u.f, /race|peuple|espece/));
+    if (c !== u.comp[0]) for (const [re, e] of ELEMENT_RACE) if (re.test(race)) return e;
+    return "physique";
+  }
+  const auCorpsACorps = (c, u, el) => c.portee ? c.portee === "melee" : (el === "physique" || u.role === "defenseur" || (c === u.comp[0] && u.role !== "soutien" && ["physique", "sang", "terre"].includes(el)));
+  const imagesScene = new Map();
+  const imageDe = (f) => {
+    if (!urlSure(f.image_url)) return null;
+    if (!imagesScene.has(f.id)) { const im = new Image(); im.src = f.image_url; imagesScene.set(f.id, im); }
+    const im = imagesScene.get(f.id);
+    return im.complete && im.naturalWidth ? im : null;
+  };
+  /* Figurine = l'image de la fiche, détourée si le fond est uni, sinon fondue sur les bords */
+  const figurines = new Map();
+  function preparerFigurine(img, detourable) {
+    const H0 = 260, k = Math.min(1, H0 / img.naturalHeight, 260 / img.naturalWidth) || 1;
+    const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0, w, h);
+    let ok = false, x0 = 0, y0 = 0, x1 = w - 1, y1 = h - 1;
+    if (detourable) {
+      try {
+        const id = cx.getImageData(0, 0, w, h), d = id.data;
+        const px = (x, y) => (y * w + x) * 4;
+        const coins = [[1, 1], [w - 2, 1], [1, h - 2], [w - 2, h - 2]].map(([x, y]) => [d[px(x, y)], d[px(x, y) + 1], d[px(x, y) + 2], d[px(x, y) + 3]]);
+        const dist = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+        const deja = coins[0][3] < 20 && coins.every((c) => c[3] < 20);
+        if (deja) ok = true; // image déjà transparente (PNG détouré)
+        else {
+          // couleur de fond : celle des coins (s'ils se ressemblent au moins à 3)
+          const fond = coins.find((c) => coins.filter((o) => dist(o, c) < 60).length >= 3);
+          if (fond) {
+            const vu = new Uint8Array(w * h), pile = [], TOL = 70;
+            for (let x = 0; x < w; x++) pile.push(x, 0, x, h - 1);
+            for (let y = 0; y < h; y++) pile.push(0, y, w - 1, y);
+            let enleves = 0;
+            while (pile.length) {
+              const y = pile.pop(), x = pile.pop(), i = y * w + x;
+              if (x < 0 || y < 0 || x >= w || y >= h || vu[i]) continue;
+              const p = i * 4;
+              if (Math.abs(d[p] - fond[0]) + Math.abs(d[p + 1] - fond[1]) + Math.abs(d[p + 2] - fond[2]) > TOL) continue;
+              vu[i] = 1; d[p + 3] = 0; enleves++;
+              pile.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+            }
+            const part = enleves / (w * h);
+            if (part > 0.08 && part < 0.88) {
+              // adoucir le bord du personnage
+              for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+                const i = y * w + x;
+                if (!vu[i] && (vu[i - 1] || vu[i + 1] || vu[i - w] || vu[i + w])) d[i * 4 + 3] = 150;
+              }
+              cx.putImageData(id, 0, 0); ok = true;
+            }
+          }
+        }
+        if (ok) {
+          // recadrer sur le personnage
+          const id2 = cx.getImageData(0, 0, w, h).data; x0 = w; y0 = h; x1 = 0; y1 = 0;
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (id2[(y * w + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+          if (x1 <= x0 || y1 <= y0) { ok = false; x0 = 0; y0 = 0; x1 = w - 1; y1 = h - 1; cx.clearRect(0, 0, w, h); cx.drawImage(img, 0, 0, w, h); }
+        }
+      } catch (e) { ok = false; }
+    }
+    if (!ok) {
+      // fond impossible à enlever (décor) : l'image entière dans une arche, comme un vitrail, qui se fond en bas
+      cx.globalCompositeOperation = "destination-in";
+      cx.beginPath(); const r = w / 2; cx.moveTo(0, h); cx.lineTo(0, r); cx.arc(w / 2, r, r, Math.PI, 0); cx.lineTo(w, h); cx.closePath();
+      cx.fillStyle = "#000"; cx.fill();
+      // (destination-in efface tout ce qui est hors du dessin : le dégradé couvre donc toute l'image)
+      const g2 = cx.createLinearGradient(0, 0, 0, h); g2.addColorStop(0, "rgba(0,0,0,1)"); g2.addColorStop(0.8, "rgba(0,0,0,1)"); g2.addColorStop(1, "rgba(0,0,0,0)");
+      cx.fillStyle = g2; cx.fillRect(0, 0, w, h);
+      cx.globalCompositeOperation = "source-over";
+      cx.strokeStyle = "rgba(227,184,102,0.9)"; cx.lineWidth = Math.max(2, w / 60);
+      cx.beginPath(); cx.moveTo(1, h * 0.85); cx.lineTo(1, r); cx.arc(w / 2, r, r - 1, Math.PI, 0); cx.lineTo(w - 1, h * 0.85); cx.stroke();
+    }
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    const sprite = document.createElement("canvas"); sprite.width = cw; sprite.height = ch;
+    sprite.getContext("2d").drawImage(cv, x0, y0, cw, ch, 0, 0, cw, ch);
+    const blanc = document.createElement("canvas"); blanc.width = cw; blanc.height = ch;
+    const bx = blanc.getContext("2d"); bx.drawImage(sprite, 0, 0); bx.globalCompositeOperation = "source-in"; bx.fillStyle = "#fff"; bx.fillRect(0, 0, cw, ch);
+    return { sprite, blanc, detoure: ok };
+  }
+  function figurineDe(f) {
+    if (!urlSure(f.image_url)) return null;
+    let e = figurines.get(f.id);
+    if (!e) {
+      e = { pret: null };
+      figurines.set(f.id, e);
+      const charger = (cors) => {
+        const im = new Image();
+        if (cors && !/^data:/i.test(f.image_url)) im.crossOrigin = "anonymous";
+        im.onload = () => { try { e.pret = preparerFigurine(im, true); } catch (x) { e.pret = preparerFigurine(im, false); } };
+        im.onerror = () => { if (cors) charger(false); else e.pret = false; };
+        im.src = f.image_url;
+      };
+      charger(true);
+    }
+    return e.pret || null;
+  }
+  const COULEUR_ROLE = { defenseur: ["#5a6a8a", "#2a3450"], attaquant: ["#8a3a3a", "#401a22"], soutien: ["#3a7a5a", "#173a2a"] };
+
+  function creerScene(canvas, combat, surTap) {
+    const W = 360, H = 480, ctx = canvas.getContext("2d");
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const parts = [], textes = [], projectiles = [], eclairs = [], anneaux = [];
+    let secousse = 0, flash = 0, banniere = null, ciblables = new Set(), actif = null, vivante = true, t0 = performance.now(), dernier = t0;
+    const etat = new Map();
+    const places = (l, camp) => {
+      const avant = l.filter((u) => u.ligne === "avant"), arriere = l.filter((u) => u.ligne === "arriere");
+      const pose = (r, y, s) => r.forEach((u, i) => { const n = r.length, x = W / 2 + (i - (n - 1) / 2) * (n > 2 ? 104 : 120); etat.set(u.uid, { x, y, s, bx: x, by: y, ox: 0, oy: 0, pv: u.pv, bouclier: u.bouclier, blanc: 0, ko: u.pv <= 0 ? 1 : 0, phase: Math.random() * 6 }); });
+      if (camp === "eux") { pose(arriere, 122, 0.72); pose(avant, 206, 0.84); }
+      else { pose(avant, 346, 0.96); pose(arriere, 446, 1.03); }
+    };
+    places(combat.eux, "eux"); places(combat.moi, "moi");
+    const tous = () => [...combat.eux, ...combat.moi];
+    const E = (u) => etat.get(u.uid);
+    const centre = (u) => { const e = E(u); return { x: e.x + e.ox, y: e.y + e.oy - (e.h || 100 * e.s) * 0.5 }; };
+
+    // ---- particules ----
+    const ajouter = (p) => { if (parts.length < 500) parts.push({ vx: 0, vy: 0, g: 0, taille: 3, vie: 0.6, age: 0, add: true, forme: "rond", rot: Math.random() * 6, vr: 0, ...p }); };
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    function eclat(x, y, el, force = 1) {
+      const E2 = ELEMENTS[el] || ELEMENTS.physique, n = Math.round(22 * force);
+      for (let i = 0; i < n; i++) {
+        const a = rnd(0, Math.PI * 2), v = rnd(40, 170) * force;
+        const p = { x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, couleur: Math.random() < 0.5 ? E2.c1 : E2.c2, taille: rnd(2, 5) * force, vie: rnd(0.35, 0.8) };
+        if (el === "sang") Object.assign(p, { g: 420, add: false, forme: "goutte", vy: p.vy - 60 });
+        else if (el === "feu") Object.assign(p, { g: -160, forme: "rond", taille: rnd(3, 7) });
+        else if (el === "glace") Object.assign(p, { forme: "eclat", vr: rnd(-8, 8), add: false, taille: rnd(3, 7) });
+        else if (el === "nature" || el === "poison") Object.assign(p, { forme: el === "nature" ? "feuille" : "bulle", g: el === "nature" ? 60 : -50, vr: rnd(-6, 6) });
+        else if (el === "ombre") Object.assign(p, { forme: "fumee", add: false, taille: rnd(8, 16), vx: p.vx * 0.4, vy: p.vy * 0.4 - 20, vie: rnd(0.6, 1.1) });
+        else if (el === "terre") Object.assign(p, { forme: "roche", g: 380, add: false, vr: rnd(-6, 6) });
+        else if (el === "eau") Object.assign(p, { forme: "goutte", g: 300, vy: p.vy - 80 });
+        else if (el === "arcane") Object.assign(p, { forme: "etoile", vr: rnd(-5, 5) });
+        else if (el === "lumiere") Object.assign(p, { forme: "etoile", vx: p.vx * 0.6, vy: p.vy * 0.6 - 30 });
+        else if (el === "vent") Object.assign(p, { forme: "trait", vie: 0.4 });
+        else if (el === "foudre") Object.assign(p, { forme: "trait", vie: 0.25, taille: rnd(2, 4) });
+        else Object.assign(p, { forme: "trait", vie: 0.3 });
+        ajouter(p);
+      }
+      anneaux.push({ x, y, r: 6, rmax: 46 * force, vie: 0.35, age: 0, couleur: E2.glow });
+    }
+    function trainee(x, y, el) {
+      const E2 = ELEMENTS[el] || ELEMENTS.physique;
+      const n = el === "physique" ? 1 : 3;
+      for (let i = 0; i < n; i++) {
+        const p = { x: x + rnd(-4, 4), y: y + rnd(-4, 4), vx: rnd(-20, 20), vy: rnd(-20, 20), couleur: Math.random() < 0.6 ? E2.c1 : E2.c2, taille: rnd(2, 5), vie: rnd(0.25, 0.5) };
+        if (el === "sang") Object.assign(p, { g: 260, add: false, forme: "goutte" });
+        if (el === "feu") Object.assign(p, { g: -120, taille: rnd(3, 7) });
+        if (el === "ombre") Object.assign(p, { forme: "fumee", add: false, taille: rnd(6, 12) });
+        if (el === "glace") Object.assign(p, { forme: "eclat", add: false, vr: rnd(-6, 6) });
+        if (el === "nature") Object.assign(p, { forme: "feuille", vr: rnd(-6, 6) });
+        if (el === "arcane" || el === "lumiere") Object.assign(p, { forme: "etoile" });
+        ajouter(p);
+      }
+    }
+    function nombre(x, y, txt, couleur, gros = false) { textes.push({ x: x + rnd(-8, 8), y, txt, couleur, gros, vie: 1.1, age: 0 }); }
+
+    // ---- outils d'animation ----
+    const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms / (combat.vitesse || 1)));
+    const tween = (ms, f) => new Promise((ok) => {
+      const d = ms / (combat.vitesse || 1), debut = performance.now();
+      const pas = () => { const k = Math.min(1, (performance.now() - debut) / d); f(k); if (k < 1 && vivante) requestAnimationFrame(pas); else ok(); };
+      requestAnimationFrame(pas);
+    });
+    const doux = (k) => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    function projectile(de, vers, el, ms = 460, gros = 1) {
+      return new Promise((ok) => {
+        const a = { x: de.x, y: de.y }, b = { x: vers.x, y: vers.y }, h = Math.min(80, Math.hypot(b.x - a.x, b.y - a.y) * 0.25);
+        projectiles.push({ a, b, h, el, debut: performance.now(), d: ms / (combat.vitesse || 1), gros, fin: ok });
+      });
+    }
+    function foudre(de, vers) {
+      const pts = [], n = 9;
+      for (let i = 0; i <= n; i++) { const k = i / n; pts.push({ x: de.x + (vers.x - de.x) * k + (i && i < n ? rnd(-18, 18) : 0), y: de.y + (vers.y - de.y) * k + (i && i < n ? rnd(-10, 10) : 0) }); }
+      eclairs.push({ pts, vie: 0.28, age: 0 }); flash = Math.max(flash, 0.35);
+    }
+
+    // ---- impact d'un évènement ----
+    function impact(ev, el) {
+      const e = E(ev.t), p = centre(ev.t);
+      if (ev.kind === "degats") {
+        eclat(p.x, p.y, el, ev.crit ? 1.5 : 1);
+        e.blanc = 1; e.pv = ev.pv; e.bouclier = ev.bouclier;
+        const dir = ev.t.camp === "eux" ? -1 : 1;
+        tween(260, (k) => { e.oy = Math.sin(k * Math.PI) * 10 * dir; e.ox = Math.sin(k * Math.PI * 4) * 4 * (1 - k); });
+        nombre(p.x, p.y - 20, (ev.crit ? "💥 " : "") + "-" + ev.valeur, ev.crit ? "#ffd84a" : "#ff6a6a", ev.crit);
+        if (ev.absorbe) nombre(p.x + 26, p.y, "🔰" + ev.absorbe, "#9adcff");
+        if (ev.crit) { secousse = 10; flash = Math.max(flash, 0.25); }
+        else secousse = Math.max(secousse, 3);
+        if (ev.etourdi) nombre(p.x, p.y - 44, "💫 étourdi", "#fff2a0");
+        if (ev.faible) nombre(p.x, p.y - 44, "🥀 affaibli", "#c89aff");
+      } else if (ev.kind === "esquive") {
+        tween(300, (k) => { e.ox = Math.sin(k * Math.PI) * 24; });
+        nombre(p.x, p.y - 20, "Esquive !", "#ffffff");
+      } else if (ev.kind === "soin") {
+        e.pv = ev.pv;
+        for (let i = 0; i < 18; i++) ajouter({ x: p.x + rnd(-22, 22), y: p.y + rnd(0, 40), vy: rnd(-90, -40), couleur: i % 2 ? "#a8ff9a" : "#fff6d0", forme: i % 3 ? "etoile" : "croix", taille: rnd(3, 6), vie: rnd(0.6, 1) });
+        nombre(p.x, p.y - 20, "+" + ev.valeur, "#7fff9a", ev.crit);
+      } else if (ev.kind === "bouclier" || ev.kind === "provocation") {
+        e.bouclier = ev.bouclier;
+        anneaux.push({ x: p.x, y: p.y + 6, r: 10, rmax: 40 * e.s, vie: 0.5, age: 0, couleur: "#9adcff", plein: true });
+        nombre(p.x, p.y - 20, "🔰+" + ev.valeur, "#9adcff");
+        if (ev.kind === "provocation") for (let i = 0; i < 3; i++) setTimeout(() => anneaux.push({ x: p.x, y: p.y, r: 10, rmax: 90, vie: 0.5, age: 0, couleur: "#ff5a4a" }), i * 140);
+      } else if (ev.kind === "renfort") {
+        for (let i = 0; i < 14; i++) ajouter({ x: p.x + rnd(-20, 20), y: p.y + rnd(0, 40), vy: rnd(-120, -60), couleur: "#ffd84a", forme: "fleche", taille: rnd(4, 7), vie: rnd(0.5, 0.9) });
+        nombre(p.x, p.y - 20, "📯 renfort", "#ffd84a");
+      }
+    }
+
+    // ---- jouer une action complète ----
+    async function jouer(u, c, cibles, evts) {
+      const el = elementDe(c, u), E2 = ELEMENTS[el], e = E(u), off = ["degats", "etourdir", "affaiblir"].includes(c.type), aoe = c.cible.startsWith("tous");
+      actif = u; banniere = { txt: c.nom, sous: `${u.nom}${el !== "physique" ? " · " + E2.nom : ""}`, couleur: E2.glow, vie: 1.4, age: 0 };
+      // prise d'élan
+      await tween(180, (k) => { e.oy = -8 * Math.sin(k * Math.PI / 2); });
+      for (let i = 0; i < 10; i++) ajouter({ x: centre(u).x + rnd(-18, 18), y: centre(u).y + rnd(-10, 40), vy: rnd(-60, -20), couleur: E2.c1, taille: rnd(2, 4), vie: 0.5, forme: el === "sang" ? "goutte" : "rond" });
+      const parCible = (t) => evts.filter((ev) => ev.t === t);
+      if (off) {
+        const vises = aoe ? cibles : cibles.slice(0, 1);
+        if (!aoe && auCorpsACorps(c, u, el)) {
+          const t = vises[0], pt = centre(t), dep = { x: e.ox, y: e.oy }, ex = E(t);
+          const dx = (ex.x - e.x) * 0.78, dy = (ex.y - e.y) * 0.78 + (t.camp === "eux" ? 30 : -30);
+          await tween(220, (k) => { const q = doux(k); e.ox = dep.x + dx * q; e.oy = dep.y + dy * q; });
+          // entaille
+          const ang = rnd(-0.6, 0.6);
+          for (let i = 0; i < 16; i++) { const k = i / 15, a = ang - 0.9 + k * 1.8; ajouter({ x: pt.x + Math.cos(a) * 30, y: pt.y + Math.sin(a) * 18, vx: Math.cos(a + 1.57) * 30, vy: Math.sin(a + 1.57) * 30, couleur: E2.c1, forme: "trait", taille: 3, vie: 0.3, rot: a + 1.57 }); }
+          parCible(t).forEach((ev) => impact(ev, el));
+          await attendre(160);
+          await tween(220, (k) => { const q = doux(k); e.ox = dep.x + dx * (1 - q); e.oy = dep.y + dy * (1 - q); });
+        } else if (el === "foudre") {
+          vises.forEach((t) => foudre({ x: centre(u).x, y: centre(u).y - 10 }, centre(t)));
+          await attendre(90);
+          vises.forEach((t) => parCible(t).forEach((ev) => impact(ev, el)));
+          await attendre(150);
+          vises.forEach((t) => foudre({ x: centre(u).x, y: centre(u).y - 10 }, centre(t)));
+          await attendre(200);
+        } else {
+          await Promise.all(vises.map((t, i) => attendre(i * 70).then(() => projectile({ x: centre(u).x, y: centre(u).y - 6 }, centre(t), el, aoe ? 520 : 460, c.puissance >= 3 ? 1.5 : 1)).then(() => parCible(t).forEach((ev) => impact(ev, el)))));
+          await attendre(180);
+        }
+      } else if (c.type === "provocation") {
+        evts.forEach((ev) => impact(ev, el));
+        await tween(300, (k) => { e.oy = -14 * Math.sin(k * Math.PI); });
+      } else {
+        const aides = aoe ? cibles : cibles.slice(0, 1);
+        await Promise.all(aides.map((t, i) => t === u ? Promise.resolve().then(() => parCible(t).forEach((ev) => impact(ev, el))) :
+          attendre(i * 60).then(() => projectile({ x: centre(u).x, y: centre(u).y - 6 }, centre(t), el, 420, 0.8)).then(() => parCible(t).forEach((ev) => impact(ev, el)))));
+        await attendre(200);
+      }
+      await tween(160, (k) => { e.oy = e.oy * (1 - k); });
+      e.ox = 0; e.oy = 0;
+      tous().forEach((x) => { const s = E(x); s.pv = x.pv; s.bouclier = x.bouclier; });
+      actif = null;
+      await attendre(120);
+    }
+    async function etourdi(u) {
+      const p = centre(u);
+      for (let i = 0; i < 6; i++) ajouter({ x: p.x + Math.cos(i) * 20, y: p.y - 30, vx: Math.cos(i * 1.05) * 30, vy: -10, couleur: "#fff2a0", forme: "etoile", taille: 5, vie: 0.8, add: true });
+      nombre(p.x, p.y - 30, "💫 passe son tour", "#fff2a0");
+      await attendre(650);
+    }
+
+    // ---- dessin ----
+    const fond = (t) => {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "#151233"); g.addColorStop(0.45, "#241a40"); g.addColorStop(0.5, "#2a2148"); g.addColorStop(1, "#0f1a22");
+      ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+      // sol en perspective
+      ctx.save(); ctx.globalAlpha = 0.18; ctx.strokeStyle = "#e3b866"; ctx.lineWidth = 1;
+      for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W / 2 + i * 22, 70); ctx.lineTo(W / 2 + i * 70, H); ctx.stroke(); }
+      for (let k = 0; k < 9; k++) { const y = 70 + Math.pow(k / 8, 1.6) * (H - 70); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      ctx.restore();
+      // cercle d'arène
+      ctx.save(); ctx.globalAlpha = 0.25 + Math.sin(t * 1.5) * 0.05; ctx.strokeStyle = "#e3b866"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(W / 2, 258, 150, 40, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.12; ctx.beginPath(); ctx.ellipse(W / 2, 258, 110, 28, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      // poussières
+      ctx.save();
+      for (let i = 0; i < 26; i++) { const x = (i * 97 + t * 8 * ((i % 3) + 1)) % W, y = (i * 53 + Math.sin(t + i) * 10) % H; ctx.globalAlpha = 0.15 + (i % 4) * 0.05; ctx.fillStyle = "#f5d08a"; ctx.fillRect(x, y, 1.6, 1.6); }
+      ctx.restore();
+    };
+    function figurine(u, t, fig) {
+      const e = E(u), s = e.s;
+      if (u.pv <= 0 && e.pv <= 0) e.ko = Math.min(1, e.ko + 0.03);
+      const resp = Math.sin(t * 2.2 + e.phase) * (1 - e.ko);
+      const x = e.x + e.ox, y = e.y + e.oy;
+      const sp = fig.sprite, ratio = sp.width / sp.height;
+      let hh = 120 * s, ww = hh * ratio;
+      if (ww > 96 * s) { ww = 96 * s; hh = ww / ratio; }
+      e.h = hh;
+      const camp = u.camp === "moi" ? "127,209,160" : "224,112,112";
+      ctx.save();
+      // socle magique
+      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.beginPath(); ctx.ellipse(x, e.y, 30 * s, 9 * s, 0, 0, Math.PI * 2); ctx.fill();
+      const gs = ctx.createRadialGradient(x, e.y, 2, x, e.y, 34 * s); gs.addColorStop(0, `rgba(${camp},0.45)`); gs.addColorStop(1, `rgba(${camp},0)`);
+      ctx.fillStyle = gs; ctx.beginPath(); ctx.ellipse(x, e.y, 34 * s, 11 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(${camp},0.85)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, e.y, 30 * s, 9 * s, 0, 0, Math.PI * 2); ctx.stroke();
+      if (ciblables.has(u.uid)) { ctx.strokeStyle = `rgba(127,200,248,${0.6 + Math.sin(t * 8) * 0.4})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, e.y, 38 * s, 13 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      if (actif === u || (combat.attente && combat.attente.u === u)) { ctx.strokeStyle = `rgba(245,208,138,${0.7 + Math.sin(t * 6) * 0.3})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, e.y, 35 * s, 12 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      if (u.provoc > 0) { ctx.strokeStyle = `rgba(255,90,74,${0.4 + Math.sin(t * 5) * 0.3})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, e.y, 42 * s, 14 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      // le personnage (respiration + chute au K.O.)
+      ctx.translate(x, y);
+      if (e.ko) { ctx.rotate(e.ko * (u.camp === "moi" ? 1.25 : -1.25)); ctx.globalAlpha = 1 - e.ko * 0.6; }
+      const sx = 1 + resp * 0.012, sy = 1 - resp * 0.012 + resp * 0.02;
+      ctx.scale(sx, sy);
+      ctx.shadowColor = `rgba(${camp},0.9)`; ctx.shadowBlur = fig.detoure ? 8 : 14;
+      if (e.ko) ctx.filter = `grayscale(${e.ko})`;
+      ctx.drawImage(sp, -ww / 2, -hh, ww, hh);
+      ctx.shadowBlur = 0; ctx.filter = "none";
+      if (e.blanc > 0) { ctx.globalAlpha = e.blanc * 0.85; ctx.drawImage(fig.blanc, -ww / 2, -hh, ww, hh); ctx.globalAlpha = 1; e.blanc = Math.max(0, e.blanc - 0.08); }
+      if (e.bouclier > 0) { ctx.strokeStyle = `rgba(154,220,255,${0.45 + Math.sin(t * 4) * 0.2})`; ctx.fillStyle = "rgba(154,220,255,0.08)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, -hh / 2, ww / 2 + 10, hh / 2 + 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+      if (u.etourdi > 0) for (let i = 0; i < 3; i++) { const a = t * 4 + i * 2.1; ctx.fillStyle = "#fff2a0"; ctx.font = "12px sans-serif"; ctx.fillText("★", Math.cos(a) * 20 - 5, -hh - 4 + Math.sin(a) * 5); }
+      if (u.renfort > 0) { ctx.fillStyle = `rgba(255,216,74,${0.5 + Math.sin(t * 5) * 0.3})`; ctx.font = "13px sans-serif"; ctx.fillText("▲", ww / 2 - 4, -hh + 14); }
+      if (u.faible > 0) { ctx.fillStyle = "rgba(200,154,255,0.85)"; ctx.font = "13px sans-serif"; ctx.fillText("▼", -ww / 2 - 6, -hh + 14); }
+      ctx.restore();
+      barreVie(u, x, y - hh - 8, s);
+    }
+    function barreVie(u, x, by, s) {
+      const e = E(u), bw = 54 * s;
+      ctx.save();
+      ctx.globalAlpha = 1 - e.ko * 0.6;
+      ctx.font = `600 ${Math.round(10 * s + 1)}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.fillStyle = "#f2ecdc";
+      ctx.shadowColor = "#000"; ctx.shadowBlur = 3; ctx.fillText(u.nom.length > 12 ? u.nom.slice(0, 11) + "…" : u.nom, x, by - 4); ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(x - bw / 2, by, bw, 5);
+      if (e.pvAff === undefined) e.pvAff = e.pv;
+      e.pvAff += (e.pv - e.pvAff) * 0.12;
+      const k1 = Math.max(0, e.pvAff / u.pvMax), k2 = Math.max(0, e.pv / u.pvMax);
+      ctx.fillStyle = "#ffef9a"; ctx.fillRect(x - bw / 2, by, bw * k1, 5);
+      ctx.fillStyle = k2 < 0.3 ? "#e05050" : u.camp === "moi" ? "#5fd18a" : "#e07a5a"; ctx.fillRect(x - bw / 2, by, bw * k2, 5);
+      if (e.bouclier > 0) { ctx.fillStyle = "rgba(154,220,255,0.85)"; ctx.fillRect(x - bw / 2, by + 5, bw * Math.min(1, e.bouclier / u.pvMax), 2); }
+      ctx.restore();
+    }
+    function personnage(u, t) {
+      const fig = figurineDe(u.f);
+      if (fig) return figurine(u, t, fig);
+      const e = E(u), s = e.s, haut = u.camp === "moi";
+      e.h = 100 * s;
+      if (u.pv <= 0 && e.pv <= 0) e.ko = Math.min(1, e.ko + 0.03);
+      const resp = Math.sin(t * 2.2 + e.phase) * 1.6 * (1 - e.ko);
+      const x = e.x + e.ox, y = e.y + e.oy;
+      const [c1, c2] = COULEUR_ROLE[u.role] || COULEUR_ROLE.attaquant;
+      ctx.save();
+      ctx.globalAlpha = 1 - e.ko * 0.65;
+      // ombre + socle
+      ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.beginPath(); ctx.ellipse(x, e.y, 26 * s, 8 * s, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = u.camp === "moi" ? "rgba(127,209,160,0.75)" : "rgba(224,112,112,0.75)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(x, e.y, 28 * s, 9 * s, 0, 0, Math.PI * 2); ctx.stroke();
+      if (ciblables.has(u.uid)) { ctx.strokeStyle = `rgba(127,200,248,${0.6 + Math.sin(t * 8) * 0.4})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, e.y, 34 * s, 12 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      if (actif === u || (combat.attente && combat.attente.u === u)) { ctx.strokeStyle = `rgba(245,208,138,${0.7 + Math.sin(t * 6) * 0.3})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, e.y, 32 * s, 11 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      if (u.provoc > 0) { ctx.strokeStyle = `rgba(255,90,74,${0.4 + Math.sin(t * 5) * 0.3})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, e.y, 38 * s, 13 * s, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.translate(x, y + resp * 0.3);
+      if (e.ko) ctx.rotate(e.ko * (u.camp === "moi" ? 1.2 : -1.2));
+      ctx.scale(s, s);
+      // jambes
+      ctx.fillStyle = "#14121f";
+      ctx.fillRect(-9, -18, 7, 18); ctx.fillRect(2, -18, 7, 18);
+      // cape / corps
+      const g = ctx.createLinearGradient(0, -62, 0, -10); g.addColorStop(0, c1); g.addColorStop(1, c2);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(-14, -60 + resp); ctx.quadraticCurveTo(-24, -30, -20, -12); ctx.lineTo(20, -12); ctx.quadraticCurveTo(24, -30, 14, -60 + resp); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1.5; ctx.stroke();
+      // ceinture dorée
+      ctx.fillStyle = "#e3b866"; ctx.fillRect(-15, -34, 30, 3);
+      // arme selon le rôle
+      ctx.save(); const cote = haut ? 1 : -1; ctx.translate(20 * cote, -36 + resp);
+      if (u.role === "defenseur") { ctx.fillStyle = "#8a96b8"; ctx.strokeStyle = "#e3b866"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-9, -12); ctx.lineTo(9, -12); ctx.lineTo(9, 4); ctx.quadraticCurveTo(0, 16, -9, 4); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      else if (u.role === "attaquant") { ctx.rotate(-0.5 * cote); ctx.fillStyle = "#dfe6f5"; ctx.fillRect(-1.5, -34, 3, 30); ctx.fillStyle = "#e3b866"; ctx.fillRect(-6, -5, 12, 3); ctx.fillStyle = "#4a2a1a"; ctx.fillRect(-1.5, -2, 3, 8); }
+      else { ctx.fillStyle = "#7a5a3a"; ctx.fillRect(-1.5, -40, 3, 50); const gl = 0.6 + Math.sin(t * 3) * 0.3; ctx.fillStyle = `rgba(168,255,154,${gl})`; ctx.beginPath(); ctx.arc(0, -42, 5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
+      // tête = portrait
+      const ry = -78 + resp, r = 19;
+      ctx.save(); ctx.beginPath(); ctx.arc(0, ry, r, 0, Math.PI * 2); ctx.closePath();
+      const im = imageDe(u.f);
+      if (im) { ctx.clip(); const k = Math.max((r * 2) / im.naturalWidth, (r * 2) / im.naturalHeight); ctx.drawImage(im, -im.naturalWidth * k / 2, ry - im.naturalHeight * k / 2 - r * 0.15, im.naturalWidth * k, im.naturalHeight * k); }
+      else { ctx.fillStyle = "#2a2f55"; ctx.fill(); ctx.fillStyle = "#e3b866"; ctx.font = "bold 16px Georgia"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText((u.nom || "?").slice(0, 1), 0, ry + 1); }
+      ctx.restore();
+      ctx.strokeStyle = u.camp === "moi" ? "#7fd1a0" : "#e07070"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, ry, r, 0, Math.PI * 2); ctx.stroke();
+      // flash blanc quand touché
+      if (e.blanc > 0) { ctx.globalCompositeOperation = "lighter"; ctx.fillStyle = `rgba(255,255,255,${e.blanc * 0.7})`; ctx.beginPath(); ctx.arc(0, ry, r + 2, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(-20, -62, 40, 50); ctx.globalCompositeOperation = "source-over"; e.blanc = Math.max(0, e.blanc - 0.08); }
+      // bulle de bouclier
+      if (e.bouclier > 0) { ctx.strokeStyle = `rgba(154,220,255,${0.45 + Math.sin(t * 4) * 0.2})`; ctx.fillStyle = "rgba(154,220,255,0.08)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, -42, 30, 52, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+      // étourdi : étoiles qui tournent
+      if (u.etourdi > 0) for (let i = 0; i < 3; i++) { const a = t * 4 + i * 2.1; ctx.fillStyle = "#fff2a0"; ctx.font = "10px sans-serif"; ctx.fillText("★", Math.cos(a) * 18 - 4, ry - 22 + Math.sin(a) * 5); }
+      if (u.renfort > 0) { ctx.fillStyle = `rgba(255,216,74,${0.5 + Math.sin(t * 5) * 0.3})`; ctx.font = "11px sans-serif"; ctx.fillText("▲", 14, ry - 10); }
+      if (u.faible > 0) { ctx.fillStyle = "rgba(200,154,255,0.85)"; ctx.font = "11px sans-serif"; ctx.fillText("▼", -22, ry - 10); }
+      ctx.restore();
+      // nom + barre de vie
+      ctx.save();
+      const by = y - 112 * s, bw = 54 * s;
+      ctx.globalAlpha = 1 - e.ko * 0.6;
+      ctx.font = `600 ${Math.round(10 * s + 1)}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.fillStyle = "#f2ecdc";
+      ctx.shadowColor = "#000"; ctx.shadowBlur = 3; ctx.fillText(u.nom.length > 12 ? u.nom.slice(0, 11) + "…" : u.nom, x, by - 4); ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(x - bw / 2, by, bw, 5);
+      if (e.pvAff === undefined) e.pvAff = e.pv;
+      e.pvAff += (e.pv - e.pvAff) * 0.12;
+      const k1 = Math.max(0, e.pvAff / u.pvMax), k2 = Math.max(0, e.pv / u.pvMax);
+      ctx.fillStyle = "#ffef9a"; ctx.fillRect(x - bw / 2, by, bw * k1, 5);
+      ctx.fillStyle = k2 < 0.3 ? "#e05050" : u.camp === "moi" ? "#5fd18a" : "#e07a5a"; ctx.fillRect(x - bw / 2, by, bw * k2, 5);
+      if (e.bouclier > 0) { ctx.fillStyle = "rgba(154,220,255,0.85)"; ctx.fillRect(x - bw / 2, by + 5, bw * Math.min(1, e.bouclier / u.pvMax), 2); }
+      ctx.restore();
+    }
+    function dessinerParticule(p) {
+      const k = 1 - p.age / p.vie;
+      ctx.globalAlpha = Math.max(0, k);
+      ctx.globalCompositeOperation = p.add ? "lighter" : "source-over";
+      ctx.fillStyle = p.couleur; ctx.strokeStyle = p.couleur;
+      const t = p.taille * (p.forme === "fumee" ? 1 + (1 - k) : 1);
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      switch (p.forme) {
+        case "goutte": ctx.beginPath(); ctx.arc(0, 0, t * 0.7, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.moveTo(-t * 0.6, 0); ctx.lineTo(0, -t * 1.6); ctx.lineTo(t * 0.6, 0); ctx.fill(); break;
+        case "eclat": ctx.beginPath(); ctx.moveTo(0, -t * 1.4); ctx.lineTo(t * 0.5, 0); ctx.lineTo(0, t * 1.4); ctx.lineTo(-t * 0.5, 0); ctx.closePath(); ctx.fill(); break;
+        case "feuille": ctx.beginPath(); ctx.ellipse(0, 0, t, t * 0.45, 0, 0, Math.PI * 2); ctx.fill(); break;
+        case "bulle": ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, 0, t, 0, Math.PI * 2); ctx.stroke(); break;
+        case "fumee": ctx.globalAlpha = Math.max(0, k * 0.55); ctx.beginPath(); ctx.arc(0, 0, t, 0, Math.PI * 2); ctx.fill(); break;
+        case "roche": ctx.fillRect(-t / 2, -t / 2, t, t); break;
+        case "etoile": ctx.beginPath(); for (let i = 0; i < 8; i++) { const r = i % 2 ? t * 0.4 : t; ctx.lineTo(Math.cos((i * Math.PI) / 4) * r, Math.sin((i * Math.PI) / 4) * r); } ctx.closePath(); ctx.fill(); break;
+        case "croix": ctx.fillRect(-t / 4, -t, t / 2, t * 2); ctx.fillRect(-t, -t / 4, t * 2, t / 2); break;
+        case "fleche": ctx.beginPath(); ctx.moveTo(0, -t); ctx.lineTo(t * 0.7, 0); ctx.lineTo(-t * 0.7, 0); ctx.closePath(); ctx.fill(); break;
+        case "trait": ctx.lineWidth = Math.max(1, t * 0.6); ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(-t * 3, 0); ctx.lineTo(t * 3, 0); ctx.stroke(); break;
+        default: ctx.beginPath(); ctx.arc(0, 0, t, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    function image(now) {
+      if (!vivante) return;
+      if (!document.body.contains(canvas)) { vivante = false; return; }
+      const dt = Math.min(0.05, (now - dernier) / 1000); dernier = now;
+      const t = (now - t0) / 1000;
+      ctx.save();
+      if (secousse > 0.2) { ctx.translate(rnd(-secousse, secousse), rnd(-secousse, secousse)); secousse *= 0.86; }
+      fond(t);
+      // personnages, du fond vers l'avant
+      tous().map((u) => [u, E(u).y]).sort((a, b) => a[1] - b[1]).forEach(([u]) => personnage(u, t));
+      // projectiles
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const q = projectiles[i], k = Math.min(1, (now - q.debut) / q.d);
+        const x = q.a.x + (q.b.x - q.a.x) * k, y = q.a.y + (q.b.y - q.a.y) * k - Math.sin(k * Math.PI) * q.h;
+        const E2 = ELEMENTS[q.el] || ELEMENTS.physique;
+        trainee(x, y, q.el);
+        ctx.save(); ctx.globalCompositeOperation = "lighter";
+        const r = 9 * q.gros, gr = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
+        gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.3, E2.c1); gr.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        if (k >= 1) { projectiles.splice(i, 1); q.fin(); }
+      }
+      // éclairs
+      eclairs.forEach((z) => { z.age += dt; ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = Math.random() < 0.5 ? "#ffffff" : "#d8c8ff"; ctx.lineWidth = 3; ctx.shadowColor = "#b48cff"; ctx.shadowBlur = 14; ctx.beginPath(); z.pts.forEach((p, i) => (i ? ctx.lineTo(p.x + rnd(-2, 2), p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke(); ctx.restore(); });
+      for (let i = eclairs.length - 1; i >= 0; i--) if (eclairs[i].age > eclairs[i].vie) eclairs.splice(i, 1);
+      // anneaux d'impact
+      anneaux.forEach((a) => { a.age += dt; const k = a.age / a.vie; ctx.save(); ctx.globalAlpha = Math.max(0, 1 - k); ctx.strokeStyle = a.couleur; ctx.lineWidth = a.plein ? 3 : 2.5; ctx.beginPath(); ctx.ellipse(a.x, a.y, a.r + (a.rmax - a.r) * k, (a.r + (a.rmax - a.r) * k) * 0.6, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); });
+      for (let i = anneaux.length - 1; i >= 0; i--) if (anneaux[i].age > anneaux[i].vie) anneaux.splice(i, 1);
+      // particules
+      ctx.save();
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]; p.age += dt;
+        if (p.age >= p.vie) { parts.splice(i, 1); continue; }
+        p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.vx *= 0.985;
+        dessinerParticule(p);
+      }
+      ctx.restore();
+      // chiffres flottants
+      textes.forEach((z) => { z.age += dt; const k = z.age / z.vie; ctx.save(); ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - 0.6) / 0.4); ctx.font = `800 ${z.gros ? 22 : 16}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.8)"; const yy = z.y - k * 34 - (z.gros ? Math.sin(Math.min(1, k * 4) * Math.PI) * 6 : 0); ctx.strokeText(z.txt, z.x, yy); ctx.fillStyle = z.couleur; ctx.fillText(z.txt, z.x, yy); ctx.restore(); });
+      for (let i = textes.length - 1; i >= 0; i--) if (textes[i].age > textes[i].vie) textes.splice(i, 1);
+      // bannière du nom de la compétence
+      if (banniere) {
+        banniere.age += dt; const k = banniere.age / banniere.vie;
+        if (k >= 1) banniere = null;
+        else {
+          const a = k < 0.15 ? k / 0.15 : k > 0.8 ? (1 - k) / 0.2 : 1;
+          ctx.save(); ctx.globalAlpha = a;
+          const g2 = ctx.createLinearGradient(0, 0, W, 0); g2.addColorStop(0, "rgba(0,0,0,0)"); g2.addColorStop(0.5, "rgba(10,8,25,0.85)"); g2.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g2; ctx.fillRect(0, 238, W, 42);
+          ctx.textAlign = "center"; ctx.font = "700 18px Georgia, serif"; ctx.fillStyle = banniere.couleur; ctx.shadowColor = banniere.couleur; ctx.shadowBlur = 10;
+          ctx.fillText(banniere.txt, W / 2, 260); ctx.shadowBlur = 0;
+          ctx.font = "11px system-ui, sans-serif"; ctx.fillStyle = "#d8d4c8"; ctx.fillText(banniere.sous, W / 2, 274);
+          ctx.restore();
+        }
+      }
+      if (flash > 0.01) { ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(-20, -20, W + 40, H + 40); flash *= 0.8; }
+      ctx.restore();
+      requestAnimationFrame(image);
+    }
+    requestAnimationFrame(image);
+    canvas.onclick = (ev) => {
+      const r = canvas.getBoundingClientRect(), x = ((ev.clientX - r.left) / r.width) * W, y = ((ev.clientY - r.top) / r.height) * H;
+      let mieux = null, dmin = 1e9;
+      tous().forEach((u) => { const e = E(u), hh = e.h || 100 * e.s, d = Math.hypot(x - e.x, (y - (e.y - hh / 2)) * 0.7); if (d < Math.max(46 * e.s, hh * 0.5) && d < dmin) { dmin = d; mieux = u; } });
+      if (mieux) surTap(mieux);
+    };
+    return {
+      jouer, etourdi,
+      setCiblables: (l) => { ciblables = new Set(l.map((u) => u.uid)); },
+      sync: () => tous().forEach((u) => { const s = E(u); s.pv = u.pv; s.bouclier = u.bouclier; }),
+      arreter: () => { vivante = false; },
+    };
+  }
+
+  pages.jeux.rpg = () => enTete("⚔️", "Aetheria Tactics", "Collectionne les personnages, monte ton équipe de 5 et affronte des équipes de plus en plus fortes.") + `<div id="rpg-zone"><p class="discret">Chargement du jeu…</p></div>`;
+  pages.jeux.rpg.apres = async () => {
+    const z = $("#rpg-zone");
+    if (!estMembre()) { z.innerHTML = `<p class="note">Connecte-toi avec un compte membre pour jouer : ta collection est enregistrée sur ton compte.</p>`; return; }
+    let rp, rar, profil, collection, vue = lireLS("aetheria_rpg_vue", "combat"), equipe = [], combat = null, auto = lireLS("aetheria_rpg_auto", false);
+    const persos = () => persosJeu();
+    const infoDe = (id) => { const p = rp.find((x) => x.fiche_id === id); const c = collection.find((x) => x.fiche_id === id); return p ? { role: p.role, rarete: rar.get(id) || "commun", etoiles: c ? c.etoiles : 0, comp: p.competences } : null; };
+
+    // 1) Préparer les compétences de jeu manquantes (une seule fois par personnage)
+    try { rp = await api.rpgPersos(); }
+    catch (e) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; return; }
+    const manquants = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id));
+    if (manquants.length) {
+      const LOT = 8; let fait = 0, erreurIA = null;
+      for (let i = 0; i < manquants.length; i += LOT) {
+        const lot = manquants.slice(i, i + LOT);
+        z.innerHTML = `<div class="prepa-rpg"><div class="jv-titre">⚙️ Préparation du jeu</div>
+          <p>L'IA crée les compétences de jeu de ${manquants.length} personnage${manquants.length > 1 ? "s" : ""}… (${fait}/${manquants.length})</p>
+          <div class="barre-prepa"><span style="width:${Math.round((fait / manquants.length) * 100)}%"></span></div>
+          <p class="discret petit-texte">C'est fait une seule fois par personnage, et ça ne compte pas dans ta limite d'IA. Les fiches ne sont pas modifiées.</p></div>`;
+        try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; }
+        catch (e) { erreurIA = e; break; }
+      }
+      rp = await api.rpgPersos();
+      if (erreurIA) toast("Préparation incomplète : " + erreurIA.message, "erreur");
+    }
+    // 2) Mettre à jour la puissance (les dés ont pu changer) → la rareté suit
+    const changes = {};
+    rp.forEach((p) => { const f = indexParId.get(p.fiche_id); if (f && puissance(f) !== p.puissance) changes[p.fiche_id] = puissance(f); });
+    if (Object.keys(changes).length) { try { await api.rpgMajPuissance(changes); rp.forEach((p) => { if (changes[p.fiche_id] !== undefined) p.puissance = changes[p.fiche_id]; }); } catch (e) { console.warn(e); } }
+    rp = rp.filter((p) => indexParId.has(p.fiche_id));
+    rar = raretesDe(rp);
+    if (rp.length < 5) { z.innerHTML = `<p class="note">Il faut au moins 5 personnages prêts pour jouer (${rp.length} pour l'instant).</p>`; return; }
+    try { profil = await api.rpgDemarrer(); collection = await api.rpgCollection(); }
+    catch (e) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; return; }
+    equipe = (profil.equipe || []).filter((id) => collection.some((c) => c.fiche_id === id)).slice(0, 5);
+
+    const htmlBarre = () => `<span>🏰 Palier <b>${profil.palier}</b></span><span>🏆 ${profil.victoires}</span><span>🎴 ${collection.length}/${rp.length}</span>`;
+    const tirageDispo = () => !profil.dernier_tirage || profil.dernier_tirage < jourBruxelles() ? "gratuit" : profil.tirages_bonus > 0 ? "bonus" : null;
+    const dessiner = () => {
+      ecrireLS("aetheria_rpg_vue", vue);
+      const t = tirageDispo();
+      z.innerHTML = `
+        <div class="rpg-barre" id="rpg-barre">${htmlBarre()}</div>
+        <div class="modes onglets-roue">${[["combat", "⚔️", "Combat"], ["collection", "🎴", "Collection"], ["tirage", "✨", "Tirage" + (t ? " •" : "")]].map(([id, ic, n]) => `<button class="mode ${vue === id ? "actif" : ""}" data-vue="${id}">${ic} ${n}</button>`).join("")}</div>
+        <div id="rpg-vue"></div>`;
+      $$("[data-vue]", z).forEach((b) => (b.onclick = () => { if (combat && !combat.fini && !confirm("Abandonner le combat en cours ?")) return; if (combat && combat.scene) combat.scene.arreter(); combat = null; vue = b.dataset.vue; dessiner(); }));
+      ({ combat: vueCombat, collection: vueCollection, tirage: vueTirage })[vue]();
+    };
+
+    /* ----- Collection ----- */
+    const vueCollection = () => {
+      const v = $("#rpg-vue");
+      const tous = rp.map((p) => indexParId.get(p.fiche_id)).sort((a, b) => (RARETES[rar.get(b.id)].ordre - RARETES[rar.get(a.id)].ordre) || a.titre.localeCompare(b.titre, "fr"));
+      const compte = (r) => [collection.filter((c) => rar.get(c.fiche_id) === r).length, tous.filter((f) => rar.get(f.id) === r).length];
+      v.innerHTML = `<div class="compte-raretes">${Object.entries(RARETES).reverse().map(([k, r]) => { const [a, b] = compte(k); return `<span>${r.ic} ${r.nom} <b>${a}/${b}</b></span>`; }).join("")}</div>
+        <p class="discret petit-texte">Touche une carte pour voir ses compétences de jeu. Un doublon tiré donne une ⭐ (5 max), et chaque étoile rend le personnage plus fort.</p>
+        <div class="grille-rpg">${tous.map((f) => { const i = infoDe(f.id), a = i.etoiles > 0; return carteRpg(f, i, { cls: a ? "" : "pas-obtenu", data: `data-voir="${esc(f.id)}"` }); }).join("")}</div>
+        <div id="rpg-detail"></div>`;
+      $$("[data-voir]", v).forEach((c) => (c.onclick = () => montrerDetail(c.dataset.voir)));
+    };
+    const montrerDetail = (id) => {
+      const f = indexParId.get(id), i = infoDe(id), x = forces(f), [ri, rn] = ROLES_RPG[i.role];
+      const fond = document.createElement("div");
+      fond.className = "feuille-fond resultat-roue";
+      fond.innerHTML = `<div class="carte-resultat detail-rpg r-${i.rarete}">
+        <div class="cr-titre">${RARETES[i.rarete].ic} ${RARETES[i.rarete].nom} · ${ri} ${rn}</div>
+        ${vignette(f, "grande")}
+        <div class="cr-nom">${esc(f.titre)}</div>
+        ${i.etoiles ? etoilesHtml(i.etoiles) : `<p class="discret">Pas encore dans ta collection.</p>`}
+        <p class="petit-texte">⚔️ ${x.attaque} · 🛡️ ${x.defense} · 💚 ${x.soutien} <span class="discret">(bonus de dés)</span></p>
+        <ul class="liste-comp">${i.comp.map((c) => `<li><b>${descComp(c)}</b><br><small>${texteComp(c)}</small>${c.description ? `<br><small class="discret">${esc(c.description)}</small>` : ""}</li>`).join("")}</ul>
+        <div class="rangee centre"><a class="btn petit" href="#/f/${encodeURIComponent(id)}">Fiche</a><button class="btn btn-or" id="fermer-detail">Fermer</button></div></div>`;
+      document.body.appendChild(fond);
+      requestAnimationFrame(() => fond.classList.add("ouvert"));
+      const fermer = () => { fond.classList.remove("ouvert"); setTimeout(() => fond.remove(), 250); };
+      fond.onclick = (e) => { if (e.target === fond) fermer(); };
+      $("#fermer-detail", fond).onclick = fermer;
+    };
+
+    /* ----- Tirage ----- */
+    const vueTirage = () => {
+      const v = $("#rpg-vue"), t = tirageDispo();
+      v.innerHTML = `<div class="zone-tirage">
+        <div class="dos-carte" id="dos-carte">✦</div>
+        ${t ? `<button class="btn btn-or large" id="tirer">✨ ${t === "gratuit" ? "Tirage du jour" : `Tirage bonus (${profil.tirages_bonus})`}</button>`
+            : `<p>Tu as déjà tiré aujourd'hui. Reviens demain, ou gagne ton premier combat du jour pour un tirage bonus !</p>`}
+        <p class="discret petit-texte">Chances : ⚪ Commun 60 % · 🔵 Rare 28 % · 🟣 Épique 10 % · 🟡 Légendaire 2 %</p>
+        <div id="resultat-tirage"></div></div>`;
+      const b = $("#tirer");
+      if (b) b.onclick = async () => {
+        b.disabled = true;
+        const dos = $("#dos-carte"); dos.classList.add("tourne");
+        try {
+          const [r] = await Promise.all([api.rpgTirer(), new Promise((ok) => setTimeout(ok, 1400))]);
+          if (r.gratuit) profil.dernier_tirage = jourBruxelles(); else profil.tirages_bonus--;
+          const c = collection.find((x) => x.fiche_id === r.fiche_id);
+          if (c) c.etoiles = r.etoiles; else collection.push({ fiche_id: r.fiche_id, etoiles: r.etoiles });
+          const f = indexParId.get(r.fiche_id);
+          dessiner();
+          $("#dos-carte").remove();
+          $("#resultat-tirage").innerHTML = `<div class="revelation r-${r.rarete}">
+            ${carteRpg(f, { ...infoDe(r.fiche_id) }, { cls: "grande-carte", badge: r.nouveau ? "NOUVEAU !" : `⭐ ${r.etoiles}/5` })}
+            <p class="jv-titre">${RARETES[r.rarete].ic} ${esc(f.titre)}</p>
+            <p>${r.nouveau ? `${RARETES[r.rarete].nom} — rejoint ta collection !` : r.etoiles >= 5 && r.etoiles === (c && c.etoiles) ? "Doublon : déjà au maximum (5 étoiles)." : `Doublon : passe à ${r.etoiles} étoile${r.etoiles > 1 ? "s" : ""} !`}</p></div>`;
+          $(".revelation .carte-rpg").onclick = () => montrerDetail(r.fiche_id);
+        } catch (e) { dos.classList.remove("tourne"); b.disabled = false; toast(e.message, "erreur"); }
+      };
+    };
+
+    /* ----- Combat ----- */
+    const equipeConseillee = () => {
+      const mes = collection.map((c) => ({ id: c.fiche_id, i: infoDe(c.fiche_id), p: puissance(indexParId.get(c.fiche_id)) * (1 + 0.08 * (c.etoiles - 1)) })).filter((x) => x.i);
+      const pris = new Set(), prendre = (role, n) => mes.filter((x) => x.i.role === role && !pris.has(x.id)).sort((a, b) => b.p - a.p).slice(0, n).map((x) => (pris.add(x.id), x.id));
+      const av = prendre("defenseur", 2), at = prendre("attaquant", 2), so = prendre("soutien", 1);
+      const reste = mes.filter((x) => !pris.has(x.id)).sort((a, b) => b.p - a.p).map((x) => x.id);
+      const l = [...av, ...at, ...so];
+      while (l.length < Math.min(5, mes.length)) { const id = reste.shift(); if (av.length < 2 && !l.slice(0, 2).includes(id)) { l.splice(av.length, 0, id); av.push(id); } else l.push(id); }
+      return l.slice(0, 5);
+    };
+    const genererEnnemis = () => {
+      const mienne = equipe.map((id) => puissance(indexParId.get(id)) * (1 + 0.08 * ((collection.find((c) => c.fiche_id === id) || {}).etoiles - 1 || 0)));
+      const moy = mienne.reduce((a, b) => a + b, 0) / Math.max(1, mienne.length);
+      const cible = moy * Math.min(1.8, 0.75 + 0.07 * (profil.palier - 1));
+      const autres = rp.filter((p) => !equipe.includes(p.fiche_id));
+      const pool = melanger(autres.length >= 5 ? autres : rp).map((p) => ({ p, d: Math.abs(p.puissance - cible) + alea(8) })).sort((a, b) => a.d - b.d).slice(0, 14).map((x) => x.p);
+      const pris = [], prendre = (role, n) => pool.filter((p) => p.role === role && !pris.includes(p)).slice(0, n).forEach((p) => pris.push(p));
+      prendre("defenseur", 2); prendre("attaquant", 2); prendre("soutien", 1);
+      pool.forEach((p) => { if (pris.length < 5 && !pris.includes(p)) pris.push(p); });
+      const etoiles = Math.min(5, 1 + Math.floor((profil.palier - 1) / 3)), mult = Math.min(1.5, 0.8 + 0.035 * (profil.palier - 1));
+      const ordonne = [...pris.filter((p) => p.role === "defenseur"), ...pris.filter((p) => p.role !== "defenseur")];
+      return ordonne.slice(0, 5).map((p, k) => creerUnite(indexParId.get(p.fiche_id), p, etoiles, "eux", k < 2 ? "avant" : "arriere", mult));
+    };
+    const vueCombat = () => {
+      if (combat) return dessinerCombat();
+      if (!equipe.length) equipe = equipeConseillee();
+      const v = $("#rpg-vue");
+      const mes = collection.map((c) => c.fiche_id).filter((id) => infoDe(id)).sort((a, b) => RARETES[rar.get(b)].ordre - RARETES[rar.get(a)].ordre || indexParId.get(a).titre.localeCompare(indexParId.get(b).titre, "fr"));
+      const slot = (k) => { const id = equipe[k]; return id ? carteRpg(indexParId.get(id), infoDe(id), { data: `data-retirer="${k}"`, cls: "petite" }) : `<div class="slot-vide">${k < 2 ? "🛡️ Avant" : "Arrière"}</div>`; };
+      v.innerHTML = `
+        <div class="formation">
+          <div class="f-ligne"><span class="f-nom">Première ligne</span>${[0, 1].map(slot).join("")}</div>
+          <div class="f-ligne"><span class="f-nom">Arrière</span>${[2, 3, 4].map(slot).join("")}</div>
+        </div>
+        <p class="discret petit-texte">Les ennemis frappent d'abord la première ligne : mets-y tes défenseurs. Touche une carte de l'équipe pour la retirer, puis une carte de ta collection pour la placer.</p>
+        <div class="rangee"><button class="btn petit" id="conseil">✨ Équipe conseillée</button><button class="btn btn-or large" id="go" ${equipe.length ? "" : "disabled"}>⚔️ Combattre (palier ${profil.palier})</button></div>
+        <h3 class="titre-tour">Ta collection</h3>
+        <div class="grille-rpg">${mes.map((id) => carteRpg(indexParId.get(id), infoDe(id), { cls: "petite " + (equipe.includes(id) ? "dans-equipe" : ""), data: `data-ajouter="${esc(id)}"` })).join("")}</div>`;
+      $$("[data-retirer]", v).forEach((c) => (c.onclick = () => { equipe.splice(+c.dataset.retirer, 1); vueCombat(); }));
+      $$("[data-ajouter]", v).forEach((c) => (c.onclick = () => {
+        const id = c.dataset.ajouter;
+        if (equipe.includes(id)) equipe = equipe.filter((x) => x !== id);
+        else if (equipe.length < 5) equipe.push(id);
+        else return toast("L'équipe est complète : retire d'abord quelqu'un.", "erreur");
+        vueCombat();
+      }));
+      $("#conseil").onclick = () => { equipe = equipeConseillee(); vueCombat(); };
+      $("#go").onclick = () => {
+        api.rpgSauverEquipe(equipe).catch(() => {});
+        const moi = equipe.map((id, k) => { const c = collection.find((x) => x.fiche_id === id); return creerUnite(indexParId.get(id), rp.find((p) => p.fiche_id === id), c ? c.etoiles : 1, "moi", k < 2 ? "avant" : "arriere"); });
+        combat = { moi, eux: genererEnnemis(), tour: 0, fatigue: 1, file: [], log: [], fini: false, attente: null };
+        nouveauTour();
+        dessinerCombat();
+        avancer();
+      };
+    };
+    const nouveauTour = () => {
+      combat.tour++;
+      combat.file = vivants([...combat.moi, ...combat.eux]).map((u) => ({ u, ini: d15() + u.sou * 0.05 + u.att * 0.05 })).sort((a, b) => b.ini - a.ini).map((x) => x.u);
+      // à partir du tour 8, la fatigue s'installe : les coups font plus mal, les soins sont plus faibles (évite les combats sans fin)
+      combat.fatigue = combat.tour >= 8 ? 1 + 0.2 * (combat.tour - 7) : 1;
+      combat.log.unshift(`<div class="log-tour">— Tour ${combat.tour}${combat.fatigue > 1 ? ` · 🥵 fatigue ×${combat.fatigue.toFixed(1)}` : ""} —</div>`);
+    };
+    const finSiBesoin = async () => {
+      if (combat.fini) return true;
+      const g = !vivants(combat.eux).length, p = !vivants(combat.moi).length;
+      if (!g && !p) return false;
+      combat.fini = true; combat.gagne = g; combat.attente = null;
+      try { const r = await api.rpgFinCombat(g); combat.bonus = r && r.bonus; } catch (e) { console.warn(e); }
+      if (g) { profil.victoires++; profil.palier = Math.min(99, profil.palier + 1); profil.derniere_victoire = jourBruxelles(); if (combat.bonus) profil.tirages_bonus++; } else profil.defaites++;
+      const br = $("#rpg-barre"); if (br) br.innerHTML = htmlBarre();
+      const bt = $('[data-vue="tirage"]'); if (bt) bt.textContent = "✨ Tirage" + (tirageDispo() ? " •" : "");
+      majUI();
+      return true;
+    };
+    let enBoucle = false;
+    const avancer = async () => {
+      if (enBoucle) return;
+      enBoucle = true;
+      try {
+        while (combat && !combat.fini) {
+          if (await finSiBesoin()) return;
+          if (!combat.file.length) { nouveauTour(); majUI(); }
+          const u = combat.file[0];
+          if (u.pv <= 0) { combat.file.shift(); continue; }
+          u.comp.forEach((c) => { if (c.attente > 0) c.attente--; });
+          if (u.etourdi > 0) {
+            u.etourdi = 0; combat.log.unshift(`💫 <b class="camp-${u.camp}">${esc(u.nom)}</b> est étourdi et passe son tour.`);
+            combat.file.shift(); finTourUnite(u); majUI();
+            if (combat.scene) await combat.scene.etourdi(u);
+            continue;
+          }
+          if (u.camp === "moi" && !auto) { combat.attente = { u, comp: null }; majUI(); return; }
+          const { c, cible } = choixIA(combat, u);
+          await jouerAction(u, c, cible);
+          await new Promise((ok) => setTimeout(ok, auto ? 120 : 260));
+        }
+      } finally { enBoucle = false; }
+    };
+    const finTourUnite = (u) => { if (u.provoc > 0) u.provoc--; if (u.renfort > 0) u.renfort--; if (u.faible > 0) u.faible--; };
+    const jouerAction = async (u, c, cible) => {
+      combat.attente = null; combat.anime = true;
+      if (combat.scene) combat.scene.setCiblables([]);
+      majUI();
+      const cibles = c.cible.startsWith("tous") ? ciblesValides(combat, u, c) : [cible || u];
+      const cb = combat;
+      const l = appliquer(combat, u, c, cible);
+      if (combat.scene) await combat.scene.jouer(u, c, cibles, l.evts || []);
+      if (combat !== cb) return;
+      combat.log.unshift(`<div class="log-action">${l.join("<br>")}</div>`);
+      combat.log = combat.log.slice(0, 40);
+      combat.file.shift(); finTourUnite(u);
+      combat.anime = false;
+      majUI();
+    };
+    const dessinerCombat = () => {
+      const v = $("#rpg-vue");
+      if (!v || !combat) return;
+      if (!combat.scene || !document.body.contains($("#scene-combat"))) {
+        if (combat.scene) combat.scene.arreter();
+        v.innerHTML = `<div class="scene-cadre"><canvas id="scene-combat" aria-label="Champ de bataille"></canvas>
+          <div class="scene-hud"><span class="hud-eux">⚔️ Palier ${profil.palier}</span><span id="hud-tour">Tour ${combat.tour}</span></div></div>
+          <div id="combat-ui"></div>`;
+        combat.scene = creerScene($("#scene-combat"), combat, (u) => {
+          const a = combat.attente;
+          if (!a || !a.comp || combat.anime) return;
+          if (!ciblesValides(combat, a.u, a.comp).includes(u)) return toast("Cette cible n'est pas valable pour cette compétence.", "erreur");
+          jouerAction(a.u, a.comp, u).then(avancer);
+        });
+      }
+      majUI();
+    };
+    const majUI = () => {
+      const zui = $("#combat-ui");
+      if (!zui || !combat) return;
+      const ht = $("#hud-tour"); if (ht) ht.textContent = `Tour ${combat.tour}${combat.fatigue > 1 ? " · 🥵 fatigue" : ""}`;
+      combat.vitesse = auto ? 1.6 : 1;
+      const a = combat.attente;
+      const besoinCible = a && a.comp && !["soi", "tous_ennemis", "tous_allies"].includes(a.comp.cible);
+      if (combat.scene) combat.scene.setCiblables(besoinCible ? ciblesValides(combat, a.u, a.comp) : []);
+      zui.innerHTML = `
+        ${combat.fini ? `<div class="${combat.gagne ? "jeu-victoire" : "jeu-defaite"}"><div class="jv-titre">${combat.gagne ? "🏆 Victoire !" : "💀 Défaite…"}</div>
+            <p>${combat.gagne ? `Tu passes au palier ${profil.palier}.${combat.bonus ? " 🎁 Première victoire du jour : <b>un tirage bonus</b> t'attend dans ✨ Tirage !" : ""}` : "Change ton équipe ou réessaie : chaque combat est différent."}</p>
+            <div class="rangee centre"><button class="btn btn-or" id="rejouer">⚔️ ${combat.gagne ? "Combat suivant" : "Réessayer"}</button><button class="btn" id="vers-equipe">👥 Modifier l'équipe</button></div></div>`
+        : a ? `<div class="panneau-action">
+            <div class="pa-titre">À <b>${esc(a.u.nom)}</b> de jouer${besoinCible ? ` · <b>${esc(a.comp.nom)}</b> : touche une cible qui clignote en bleu sur le terrain` : ""}</div>
+            <div class="competences">${a.u.comp.map((c, k) => `<button class="btn comp ${a.comp === c ? "btn-or" : ""}" data-comp="${k}" ${c.attente > 0 ? "disabled" : ""}>${descComp(c)}${c.attente > 0 ? ` <small>(${c.attente})</small>` : ""}<small class="comp-detail">${texteComp(c)}</small></button>`).join("")}</div>
+          </div>` : `<div class="panneau-action attente-ia">${combat.anime ? "⚔️ Action en cours…" : "…"}</div>`}
+        <div class="rangee"><label class="case-auto"><input type="checkbox" id="auto" ${auto ? "checked" : ""}> ⏩ Auto (plus rapide)</label>${!combat.fini ? `<button class="btn petit btn-danger" id="fuir">🏳️ Abandonner</button>` : ""}</div>
+        <details class="journal-details"><summary>📜 Journal du combat</summary><div class="journal-combat">${combat.log.join("")}</div></details>`;
+      $("#auto").onchange = (e) => { auto = e.target.checked; ecrireLS("aetheria_rpg_auto", auto); combat.vitesse = auto ? 1.6 : 1; if (auto && combat.attente) { combat.attente = null; avancer(); } else majUI(); };
+      const fu = $("#fuir"); if (fu) fu.onclick = async () => { if (!confirm("Abandonner ce combat ? Il compte comme une défaite.")) return; combat.moi.forEach((u) => (u.pv = 0)); combat.attente = null; if (combat.scene) combat.scene.sync(); await finSiBesoin(); };
+      if (combat.fini) {
+        $("#rejouer").onclick = () => { if (combat.scene) combat.scene.arreter(); combat = null; vueCombatDirect(); };
+        $("#vers-equipe").onclick = () => { if (combat.scene) combat.scene.arreter(); combat = null; vueCombat(); };
+        return;
+      }
+      $$("[data-comp]", zui).forEach((b) => (b.onclick = () => {
+        if (combat.anime || !combat.attente) return;
+        const c = a.u.comp[+b.dataset.comp];
+        if (["soi", "tous_ennemis", "tous_allies"].includes(c.cible)) jouerAction(a.u, c, c.cible === "soi" ? a.u : null).then(avancer);
+        else { a.comp = c; majUI(); }
+      }));
+    };
+    const vueCombatDirect = () => { vueCombat(); const g = $("#go"); if (g && !g.disabled) g.click(); };
     dessiner();
   };
 
