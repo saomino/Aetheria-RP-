@@ -3371,6 +3371,45 @@
     };
   }
 
+  /* ---------- Compétences créées sans IA (quand l'IA est indisponible) ---------- */
+  const NOMS_LOCAUX = {
+    sang: ["Griffes sanglantes", "Morsure écarlate", "Pluie de sang", "Malédiction du sang", "Transfusion", "Carapace de sang", "Soif de sang"],
+    feu: ["Frappe ardente", "Boule de feu", "Brasier", "Flammes aveuglantes", "Flamme de vie", "Mur de flammes", "Cœur ardent"],
+    glace: ["Lame de givre", "Lance de glace", "Blizzard", "Prison de glace", "Souffle frais", "Armure de glace", "Hiver éternel"],
+    foudre: ["Poing électrique", "Éclair", "Orage", "Décharge paralysante", "Étincelle de vie", "Champ électrique", "Surtension"],
+    lumiere: ["Frappe sacrée", "Lance de lumière", "Jugement céleste", "Éclat aveuglant", "Lumière apaisante", "Égide divine", "Bénédiction"],
+    ombre: ["Lame d'ombre", "Étreinte des ténèbres", "Nuit abyssale", "Terreur", "Ombre réparatrice", "Voile d'ombre", "Pacte obscur"],
+    nature: ["Coup de ronce", "Lianes", "Tempête de feuilles", "Racines entravantes", "Sève guérisseuse", "Écorce", "Appel de la forêt"],
+    poison: ["Dague empoisonnée", "Venin", "Nuage toxique", "Paralysie", "Antidote", "Peau d'écailles", "Rage venimeuse"],
+    eau: ["Frappe des marées", "Jet d'eau", "Raz-de-marée", "Chant envoûtant", "Source de vie", "Bulle d'eau", "Chant des abysses"],
+    vent: ["Coup de vent", "Lame d'air", "Tornade", "Bourrasque", "Brise légère", "Mur de vent", "Vent porteur"],
+    terre: ["Poing de pierre", "Rocher", "Séisme", "Écrasement", "Force tellurique", "Peau de pierre", "Colère de la terre"],
+    arcane: ["Projectile arcanique", "Rayon astral", "Pluie d'étoiles", "Sceau", "Restauration", "Barrière runique", "Amplification"],
+    physique: ["Coup d'épée", "Frappe puissante", "Tourbillon", "Coup assommant", "Premiers soins", "Garde", "Cri de guerre"],
+  };
+  function elementDeFiche(f) {
+    const t = normal(`${f.titre} ${f.resume || ""} ${(f.infos || []).map((i) => `${i.cle} ${i.valeur}`).join(" ")}`);
+    const scores = MOTS_ELEMENTS.map(([e, re]) => [e, (t.match(new RegExp(re.source, "g")) || []).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (scores.length) return scores[0][0];
+    const race = normal(infoPerso(f, /race|peuple|espece/));
+    for (const [re, e] of ELEMENT_RACE) if (re.test(race)) return e;
+    return "physique";
+  }
+  function competencesLocales(f) {
+    const x = forces(f), t = normal(`${f.resume || ""} ${(f.infos || []).map((i) => i.valeur).join(" ")}`);
+    let role = x.soutien > x.attaque && x.soutien >= x.defense ? "soutien" : x.defense > x.attaque ? "defenseur" : "attaquant";
+    if (/soign|guer|soin|medec|pretre|benedic/.test(t)) role = "soutien";
+    else if (/bouclier|garde|protect|chevalier|paladin|sentinelle/.test(t)) role = "defenseur";
+    const el = elementDeFiche(f), n = NOMS_LOCAUX[el] || NOMS_LOCAUX.physique;
+    const c = (nom, type, cible, puissance, recharge, portee) => ({ nom, type, cible, puissance, recharge, element: el, portee, description: "" });
+    const competences = role === "soutien"
+      ? [c(n[4], "soin", "allie", 1, 0, "distance"), c(n[6], "soin", "tous_allies", 2, 3, "distance"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[1], "degats", "ennemi", 2, 1, "distance")]
+      : role === "defenseur"
+      ? [c(n[0], "degats", "ennemi", 1, 0, "melee"), c(NOMS_LOCAUX.physique[6], "provocation", "soi", 2, 3, "melee"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[3], "etourdir", "ennemi", 2, 2, "melee")]
+      : [c(n[0], "degats", "ennemi", 1, 0, el === "physique" ? "melee" : "distance"), c(n[1], "degats", "ennemi", 3, 2, "distance"), c(n[2], "degats", "tous_ennemis", 2, 3, "distance"), c(n[3], x.attaque % 2 ? "etourdir" : "affaiblir", "ennemi", 2, 2, "distance")];
+    return { fiche_id: f.id, role, competences, puissance: puissance(f) };
+  }
+
   pages.jeux.rpg = () => enTete("⚔️", "Aetheria Tactics", "Collectionne les personnages, monte ton équipe de 5 et affronte des équipes de plus en plus fortes.") + `<div id="rpg-zone"><p class="discret">Chargement du jeu…</p></div>`;
   pages.jeux.rpg.apres = async () => {
     const z = $("#rpg-zone");
@@ -3384,42 +3423,42 @@
     catch (e) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; return; }
     const manquants = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id));
     if (manquants.length) {
-      // par paquets de 5, deux paquets en même temps ; la progression est enregistrée au fur et à mesure
+      // 1 essai avec l'IA par groupe de 5 ; si elle ne répond pas (surchargée, quota…), le site crée lui-même les compétences
       const LOT = 5, lots = [];
       for (let i = 0; i < manquants.length; i += LOT) lots.push(manquants.slice(i, i + LOT));
-      let fait = 0, erreurIA = null, prochain = 0;
+      let fait = 0, panneIA = null, prochain = 0;
       const debut = Date.now();
       const afficher = () => {
         const sec = Math.round((Date.now() - debut) / 1000);
         z.innerHTML = `<div class="prepa-rpg"><div class="jv-titre"><span class="engrenage">⚙️</span> Préparation du jeu</div>
           <p>L'IA crée les compétences de jeu de ${manquants.length} personnage${manquants.length > 1 ? "s" : ""}… <b>${fait}/${manquants.length}</b></p>
           <div class="barre-prepa en-cours"><span style="width:${Math.max(4, Math.round((fait / manquants.length) * 100))}%"></span></div>
-          <p class="discret petit-texte">⏱️ ${Math.floor(sec / 60) ? Math.floor(sec / 60) + " min " : ""}${sec % 60} s — compte environ 20 à 60 secondes par groupe de ${LOT}. Tu peux laisser la page ouverte : ce qui est fait est gardé, même si tu quittes.</p>
+          <p class="discret petit-texte">⏱️ ${Math.floor(sec / 60) ? Math.floor(sec / 60) + " min " : ""}${sec % 60} s${panneIA ? " — l'IA ne répond pas : le site termine sans elle…" : ""}</p>
           <p class="discret petit-texte">C'est fait une seule fois par personnage, et ça ne compte pas dans ta limite d'IA. Les fiches ne sont pas modifiées.</p></div>`;
       };
       afficher();
       const minuteur = setInterval(afficher, 1000);
       const travailleur = async () => {
-        while (prochain < lots.length && !erreurIA) {
+        while (prochain < lots.length && !panneIA) {
           const lot = lots[prochain++];
-          // si l'IA est surchargée, on réessaie ce groupe jusqu'à 3 fois (30 s d'attente)
-          for (let essai = 1; essai <= 3; essai++) {
-            try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; afficher(); break; }
-            catch (e) {
-              if (essai < 3 && /surcharg|high demand|try again|trop lent|503|429/i.test(e.message)) { await new Promise((ok) => setTimeout(ok, 30000)); continue; }
-              erreurIA = e; break;
-            }
-          }
+          try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; afficher(); }
+          catch (e) { panneIA = e; }
         }
       };
       await Promise.all([travailleur(), travailleur()]);
       clearInterval(minuteur);
       rp = await api.rpgPersos();
-      if (erreurIA) {
-        const reste = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id)).length;
-        if (rp.length < 5) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(erreurIA.message)}</p><button class="btn btn-or" onclick="location.reload()">Réessayer</button>`; return; }
-        toast(`${reste} personnage${reste > 1 ? "s" : ""} pas encore prêt${reste > 1 ? "s" : ""} (${erreurIA.message}). Ils seront préparés au prochain lancement.`, "erreur");
+      const restants = persos().filter((f) => !rp.some((p) => p.fiche_id === f.id));
+      if (restants.length) {
+        try { await api.rpgAjouterLocal(restants.map(competencesLocales)); rp = await api.rpgPersos(); }
+        catch (e) { z.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; return; }
+        toast(`L'IA est indisponible : ${restants.length} personnage${restants.length > 1 ? "s ont" : " a"} reçu des compétences créées par le site. L'IA les améliorera quand elle reviendra.`);
       }
+    } else if (rp.some((p) => p.source === "local") && Date.now() - lireLS("aetheria_rpg_amelioration", 0) > 30 * 60000) {
+      // en arrière-plan : l'IA améliore quelques personnages faits « sans IA » (au plus 1 essai toutes les 30 min)
+      ecrireLS("aetheria_rpg_amelioration", Date.now());
+      const lot = rp.filter((p) => p.source === "local").slice(0, 5).map((p) => indexParId.get(p.fiche_id)).filter(Boolean);
+      if (lot.length) api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) }).catch(() => {});
     }
     // 2) Mettre à jour la puissance (les dés ont pu changer) → la rareté suit
     const changes = {};

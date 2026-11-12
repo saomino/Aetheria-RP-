@@ -572,7 +572,8 @@ Deno.serve(async (req) => {
       var cibles = fiches.filter((f) => ids.includes(f.id) && f.categorie === "personnages");
       if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
       if (!(corps.regenerer && profil.role === "admin")) {
-        const deja = await db(`rpg_persos?select=fiche_id&fiche_id=in.(${cibles.map((f) => f.id).join(",")})`).catch(() => []);
+        // les personnages déjà faits par l'IA sont gardés ; ceux faits « sans IA » par le site peuvent être améliorés
+        const deja = await db(`rpg_persos?select=fiche_id&source=eq.ia&fiche_id=in.(${cibles.map((f) => f.id).join(",")})`).catch(() => []);
         const pris = new Set((deja || []).map((x) => x.fiche_id));
         cibles = cibles.filter((f) => !pris.has(f.id));
         if (!cibles.length) return reponse({ persos: [], restant: null });
@@ -644,7 +645,7 @@ Deno.serve(async (req) => {
       const lignes = cibles.map((f, i) => {
         const p = liste.find((x) => x && norm(x.titre) === norm(f.titre)) || (cibles.length === 1 ? liste[0] : liste[i]) || {};
         const role = ["defenseur", "attaquant", "soutien"].includes(norm(p.role).replace("é", "e")) ? norm(p.role) : norm(p.role).startsWith("def") ? "defenseur" : norm(p.role).startsWith("sou") ? "soutien" : "attaquant";
-        return { fiche_id: f.id, role, competences: nettoyerCompetences(p.competences, role), puissance: Math.max(0, Math.min(300, Math.round(Number(puis[f.id]) || 0))), genere_le: new Date().toISOString() };
+        return { fiche_id: f.id, role, competences: nettoyerCompetences(p.competences, role), puissance: Math.max(0, Math.min(300, Math.round(Number(puis[f.id]) || 0))), source: "ia", genere_le: new Date().toISOString() };
       });
       await db("rpg_persos?on_conflict=fiche_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(lignes) });
       return reponse({ persos: lignes, restant: null, modele: rep.modele });

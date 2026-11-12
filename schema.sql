@@ -449,6 +449,30 @@ drop policy if exists "rpg_persos lecture" on public.rpg_persos;
 create policy "rpg_persos lecture" on public.rpg_persos for select using (true);
 -- écriture : seulement par la fonction IA (clé serveur) et par rpg_maj_puissance
 
+alter table public.rpg_persos add column if not exists source text not null default 'ia';
+
+-- Compétences créées par le site lui-même quand l'IA est indisponible (remplacées par l'IA plus tard)
+create or replace function public.rpg_ajouter_local(lignes jsonb) returns int
+language plpgsql security definer set search_path = public as $$
+declare l jsonb; n int := 0;
+begin
+  if not public.est_membre() then raise exception 'Réservé aux membres.'; end if;
+  if jsonb_typeof(lignes) <> 'array' or jsonb_array_length(lignes) > 200 then raise exception 'Données invalides.'; end if;
+  for l in select * from jsonb_array_elements(lignes) loop
+    if (l->>'role') in ('defenseur', 'attaquant', 'soutien') and jsonb_typeof(l->'competences') = 'array'
+       and jsonb_array_length(l->'competences') between 1 and 6
+       and exists (select 1 from public.fiches f where f.id = (l->>'fiche_id')::uuid and f.categorie = 'personnages') then
+      insert into public.rpg_persos (fiche_id, role, competences, puissance, source)
+        values ((l->>'fiche_id')::uuid, l->>'role', l->'competences', greatest(0, least(300, coalesce((l->>'puissance')::int, 0))), 'local')
+        on conflict (fiche_id) do nothing;
+      if found then n := n + 1; end if;
+    end if;
+  end loop;
+  return n;
+end $$;
+revoke all on function public.rpg_ajouter_local(jsonb) from public, anon;
+grant execute on function public.rpg_ajouter_local(jsonb) to authenticated;
+
 -- Collection de chaque joueur
 create table if not exists public.rpg_collection (
   user_id   uuid not null references public.profils(id) on delete cascade,

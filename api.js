@@ -298,6 +298,7 @@
       return data;
     }
     rpgMajPuissance(valeurs) { return this.rpgRpc("rpg_maj_puissance", { valeurs }); }
+    rpgAjouterLocal(lignes) { return this.rpgRpc("rpg_ajouter_local", { lignes }); }
     rpgDemarrer() { return this.rpgRpc("rpg_demarrer"); }
     rpgTirer() { return this.rpgRpc("rpg_tirer"); }
     rpgFinCombat(gagne) { return this.rpgRpc("rpg_fin_combat", { gagne }); }
@@ -505,6 +506,7 @@
     /* Jeu RPG (démo : tout en local, même logique que le serveur) */
     _rpg() { const s = this._lire(); s.rpg = s.rpg || { persos: [], collection: [], profil: null }; return s; }
     async rpgPersos() { return this._rpg().rpg.persos.filter((p) => this._lire().fiches.some((f) => f.id === p.fiche_id)); }
+    async rpgAjouterLocal(lignes) { const s = this._rpg(); let n = 0; lignes.forEach((l) => { if (!s.rpg.persos.some((p) => p.fiche_id === l.fiche_id)) { s.rpg.persos.push({ ...l, source: "local" }); n++; } }); this._ecrire(); return n; }
     async rpgMajPuissance(v) { const s = this._rpg(); s.rpg.persos.forEach((p) => { if (v[p.fiche_id] !== undefined) p.puissance = Math.max(0, Math.min(300, Math.round(v[p.fiche_id]))); }); this._ecrire(); }
     _raretes() {
       const l = this._rpg().rpg.persos, n = l.length, m = new Map();
