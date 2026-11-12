@@ -15,7 +15,9 @@ const URL_SB = Deno.env.get("SUPABASE_URL");
 const ANON = Deno.env.get("SUPABASE_ANON_KEY");
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const FOURNISSEUR = (Deno.env.get("IA_FOURNISSEUR") || "gemini").toLowerCase().trim();
-const CLE = (Deno.env.get("IA_CLE") || "").trim();
+// on enlève espaces, retours à la ligne et caractères invisibles collés par erreur avec la clé
+const nettoyerCle = (k) => String(k || "").replace(/[^\x21-\x7E]/g, "");
+const CLE = nettoyerCle(Deno.env.get("IA_CLE"));
 // Par défaut : Gemini Flash (version complète, gratuite). Plus rapide mais moins fin : IA_MODELE = gemini-flash-lite-latest
 const MODELE = (Deno.env.get("IA_MODELE") || (FOURNISSEUR === "gemini" ? "gemini-flash-latest" : "")).trim();
 // Modèles de secours si le modèle principal est surchargé (séparés par des virgules)
@@ -357,11 +359,17 @@ async function fetchLimite(url, options, ms) {
 
 // IA de secours d'une autre marque (facultatif) : IA_SECOURS_FOURNISSEUR, IA_SECOURS_CLE, IA_SECOURS_MODELE
 const SECOURS_F = (Deno.env.get("IA_SECOURS_FOURNISSEUR") || "").toLowerCase().trim();
-const SECOURS_CLE = (Deno.env.get("IA_SECOURS_CLE") || "").trim();
+const SECOURS_CLE = nettoyerCle(Deno.env.get("IA_SECOURS_CLE"));
 const SECOURS_MODELE = (Deno.env.get("IA_SECOURS_MODELE") || (SECOURS_F === "gemini" ? "gemini-flash-latest" : "")).trim();
 const BUDGET_TOTAL = 110000;   // la fonction Supabase est coupée vers 150 s : on garde de la marge
 const BUDGET_ESSAI = 40000;    // un modèle qui ne répond pas en 40 s est abandonné
 
+// ne jamais afficher une clé dans un message d'erreur
+function masquerCles(t) {
+  let x = String(t || "");
+  for (const k of [CLE, SECOURS_CLE]) if (k && k.length > 8) x = x.split(k).join("***");
+  return x.replace(/\b(sk-[A-Za-z0-9_\-]{6})[A-Za-z0-9_\-]+/g, "$1***").replace(/\bAIza[0-9A-Za-z_\-]{10,}/g, "AIza***").replace(/\bxai-[A-Za-z0-9]{6,}/g, "xai-***").replace(/Bearer\s+\S+/g, "Bearer ***");
+}
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
   if (!MODELE) throw new ErreurIA(`Il manque le secret IA_MODELE pour le fournisseur « ${FOURNISSEUR} ».`, 500);
@@ -380,13 +388,13 @@ async function appelerIA(systeme, messages) {
       // quelle que soit l'erreur (surcharge, lenteur, modèle retiré, clé refusée…) on passe au suivant
       const raison = err.code === 504 ? "trop lent" : err.message.replace(/^L'IA \([^)]*\) a refusé la demande : /, "");
       echecs.push(`${e.m} : ${raison.slice(0, 160)}`);
-      console.warn(`${e.f}/${e.m} : ${err.message}`);
+      console.warn(masquerCles(`${e.f}/${e.m} : ${err.message}`));
     }
   }
   const surcharge = echecs.every((x) => /trop lent|high demand|overload|unavailable|exhausted|try again|429|503/i.test(x));
   throw new ErreurIA((surcharge ? "L'IA est surchargée en ce moment. Réessaie dans quelques minutes." : "Aucune IA n'a pu répondre.") +
     (SECOURS_CLE ? "" : " Astuce : ajoute une IA de secours (ChatGPT ou Grok) dans les secrets Supabase.") +
-    "\nDétail : " + echecs.join(" | "), 503);
+    "\nDétail : " + masquerCles(echecs.join(" | ")), 503);
 }
 
 async function appelerModele(fournisseur, cle, modele, systeme, messages, delai) {
@@ -709,6 +717,6 @@ Deno.serve(async (req) => {
     return reponse({ texte, analyse, restant, modele: rep.modele });
   } catch (e) {
     console.error(e);
-    return reponse({ erreur: e.message || String(e) }, e.statut || 500);
+    return reponse({ erreur: masquerCles(e.message || String(e)) }, e.statut || 500);
   }
 });

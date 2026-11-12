@@ -13,7 +13,20 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026111205">
+  <link rel="stylesheet" href="style.css?v=2026111207">
+<script>
+  // GitHub garde la page en mémoire jusqu'à 10 minutes : on vérifie s'il existe une version plus récente et on recharge tout seul
+  document.addEventListener("DOMContentLoaded", function () {
+    try {
+      var ici = (document.querySelector('script[src*="app.js?v="]') || {}).src || "";
+      var v = (ici.match(/v=(\d+)/) || [])[1];
+      fetch(location.pathname + "?nocache=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) {
+        var n = (t.match(/app\.js\?v=(\d+)/) || [])[1];
+        if (v && n && n !== v && !sessionStorage.getItem("maj" + n)) { sessionStorage.setItem("maj" + n, "1"); location.replace(location.pathname + "?v=" + n + location.hash); }
+      }).catch(function () {});
+    } catch (e) {}
+  });
+</script>
 </head>
 <body>
   <header id="entete"></header>
@@ -21,19 +34,19 @@
   <footer class="pied">Aetheria · encyclopédie collaborative</footer>
   <nav class="onglets-bas" id="onglets" aria-label="Navigation"></nav>
 
-  <script src="config.js?v=2026111205"></script>
+  <script src="config.js?v=2026111207"></script>
   <script>
     // Charge Supabase seulement si le site est configuré
     (function () {
       var c = window.AETHERIA_CONFIG;
       var s = function (src) { document.write('<script src="' + src + '"><\/script>'); };
       if (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) s("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
-      else s("demo-data.js?v=2026111205");
+      else s("demo-data.js?v=2026111207");
     })();
   </script>
-  <script src="mots-des.js?v=2026111205"></script>
-  <script src="missions.js?v=2026111205"></script>
-  <script src="api.js?v=2026111205"></script>
-  <script src="app.js?v=2026111205"></script>
+  <script src="mots-des.js?v=2026111207"></script>
+  <script src="missions.js?v=2026111207"></script>
+  <script src="api.js?v=2026111207"></script>
+  <script src="app.js?v=2026111207"></script>
 </body>
 </html>
