@@ -3402,8 +3402,14 @@
       const travailleur = async () => {
         while (prochain < lots.length && !erreurIA) {
           const lot = lots[prochain++];
-          try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; afficher(); }
-          catch (e) { erreurIA = e; }
+          // si l'IA est surchargée, on réessaie ce groupe jusqu'à 3 fois (30 s d'attente)
+          for (let essai = 1; essai <= 3; essai++) {
+            try { await avecDelai(api.ia("rpg", { fiche_ids: lot.map((f) => f.id), puissances: Object.fromEntries(lot.map((f) => [f.id, puissance(f)])) })); fait += lot.length; afficher(); break; }
+            catch (e) {
+              if (essai < 3 && /surcharg|high demand|try again|trop lent|503|429/i.test(e.message)) { await new Promise((ok) => setTimeout(ok, 30000)); continue; }
+              erreurIA = e; break;
+            }
+          }
         }
       };
       await Promise.all([travailleur(), travailleur()]);
