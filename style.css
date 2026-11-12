@@ -654,3 +654,93 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .echanges { padding-left: 1.2em; font-size: 0.78rem; }
 .champion .jv-titre { font-size: 1.35rem; }
 .onglets-bas .o-nom { font-size: 0.68rem; }
+
+/* ---------- Aetheria Tactics (RPG gacha) ---------- */
+.carte-jeu:first-child { grid-column: 1 / -1; border-color: var(--or); background: linear-gradient(135deg, rgba(227, 184, 102, 0.14), var(--nuit-2)); }
+.rpg-barre { display: flex; justify-content: space-around; gap: 8px; padding: 10px; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--nuit-2); font: 0.95rem var(--titres); color: var(--or); margin-bottom: 10px; }
+.prepa-rpg { text-align: center; padding: 20px; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--nuit-2); }
+.barre-prepa { height: 10px; border-radius: 6px; background: var(--nuit-3); overflow: hidden; margin: 10px 0; }
+.barre-prepa span { display: block; height: 100%; background: linear-gradient(90deg, var(--or), var(--or-vif)); transition: width 0.4s; }
+.compte-raretes { display: flex; flex-wrap: wrap; gap: 8px 14px; font: 0.85rem system-ui, sans-serif; margin: 8px 0; }
+.grille-rpg { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin: 8px 0 16px; }
+.carte-rpg { --rc: #9aa0b8; position: relative; border: 2px solid var(--rc); border-radius: 12px; padding: 6px; background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 22%, var(--nuit-2)), var(--nuit-2)); text-align: center; cursor: pointer; transition: 0.15s; }
+.carte-rpg.r-rare { --rc: #4f8df5; }
+.carte-rpg.r-epique { --rc: #a463f2; }
+.carte-rpg.r-legendaire { --rc: #f5c542; box-shadow: 0 0 14px rgba(245, 197, 66, 0.45); }
+.carte-rpg.pas-obtenu { filter: grayscale(1) brightness(0.55); }
+.carte-rpg.dans-equipe { outline: 3px solid var(--vert); outline-offset: 1px; }
+.cr-haut { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; min-height: 1.2em; }
+.cr-img .vignette { width: 100%; height: 84px; border-radius: 8px; }
+.carte-rpg.petite .cr-img .vignette { height: 64px; }
+.cr-nomp { font: 600 0.78rem var(--titres); margin-top: 4px; word-break: break-word; color: var(--texte); }
+.cr-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--or); color: #1a1408; font: 700 0.7rem system-ui, sans-serif; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.etoiles { color: #f5c542; font-size: 0.7rem; letter-spacing: -1px; }
+.etoiles-vides { color: rgba(255, 255, 255, 0.18); }
+.detail-rpg .vignette.grande { width: 120px; height: 120px; }
+.liste-comp { list-style: none; padding: 0; margin: 10px 0; text-align: left; font: 0.88rem system-ui, sans-serif; }
+.liste-comp li { padding: 7px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.6); }
+.rangee.centre { justify-content: center; }
+.zone-tirage { text-align: center; padding: 10px 0; }
+.dos-carte { width: 140px; height: 196px; margin: 10px auto 16px; border-radius: 14px; border: 2px solid var(--or); background: repeating-linear-gradient(45deg, var(--nuit-3) 0 10px, var(--nuit-2) 10px 20px); display: flex; align-items: center; justify-content: center; font-size: 3rem; color: var(--or); }
+.dos-carte.tourne { animation: tourner-carte 1.4s ease-in-out; }
+@keyframes tourner-carte { 0% { transform: rotateY(0) scale(1); } 50% { transform: rotateY(540deg) scale(1.1); box-shadow: 0 0 40px var(--or); } 100% { transform: rotateY(1080deg) scale(1); } }
+.revelation { display: flex; flex-direction: column; align-items: center; animation: apparition 0.5s ease-out; }
+.revelation .grande-carte { width: 170px; margin-top: 14px; }
+.revelation .grande-carte .cr-img .vignette { height: 150px; }
+.revelation.r-legendaire .carte-rpg { animation: lueur 1.5s ease-in-out infinite alternate; }
+@keyframes lueur { from { box-shadow: 0 0 10px rgba(245, 197, 66, 0.5); } to { box-shadow: 0 0 34px rgba(245, 197, 66, 0.95); } }
+@keyframes apparition { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+.formation { border: 1px solid var(--bord); border-radius: var(--rayon); padding: 10px; background: var(--nuit-2); }
+.f-ligne { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-items: stretch; margin-bottom: 8px; }
+.f-ligne:first-child { grid-template-columns: repeat(2, 1fr); }
+.f-nom { grid-column: 1 / -1; font: 0.75rem system-ui, sans-serif; color: var(--texte-doux); }
+.slot-vide { border: 2px dashed var(--bord); border-radius: 12px; min-height: 110px; display: flex; align-items: center; justify-content: center; color: var(--texte-doux); font-size: 0.8rem; }
+.arene { border: 1px solid var(--bord); border-radius: var(--rayon); background: radial-gradient(ellipse at center, rgba(106, 76, 147, 0.18), var(--nuit-2)); padding: 8px; }
+.camp-nom { text-align: center; font: 0.75rem var(--titres); color: var(--texte-doux); margin: 2px 0; }
+.camp.eux .camp-nom { color: var(--rouge); }
+.camp.moi .camp-nom { color: var(--vert); }
+.rang-u { display: flex; justify-content: center; gap: 6px; margin: 4px 0; }
+.ligne-vs { text-align: center; font: 600 0.85rem var(--titres); color: var(--or); margin: 6px 0; border-top: 1px dashed var(--bord); padding-top: 6px; }
+.unite { width: 70px; padding: 4px; border-radius: 10px; border: 1px solid var(--bord); background: var(--nuit-3); text-align: center; transition: 0.2s; position: relative; }
+.camp.eux .unite { border-color: rgba(224, 112, 112, 0.5); }
+.unite .vignette { width: 40px; height: 40px; }
+.u-nom { font: 600 0.62rem system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
+.pv { position: relative; height: 6px; background: rgba(0, 0, 0, 0.5); border-radius: 3px; overflow: hidden; }
+.pv span { position: absolute; inset: 0 auto 0 0; background: var(--vert); transition: width 0.4s; }
+.pv span.bas { background: var(--rouge); }
+.pv i { position: absolute; inset: 0 0 0 auto; background: rgba(127, 200, 248, 0.75); }
+.u-pv { font: 0.58rem system-ui, sans-serif; color: var(--texte-doux); }
+.u-etats { min-height: 1em; font-size: 0.7rem; }
+.unite.ko { opacity: 0.3; filter: grayscale(1); }
+.unite.active { border-color: var(--or); box-shadow: 0 0 0 2px var(--or); transform: translateY(-3px); }
+.unite.ciblable { cursor: pointer; border-color: var(--ether); box-shadow: 0 0 0 2px var(--ether); animation: pulse-cible 1s ease-in-out infinite alternate; }
+@keyframes pulse-cible { to { box-shadow: 0 0 12px 3px var(--ether); } }
+.unite.touchee { animation: secousse 0.35s; }
+@keyframes secousse { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.panneau-action { margin: 10px 0; padding: 10px; border: 1px solid var(--or); border-radius: var(--rayon); background: rgba(227, 184, 102, 0.06); }
+.pa-titre { font-size: 0.9rem; margin-bottom: 8px; }
+.competences { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn.comp { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 8px; font-size: 0.82rem; }
+.comp-detail { font-size: 0.66rem; opacity: 0.75; font-weight: 400; margin-top: 2px; }
+.case-auto { display: flex; align-items: center; gap: 6px; font: 0.9rem system-ui, sans-serif; }
+.journal-combat { max-height: 260px; overflow-y: auto; margin-top: 8px; padding: 8px; border: 1px solid var(--bord); border-radius: 10px; background: var(--nuit); font: 0.78rem/1.4 system-ui, sans-serif; }
+.log-action { padding: 4px 0; border-bottom: 1px solid rgba(44, 52, 99, 0.5); }
+.log-tour { text-align: center; color: var(--or); margin: 4px 0; }
+.camp-moi { color: var(--vert); }
+.camp-eux { color: var(--rouge); }
+.cr-stats { display: flex; justify-content: center; gap: 4px; font: 0.62rem system-ui, sans-serif; color: var(--texte-doux); margin-top: 2px; }
+.cr-rarete { margin: 4px -6px -6px; padding: 2px 0; border-radius: 0 0 10px 10px; background: var(--rc); color: #10121f; font: 700 0.58rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; }
+.grande-carte .cr-stats { font-size: 0.85rem; gap: 10px; }
+.grande-carte .cr-rarete { font-size: 0.75rem; padding: 4px 0; }
+.grande-carte .cr-nomp { font-size: 1.05rem; }
+.detail-rpg { max-height: 88vh; overflow-y: auto; border: 2px solid var(--rc, var(--bord)); }
+.detail-rpg.r-rare { --rc: #4f8df5; } .detail-rpg.r-epique { --rc: #a463f2; } .detail-rpg.r-legendaire { --rc: #f5c542; } .detail-rpg.r-commun { --rc: #9aa0b8; }
+
+/* ---------- Scène de combat animée ---------- */
+.scene-cadre { position: relative; border-radius: var(--rayon); overflow: hidden; border: 1px solid var(--or); box-shadow: 0 6px 30px rgba(0, 0, 0, 0.5); background: #151233; }
+#scene-combat { display: block; width: 100%; aspect-ratio: 360 / 480; touch-action: manipulation; cursor: pointer; }
+.scene-hud { position: absolute; bottom: 6px; left: 8px; right: 8px; display: flex; justify-content: space-between; font: 600 0.72rem system-ui, sans-serif; pointer-events: none; }
+.scene-hud span { background: rgba(10, 8, 25, 0.7); padding: 3px 8px; border-radius: 10px; color: var(--or); }
+.scene-hud .hud-eux { color: var(--rouge); }
+.attente-ia { text-align: center; color: var(--texte-doux); }
+.journal-details summary { cursor: pointer; color: var(--or); font-size: 0.85rem; margin: 6px 0; }

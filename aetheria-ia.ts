@@ -298,6 +298,41 @@ Réponds UNIQUEMENT avec du JSON valide, sans texte autour :
 {"roues":[{"nom":"Nom de la roue (ex : Jeu de 54 cartes)","description":"à quoi elle sert et quand la tourner, règles particulières (ex : une carte tirée est défaussée jusqu'au mélange)","elements":[{"nom":"As ♠","effet":"…","poids":1}]}],
 "explication":"une ou deux phrases sur pourquoi ces roues (ou pourquoi aucune), en précisant quels effets viennent de la fiche et lesquels tu as dû définir toi-même"}`;
 
+const RPG_TYPES = ["degats", "soin", "bouclier", "provocation", "etourdir", "renfort", "affaiblir"];
+const RPG_ELEMENTS = ["sang", "feu", "glace", "foudre", "lumiere", "ombre", "nature", "poison", "eau", "vent", "terre", "arcane", "physique"];
+const RPG_CIBLES = ["ennemi", "tous_ennemis", "allie", "tous_allies", "soi"];
+const CONSIGNE_RPG = (titres) => `Tu prépares un MINI-JEU de combat en équipe (5 contre 5, tour par tour, sans déplacement), façon RPG gacha. Pour CHAQUE personnage ci-dessus (${titres.join(", ")}), crée son rôle et ses compétences DE JEU.
+Ces compétences servent UNIQUEMENT au jeu : elles s'inspirent de la fiche (pouvoirs, magie, armes, style de combat, personnalité, race) mais ce sont des compétences de jeu, simples et lisibles. Si la fiche ne décrit pas de techniques, invente-en qui collent au personnage.
+- "role" : "defenseur" (encaisse et protège l'équipe, en première ligne), "attaquant" (fait les dégâts) ou "soutien" (soigne, protège, renforce). Choisis selon ce que le personnage fait le mieux.
+- exactement 4 "competences". La PREMIÈRE est l'attaque de base (type "degats", cible "ennemi", puissance 1, recharge 0) ; un soutien peut à la place avoir une petite "soin" de base (cible "allie", puissance 1, recharge 0). Les 3 autres sont des compétences spéciales.
+Chaque compétence : {"nom": court et stylé (30 caractères max), "element": l'élément visuel de l'effet, un parmi ${RPG_ELEMENTS.join(", ")} (ex : une attaque de sang d'un vampire = "sang", une épée = "physique"), "portee": "melee" (il va frapper au contact) ou "distance" (projectile, sort), "type": un parmi ${RPG_TYPES.join(", ")}, "cible": un parmi ${RPG_CIBLES.join(", ")}, "puissance": 1 (faible), 2 (moyenne) ou 3 (forte), "recharge": nombre de tours d'attente avant de la réutiliser (0 à 4 ; plus la compétence est forte, plus la recharge est longue), "description": une phrase d'ambiance qui décrit l'action}.
+Signification des types : degats = inflige des dégâts ; soin = rend des points de vie ; bouclier = absorbe les prochains dégâts ; provocation = le lanceur attire toutes les attaques sur lui pendant 2 tours ; etourdir = dégâts légers + chance d'empêcher la cible de jouer son prochain tour ; renfort = augmente les dégâts des alliés pendant 2 tours ; affaiblir = réduit les dégâts de la cible pendant 2 tours.
+Garde l'équilibre : un défenseur a surtout provocation/bouclier, un attaquant surtout des dégâts, un soutien surtout soin/bouclier/renfort. Les dégâts sur "tous_ennemis" doivent avoir une recharge d'au moins 2.
+Réponds UNIQUEMENT avec un tableau JSON valide, un objet par personnage, sans texte autour :
+[{"titre":"Nom exact du personnage","role":"attaquant","competences":[{"nom":"…","element":"physique","portee":"melee","type":"degats","cible":"ennemi","puissance":1,"recharge":0,"description":"…"}]}]`;
+function nettoyerCompetences(liste, role) {
+  const borne = (n, a, b, d) => Math.max(a, Math.min(b, Number.isFinite(Number(n)) ? Math.round(Number(n)) : d));
+  const out = (Array.isArray(liste) ? liste : []).slice(0, 4).map((c) => {
+    const type = RPG_TYPES.includes(c && c.type) ? c.type : "degats";
+    let cible = RPG_CIBLES.includes(c && c.cible) ? c.cible : (["soin", "bouclier", "renfort"].includes(type) ? "allie" : type === "provocation" ? "soi" : "ennemi");
+    if (["degats", "etourdir", "affaiblir"].includes(type) && !["ennemi", "tous_ennemis"].includes(cible)) cible = "ennemi";
+    if (["soin", "bouclier", "renfort"].includes(type) && !["allie", "tous_allies", "soi"].includes(cible)) cible = "allie";
+    if (type === "provocation") cible = "soi";
+    const puissance = borne(c && c.puissance, 1, 3, 1);
+    let recharge = borne(c && c.recharge, 0, 4, puissance);
+    if (cible.startsWith("tous") && recharge < 2) recharge = 2;
+    const el = String(c && c.element || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return { nom: String(c && c.nom || "Coup").trim().slice(0, 30) || "Coup", type, cible, puissance, recharge, description: String(c && c.description || "").slice(0, 200),
+      ...(RPG_ELEMENTS.includes(el) ? { element: el } : {}), ...(c && ["melee", "distance"].includes(c.portee) ? { portee: c.portee } : {}) };
+  });
+  const base = role === "soutien" && out[0] && out[0].type === "soin" ? { type: "soin", cible: "allie" } : { type: "degats", cible: "ennemi" };
+  if (!out.length) out.push({ nom: "Attaque", description: "", ...base, puissance: 1, recharge: 0 });
+  else Object.assign(out[0], out[0].type === "soin" && role === "soutien" ? { cible: "allie" } : { type: "degats", cible: "ennemi" }, { puissance: 1, recharge: 0 });
+  while (out.length < 4) out.push({ nom: ["Frappe vive", "Garde", "Second souffle"][out.length - 1] || "Coup", type: ["degats", "bouclier", "soin"][out.length - 1] || "degats", cible: ["ennemi", "soi", "soi"][out.length - 1] || "ennemi", puissance: 2, recharge: 2, description: "" });
+  out.slice(1).forEach((c) => { if (c.recharge < 1) c.recharge = 1; });
+  return out;
+}
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -484,7 +519,7 @@ Deno.serve(async (req) => {
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
     if (mode === "discord") return await envoyerDiscord(profil, corps);
-    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues", "rpg"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
       db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
@@ -524,6 +559,20 @@ Deno.serve(async (req) => {
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE À CORRIGER (texte exact)\n${JSON.stringify(brut)}\n\n# CONSIGNE\n${CONSIGNE_CORRIGER(cible.titre, av && av[0] ? String(av[0].contenu).slice(0, 6000) : "")}`,
       }];
+    } else if (mode === "rpg") {
+      const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : []).filter(Boolean).slice(0, 10);
+      var cibles = fiches.filter((f) => ids.includes(f.id) && f.categorie === "personnages");
+      if (!cibles.length) throw new ErreurIA("Personnage introuvable.", 404);
+      if (!(corps.regenerer && profil.role === "admin")) {
+        const deja = await db(`rpg_persos?select=fiche_id&fiche_id=in.(${cibles.map((f) => f.id).join(",")})`).catch(() => []);
+        const pris = new Set((deja || []).map((x) => x.fiche_id));
+        cibles = cibles.filter((f) => !pris.has(f.id));
+        if (!cibles.length) return reponse({ persos: [], restant: null });
+      }
+      messages = [{
+        role: "user",
+        content: cibles.map((f) => `# PERSONNAGE : ${f.titre}\n${ficheTexte(f, true, 6000)}`).join("\n\n") + `\n\n# CONSIGNE\n${CONSIGNE_RPG(cibles.map((f) => f.titre))}`,
+      }];
     } else if (mode === "roues") {
       cible = fiches.find((x) => x.id === corps.fiche_id);
       if (!cible) throw new ErreurIA("Fiche introuvable.", 404);
@@ -559,7 +608,8 @@ Deno.serve(async (req) => {
       ];
     }
 
-    const compter = await verifierLimite(profil);
+    // la préparation du jeu RPG ne compte pas dans la limite du jour
+    const compter = mode === "rpg" ? async () => null : await verifierLimite(profil);
     const rep = await appelerIA(SYSTEME, messages);
     const texte = rep.texte.trim();
     const restant = await compter();
@@ -576,6 +626,20 @@ Deno.serve(async (req) => {
           changements: liste(c.changements), a_verifier: liste(c.a_verifier) },
         restant, modele: rep.modele,
       });
+    }
+
+    if (mode === "rpg") {
+      let liste = extraireJSON(texte);
+      if (!Array.isArray(liste)) liste = liste && Array.isArray(liste.personnages) ? liste.personnages : [liste];
+      const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const puis = corps.puissances && typeof corps.puissances === "object" ? corps.puissances : {};
+      const lignes = cibles.map((f, i) => {
+        const p = liste.find((x) => x && norm(x.titre) === norm(f.titre)) || (cibles.length === 1 ? liste[0] : liste[i]) || {};
+        const role = ["defenseur", "attaquant", "soutien"].includes(norm(p.role).replace("é", "e")) ? norm(p.role) : norm(p.role).startsWith("def") ? "defenseur" : norm(p.role).startsWith("sou") ? "soutien" : "attaquant";
+        return { fiche_id: f.id, role, competences: nettoyerCompetences(p.competences, role), puissance: Math.max(0, Math.min(300, Math.round(Number(puis[f.id]) || 0))), genere_le: new Date().toISOString() };
+      });
+      await db("rpg_persos?on_conflict=fiche_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(lignes) });
+      return reponse({ persos: lignes, restant: null, modele: rep.modele });
     }
 
     if (mode === "roues") {
