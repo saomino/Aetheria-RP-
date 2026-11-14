@@ -3834,7 +3834,9 @@
         <label class="champ-court">Nom du coup de grâce<input id="app-finish" maxlength="40" value="${esc(dd.finish_nom || "")}" placeholder="ex : Danse des cartes funèbres"></label>
         <button class="btn petit" id="app-finish-ok">Enregistrer le nom</button>
         <details><summary class="petit-texte">Texte à donner à ton IA d'images pour la planche</summary><pre class="partage-dle">2D fighting game character sprite sheet, [description of ${esc(f.titre)}], full body, side view facing right, anime dark fantasy style, 7 poses in a single row, evenly spaced, same size: idle fighting stance, walking, punch, high kick, casting magic, getting hit, signature finishing move. Plain white background, no text, no shadow</pre></details>
-        <div id="app-msg" class="petit-texte"></div>` : `<p class="discret petit-texte">Seuls l'auteur de la fiche et les admins peuvent changer son apparence.</p>`}`;
+        <div id="app-msg" class="petit-texte"></div>
+        <button class="btn petit btn-or" id="app-perso">🎨 Personnaliser couleurs et détails</button>
+        <div id="app-editeur"></div>` : `<p class="discret petit-texte">Seuls l'auteur de la fiche et les admins peuvent changer son apparence.</p>`}`;
       if (!peut) return;
       const msg = (t) => ($("#app-msg").innerHTML = t);
       const sauver = async (champs, texte) => {
@@ -3861,7 +3863,58 @@
         } catch (er) { msg(`⚠️ ${esc(er.message)}`); }
       };
       const sp = $("#app-sans-planche"); if (sp) sp.onclick = () => sauver({ planche_url: null }, "Planche retirée.");
+      $("#app-perso").onclick = () => { $("#app-perso").hidden = true; editeurDetaille($("#app-editeur"), f, dd, sauver); };
       $("#app-finish-ok").onclick = () => sauver({ finish_nom: $("#app-finish").value.trim() || null }, "Nom du coup de grâce enregistré.");
+    };
+
+    /* ----- éditeur détaillé : couleurs + détails, aperçu en direct ----- */
+    const CHAMPS_EDIT = [
+      ["Corps", [["peau", "Peau", "c"], ["femme", "Silhouette féminine", "b"], ["carrure", "Carrure", ["0:Fine", "1:Normale", "2:Massive"]], ["taille", "Taille", ["0.9:Petite", "1:Normale", "1.1:Grande"]]]],
+      ["Cheveux", [["cheveux", "Couleur", "c"], ["meche", "Mèche (2e couleur)", "c?"], ["longueur", "Longueur", ["0:Très courts", "1:Courts", "2:Mi-longs", "3:Très longs"]], ["coiffure", "Coiffure", ["lisse:Lisses", "ebouriffe:Ébouriffés", "chignon:Chignon"]]]],
+      ["Visage", [["yeux", "Yeux", "c"], ["yeuxBrillants", "Yeux lumineux", "b"], ["crocs", "Crocs", "b"], ["barbe", "Barbe", "c?"], ["levres", "Rouge à lèvres", "c?"], ["marques", "Marques / tatouages", "c?"], ["monocle", "Monocle", "b"]]],
+      ["Tête", [["oreilles", "Oreilles", [":Normales", "pointues:Pointues (elfe)", "nageoire:Nageoires"]], ["chat", "Oreilles de chat", "b"], ["cornes", "Cornes", [":Aucune", "oni:Droites", "belier:Recourbées"]], ["couleurCornes", "Couleur des cornes", "c?"], ["couronne", "Couronne", "c?"], ["gemme", "Pierre de la couronne", "c?"], ["aureole", "Auréole", "b"], ["lunettes", "Lunettes d'aviateur", "b"]]],
+      ["Tenue", [["haut", "Haut", "c"], ["torseNu", "Torse ouvert", "b"], ["tatouage", "Tatouage du torse", "c?"], ["armure", "Plastron", "c?"], ["manteau", "Manteau / cape", "c?"], ["manteauLong", "Manteau long", "b"], ["doublure", "Bordure", "c?"], ["robe", "Robe longue", "c?"], ["chaines", "Chaînes", "c?"], ["gants", "Gants", "c?"], ["pantalon", "Pantalon", "c"], ["bottes", "Bottes", "c"]]],
+      ["Ailes et queue", [["ailes", "Ailes", [":Aucune", "plumes:Plumes", "chauve:Chauve-souris"]], ["ailesNb", "Nombre d'ailes", ["2:2", "6:6"]], ["couleurAiles", "Couleur des ailes", "c?"], ["veinesAiles", "Veines lumineuses", "c?"], ["queue", "Queue", "c?"]]],
+      ["Combat", [["arme", "Arme", [":Aucune", "epee:Épée", "epee_sang:Épée de sang", "epee_noire:Épée noire", "faux:Faux", "lance:Lance", "trident:Trident", "baton:Bâton", "canne:Canne", "livre:Livre", "cartes:Cartes", "griffes:Griffes"]], ["aura", "Couleur de la magie", "c?"], ["mainMagique", "Magie dans la main", "b"]]],
+    ];
+    const versHex = (c) => { if (!c) return "#888888"; if (/^#[0-9a-f]{6}$/i.test(c)) return c; const m = /rgb\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return m ? "#" + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, "0")).join("") : "#888888"; };
+    const editeurDetaille = (zone, f, dd, sauver) => {
+      const auto = apparenceAuto(f), ia = dd.apparence || {};
+      const app = Object.keys(ia).length ? { ...auto, cornes: undefined, ailes: undefined, aureole: undefined, chat: undefined, crocs: undefined, oreilles: undefined, couronne: undefined, queue: undefined, armure: undefined, arme: undefined, ...ia } : { ...auto };
+      Object.keys(app).forEach((k) => app[k] === undefined && delete app[k]);
+      zone.innerHTML = `<div class="editeur-app">
+        <canvas class="apercu-duel apercu-editeur" width="200" height="250"></canvas>
+        <div class="ea-champs">${CHAMPS_EDIT.map(([titre, champs]) => `<fieldset><legend>${titre}</legend>${champs.map(([k, nom, type]) => {
+          if (type === "b") return `<label class="ea-ligne"><input type="checkbox" data-ea="${k}" ${app[k] ? "checked" : ""}> ${nom}</label>`;
+          if (Array.isArray(type)) return `<label class="ea-ligne">${nom}<select data-ea="${k}">${type.map((o) => { const [v, l] = o.split(":"); return `<option value="${v}" ${String(app[k] ?? "") === v ? "selected" : ""}>${l}</option>`; }).join("")}</select></label>`;
+          const opt = type === "c?";
+          return `<label class="ea-ligne">${nom}${opt ? `<input type="checkbox" data-ea-actif="${k}" ${app[k] ? "checked" : ""} title="Activer">` : ""}<input type="color" data-ea="${k}" value="${versHex(app[k])}" ${opt && !app[k] ? "disabled" : ""}></label>`;
+        }).join("")}</fieldset>`).join("")}</div>
+        <div class="rangee"><button class="btn btn-or" id="ea-sauver">💾 Enregistrer l'apparence</button><button class="btn petit" id="ea-auto">↺ Repartir de l'apparence devinée</button></div></div>`;
+      // aperçu en direct (garde puis coup de poing, en boucle)
+      const cv = $(".apercu-editeur", zone), cx = cv.getContext("2d"), t0 = performance.now();
+      const anim = () => {
+        if (!document.body.contains(cv)) return;
+        const t = (performance.now() - t0) / 1000, cycle = t % 3, P = COMBATTANT.POSES;
+        const pose = cycle < 2 ? Object.assign({}, P.garde, { hy: Math.sin(t * 2.2) * 1.3 }) : COMBATTANT.melanger(P.garde, P.special, Math.min(1, (cycle - 2) * 4));
+        cx.clearRect(0, 0, 200, 250); cx.save(); cx.translate(100, 238); const ech = 1.05 / (app.taille || 1); cx.scale(ech, ech);
+        cx.fillStyle = "rgba(0,0,0,0.4)"; cx.beginPath(); cx.ellipse(0, 0, 32, 6, 0, 0, 7); cx.fill();
+        try { COMBATTANT.dessiner(cx, app, pose, t); } catch (e) {}
+        cx.restore(); requestAnimationFrame(anim);
+      };
+      anim();
+      $$("[data-ea]", zone).forEach((el) => (el.oninput = el.onchange = () => {
+        const k = el.dataset.ea;
+        if (el.type === "checkbox") { if (el.checked) app[k] = true; else delete app[k]; }
+        else if (el.tagName === "SELECT") { const v = el.value; if (v === "") delete app[k]; else app[k] = /^[\d.]+$/.test(v) ? Number(v) : v; }
+        else app[k] = el.value;
+      }));
+      $$("[data-ea-actif]", zone).forEach((el) => (el.onchange = () => {
+        const k = el.dataset.eaActif, c = $(`[data-ea="${k}"]`, zone);
+        c.disabled = !el.checked; if (el.checked) app[k] = c.value; else delete app[k];
+      }));
+      $("#ea-sauver", zone).onclick = () => { const a = {}; Object.entries(app).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") a[k] = v; }); sauver({ apparence: a }, "Apparence enregistrée !"); };
+      $("#ea-auto", zone).onclick = () => { dd = { ...dd, apparence: {} }; editeurDetaille(zone, f, dd, sauver); };
     };
 
     /* ----- lancement ----- */

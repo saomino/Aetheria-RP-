@@ -1,5 +1,14 @@
 // Combattant articulé 2D — v2 : style dark fantasy (manteaux, cheveux longs, cornes, ailes, auras)
 (function () {
+  // sécurité : une couleur invalide dans un dégradé ne fait plus jamais planter le dessin
+  if (window.CanvasGradient && !CanvasGradient.prototype.__sur) {
+    const orig = CanvasGradient.prototype.addColorStop;
+    CanvasGradient.prototype.addColorStop = function (o, c) {
+      const off = Math.min(1, Math.max(0, Number(o) || 0));
+      try { orig.call(this, off, c); } catch (e) { orig.call(this, off, "rgba(140,130,160,0.6)"); }
+    };
+    CanvasGradient.prototype.__sur = true;
+  }
   const L = { tete: 17, cou: 7, torse: 44, bras1: 25, bras2: 24, cuisse: 34, tibia: 34 };
   const lerp = (a, b, k) => a + (b - a) * k;
   const rad = (d) => (d * Math.PI) / 180;
@@ -137,14 +146,14 @@
 
   function accessoiresTete(ctx, st, temps) {
     ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 1.3;
-    if (st.cornes === "oni") { ctx.fillStyle = st.couleurCornes || "#2a1a2a"; for (const dx of [-8, 4]) { ctx.beginPath(); ctx.moveTo(dx - 2.5, -16); ctx.quadraticCurveTo(dx + 2, -34, dx + 10, -40); ctx.quadraticCurveTo(dx + 5, -28, dx + 3.5, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); } }
-    if (st.cornes === "belier") { ctx.fillStyle = st.couleurCornes || "#2a1a14"; for (const [dx, s] of [[-10, 0.85], [2, 1]]) { ctx.save(); ctx.translate(dx, -14); ctx.scale(s, s); ctx.beginPath(); ctx.moveTo(-3, 2); ctx.bezierCurveTo(-4, -18, 18, -22, 20, -6); ctx.bezierCurveTo(22, 8, 6, 12, 6, 2); ctx.bezierCurveTo(8, 6, 14, 2, 13, -5); ctx.bezierCurveTo(12, -14, 2, -12, 4, 2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); } }
-    if (st.chat) { const c = st.cheveux; for (const dx of [-12, 2]) { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(dx - 5, -14); ctx.lineTo(dx + 1, -32); ctx.lineTo(dx + 8, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = st.chatInterieur || "#a02030"; ctx.beginPath(); ctx.moveTo(dx - 2, -16); ctx.lineTo(dx + 1, -27); ctx.lineTo(dx + 5, -16); ctx.fill(); } }
     if (st.couronne) {
       ctx.fillStyle = st.couronne; ctx.strokeStyle = "rgba(0,0,0,0.5)";
       ctx.beginPath(); ctx.moveTo(-14, -15); for (let i = 0; i <= 6; i++) { const x = -14 + i * 4.6; ctx.lineTo(x, -15 - (i % 2 ? 12 : 5)); } ctx.lineTo(14, -15); ctx.closePath(); ctx.fill(); ctx.stroke();
       if (st.gemme) { ctx.fillStyle = st.gemme; ctx.shadowColor = st.gemme; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(0, -19, 2.4, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; }
     }
+    if (st.cornes === "oni") { ctx.fillStyle = st.couleurCornes || "#2a1a2a"; for (const dx of [-8, 4]) { ctx.beginPath(); ctx.moveTo(dx - 2.5, -16); ctx.quadraticCurveTo(dx + 2, -34, dx + 10, -40); ctx.quadraticCurveTo(dx + 5, -28, dx + 3.5, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); } }
+    if (st.cornes === "belier") { ctx.fillStyle = st.couleurCornes || "#2a1a14"; for (const [dx, s] of [[-10, 0.85], [2, 1]]) { ctx.save(); ctx.translate(dx, -14); ctx.scale(s, s); ctx.beginPath(); ctx.moveTo(-3, 2); ctx.bezierCurveTo(-4, -18, 18, -22, 20, -6); ctx.bezierCurveTo(22, 8, 6, 12, 6, 2); ctx.bezierCurveTo(8, 6, 14, 2, 13, -5); ctx.bezierCurveTo(12, -14, 2, -12, 4, 2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); } }
+    if (st.chat) { const c = st.cheveux; for (const dx of [-12, 2]) { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(dx - 5, -14); ctx.lineTo(dx + 1, -32); ctx.lineTo(dx + 8, -15); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = st.chatInterieur || "#a02030"; ctx.beginPath(); ctx.moveTo(dx - 2, -16); ctx.lineTo(dx + 1, -27); ctx.lineTo(dx + 5, -16); ctx.fill(); } }
     if (st.bouffon) {
       const cols = st.bouffon;
       for (const [ang, c] of [[-2.3, cols[0]], [-0.9, cols[1]]]) {
@@ -159,7 +168,9 @@
 
   function arme(ctx, st, x, y, a, temps) {
     if (!st.arme) return;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(-rad(a) + Math.PI);
+    // armes longues (trident, lance, faux, bâton…) : tenues droites, légèrement penchées vers l'avant
+    const longue = ["trident", "lance", "faux", "baton", "canne"].includes(st.arme);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(longue ? 0.18 : -rad(a) + Math.PI);
     ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = 1.3;
     const lueur = (c) => { ctx.shadowColor = c; ctx.shadowBlur = 12; };
     switch (st.arme) {
@@ -197,7 +208,9 @@
   const DEFAUTS = { peau: "#e8c8b0", cheveux: "#2a2030", haut: "#3a2a4a", pantalon: "#1a1420", bottes: "#100a0e" };
   function dessiner(ctx, st0, p, temps, expression) {
     const st = Object.assign({}, DEFAUTS, st0);
-    for (const k in DEFAUTS) if (!st[k]) st[k] = DEFAUTS[k];
+    for (const k in DEFAUTS) if (typeof st[k] !== "string" || !st[k]) st[k] = DEFAUTS[k];
+    for (const k of ["aura", "manteau", "doublure", "manches", "gants", "robe", "armure", "couleurAiles", "couleurAiles2", "couleurCornes", "couronne", "queue", "meche", "meche2", "yeux", "yeux2", "barbe", "levres", "marques", "tatouage", "chaines", "collier", "fourrure", "jambieres", "ceinture", "damier", "robeMotif", "veinesAiles", "gemme", "losange", "nageoire"])
+      if (st[k] !== undefined && typeof st[k] !== "string") delete st[k];
     const k = st.taille || 1, F = !!st.femme;
     ctx.save(); ctx.scale(k, k);
     const hx = 0, hy = -(L.cuisse + L.tibia) + p.hy;

@@ -758,7 +758,7 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .dc-vs-mot { font: 900 2rem Georgia, serif; color: var(--rouge); text-shadow: 0 0 12px rgba(255, 60, 60, 0.6); }
 .dc-mystere { width: 120px; height: 150px; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: var(--texte-doux); border: 2px dashed var(--bord); border-radius: 12px; }
 .dc-pret { color: var(--vert); font-weight: 700; }
-.apercu-duel { width: 150px; height: 175px; background: radial-gradient(ellipse at 50% 85%, rgba(160, 16, 32, 0.35), transparent 70%); border-radius: 12px; }
+.apercu-duel { width: 150px; height: 175px; object-fit: contain; background: radial-gradient(ellipse at 50% 85%, rgba(160, 16, 32, 0.35), transparent 70%); border-radius: 12px; }
 .grille-duel { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 8px; }
 .perso-duel { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border: 1px solid var(--bord); border-radius: 10px; background: var(--nuit-2); color: var(--texte); font: 0.72rem system-ui, sans-serif; cursor: pointer; }
 .perso-duel.actif { border-color: var(--or); box-shadow: 0 0 0 2px var(--or); }
@@ -783,3 +783,13 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .duel-cadre:fullscreen .manette > *, .duel-cadre.pseudo-plein .manette > * { pointer-events: auto; opacity: 0.8; }
 .duel-fin { margin-top: 10px; }
 .centre { text-align: center; }
+.editeur-app { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.apercu-editeur { align-self: center; position: sticky; top: 70px; z-index: 2; background: radial-gradient(ellipse at 50% 85%, rgba(60, 90, 200, 0.3), rgba(12, 10, 24, 0.95) 70%); border: 1px solid var(--bord); }
+.ea-champs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.ea-champs fieldset { border: 1px solid var(--bord); border-radius: 10px; padding: 6px 10px; margin: 0; }
+.ea-champs legend { color: var(--or); font: 600 0.85rem var(--titres); padding: 0 4px; }
+.ea-ligne { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font: 0.85rem system-ui, sans-serif; }
+.ea-ligne select { max-width: 55%; }
+.ea-ligne input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var(--bord); border-radius: 6px; background: none; margin-left: auto; }
+.ea-ligne input[type=color]:disabled { opacity: 0.25; }
+.apercu-editeur { width: 170px; height: 212px; }
