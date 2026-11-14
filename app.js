@@ -3797,6 +3797,13 @@
   }
 
   // ---- données d'un combattant ----
+  // thème du coup de grâce : la magie du perso (sceaux, cartes…) sinon son élément
+  const THEMES_KITS = ["sceaux", "cartes", "metamorphose", "illusion", "temps", "gravite", "invocation", "necro", "telekinesie", "son", "espace", "mots"];
+  function themeFinishDe(f, ulti, el) {
+    const t = normal(`${ulti ? `${ulti.nom} ${ulti.description || ""}` : ""} ${magieDe(f) || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b|aptitude/.test(normal(i.cle))).map((i) => i.valeur).join(" ")}`);
+    const i = KITS_MAGIE.findIndex((k) => k.re.test(t));
+    return i >= 0 && THEMES_KITS[i] ? THEMES_KITS[i] : el;
+  }
   async function combattantDe(f, duelData, rpData) {
     const dd = duelData.find((d) => d.fiche_id === f.id) || {};
     const auto = apparenceAuto(f), ia = dd.apparence || {};
@@ -3804,8 +3811,10 @@
     const comp = (rpData.find((p) => p.fiche_id === f.id) || competencesLocales(f)).competences || [];
     const el = (comp.find((c) => c.element && c.element !== "physique") || {}).element || elementDeFiche(f);
     const x = forces(f);
+    const offensives = comp.filter((c) => ["degats", "etourdir", "affaiblir"].includes(c.type));
+    const ulti = (offensives.length ? offensives : comp).slice().sort((a, b) => (b.puissance || 0) - (a.puissance || 0) || (b.description || "").length - (a.description || "").length)[0] || null;
     return {
-      f, nom: f.titre, app, element: ELEMENTS[el] ? el : "physique", stats: x,
+      f, nom: f.titre, app, ulti: ulti ? { nom: ulti.nom, description: ulti.description || "" } : null, theme: themeFinishDe(f, ulti, ELEMENTS[el] ? el : "physique"), element: ELEMENTS[el] ? el : "physique", stats: x,
       special: (comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || { nom: "Attaque spéciale" }).nom,
       super: (comp.find((c) => c.cible === "tous_ennemis") || comp[2] || { nom: "Super" }).nom,
       finish: dd.finish_nom || "", planche: await chargerPlanche(dd.planche_url), planche_url: dd.planche_url || null,
@@ -4332,6 +4341,7 @@
       else if (e.k === "banniere") etat.banniere = { txt: e.txt, sous: e.sous || "", vie: e.vie || 1.4, age: 0, couleur: e.couleur || "#f5d08a" };
       else if (e.k === "flash") etat.flash = Math.max(etat.flash, e.v || 0.6);
       else if (e.k === "finish") finishEffet(e);
+      else if (e.k === "fcoup" || e.k === "ffige" || e.k === "ffinal") finEvenement(e);
       else if (e.k === "lancer") for (let i = 0; i < 10; i++) ajouter({ x: e.x, y: e.y, vx: rnd(-60, 60), vy: rnd(-80, 20), couleur: (ELEMENTS[e.el] || ELEMENTS.physique).c1, taille: rnd(2, 5), vie: 0.5 });
     }
     function ajouter(p) { if (parts.length < 600) parts.push({ vx: 0, vy: 0, g: 0, taille: 3, vie: 0.6, age: 0, add: true, forme: "rond", rot: 0, vr: 0, ...p }); }
@@ -4355,7 +4365,7 @@
     // ---- simulation (60 images/s) ----
     const debutRound = () => {
       equipes.forEach((eq, i) => { actifs[i] = 0; J[i] = eq[0]; eq.forEach((p) => Object.assign(p, { x: i ? 460 : 180, y: SOL, vx: 0, vy: 0, face: i ? -1 : 1, pv: p.pvMax, pvAff: p.pvMax, etat: "garde", t: 0, coup: null, stun: 0, invuln: 0, recharge: 0, sigRecharge: 0, combo: 0, comboT: 0, hist: [], tagCd: 0 })); });
-      etat.projectiles = []; etat.chrono = 60 * 60; etat.phase = "intro"; etat.phaseT = 0; etat.acheve = null; etat.finish = null;
+      etat.projectiles = []; etat.chrono = 60 * 60; etat.phase = "intro"; etat.phaseT = 0; etat.acheve = null; etat.finish = null; etat.finishFx = null; J.forEach((q) => { q.poseF = null; q.rotF = 0; });
       evt({ k: "banniere", txt: `Round ${etat.round}`, sous: etat.round === 1 ? `📍 ${opts.lieu || (ARENES[opts.arene] || ARENES.cathedrale).nom}` : `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.5 });
     };
     function changerEtat(p, e) { p.etat = e; p.t = 0; }
@@ -4398,6 +4408,7 @@
       // coup de grâce : Super pendant que l'adversaire est sonné (quel que soit le mouvement en cours)
       if (etat.acheve && !etat.finish && cmd[etat.acheve.gagnant].sup) { const g = J[etat.acheve.gagnant]; lancerFinish(g, J[1 - etat.acheve.gagnant]); }
       J.forEach((p, i) => majCombattant(p, J[1 - i], cmd[i]));
+      majFinish();
       // séparer les corps
       const dx = J[1].x - J[0].x;
       if (Math.abs(dx) < 46 && Math.abs(J[0].y - J[1].y) < 80) { const push = (46 - Math.abs(dx)) / 2 * Math.sign(dx || 1); J[0].x -= push; J[1].x += push; }
@@ -4610,26 +4621,235 @@
       etat.ralenti = 70; evt({ k: "banniere", txt: "K.O.", vie: 1.6, couleur: "#ff3a3a" });
       setTimeout(() => finRound(a.cote), 1700);
     }
+    // ===== Coup de grâce : une petite cinématique =====
+    const FIN = { ouv: 40, emprise: 100, rafale: 184, fige: 208, fin: 310 };
+    const NOMS_FINISH_THEME = { sceaux: "Sceau d'exécution", cartes: "Dernière main", metamorphose: "Forme ultime", illusion: "Mille reflets", temps: "Fin des temps", gravite: "Singularité", invocation: "Appel des abysses", necro: "Danse macabre", telekinesie: "Écrasement psychique", son: "Requiem", espace: "Faille finale", mots: "Dernier mot" };
+    const NOMS_FINISH = { sang: "Festin écarlate", feu: "Bûcher infernal", glace: "Tombeau de glace", foudre: "Jugement de la foudre", lumiere: "Colonne céleste", ombre: "Étreinte du néant", nature: "Étreinte des ronces", poison: "Dernier venin", eau: "Abysse sans fond", vent: "Ouragan final", terre: "Tombe de pierre", arcane: "Sceau final", physique: "Coup fatal" };
+    const POSES_RAFALE = ["poing", "pied", "uppercut", "poing", "aerien", "pied", "uppercut"];
     function lancerFinish(p, o) {
-      const NOMS_FINISH = { sang: "Festin écarlate", feu: "Bûcher infernal", glace: "Tombeau de glace", foudre: "Jugement de la foudre", lumiere: "Colonne céleste", ombre: "Étreinte du néant", nature: "Étreinte des ronces", poison: "Dernier venin", eau: "Abysse sans fond", vent: "Ouragan final", terre: "Tombe de pierre", arcane: "Sceau final", physique: "Coup fatal" };
-      etat.finish = { t: 0, el: p.c.element, nom: p.c.finish || NOMS_FINISH[p.c.element] || "Coup de grâce" };
-      changerEtat(p, "finish"); p.face = Math.sign(o.x - p.x) || p.face;
-      evt({ k: "finish", camp: p.cote, el: p.c.element, x: o.x, nom: etat.finish.nom });
-      evt({ k: "banniere", txt: etat.finish.nom, sous: "COUP DE GRÂCE", vie: 3, couleur: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow });
-      setTimeout(() => { changerEtat(o, "ko"); o.vy = -6; o.vx = -o.face * 3; o.y -= 1; }, 1800);
-      setTimeout(() => finRound(p.cote, false, true), 3600);
+      const th = p.c.theme || p.c.element;
+      const nom = p.c.finish || NOMS_FINISH_THEME[th] || NOMS_FINISH[p.c.element] || "Coup de grâce";
+      p.face = Math.sign(o.x - p.x) || p.face;
+      etat.finish = { t: 0, el: p.c.element, nom, theme: th, camp: p.cote, dir: p.face };
+      changerEtat(p, "finish"); changerEtat(o, "sonne"); o.face = -p.face; p.poseF = "special"; o.poseF = null; o.rotF = 0; etat.ralenti = 0;
+      evt({ k: "finish", camp: p.cote, el: p.c.element, theme: th, nom, ulti: p.c.ulti ? p.c.ulti.nom : "", desc: p.c.ulti ? p.c.ulti.description : "" });
     }
+    function majFinish() {
+      const F = etat.finish; if (!F) return;
+      const t = ++F.t, p = J[F.camp], o = J[1 - F.camp], bord = (x) => Math.max(40, Math.min(W_D - 40, x));
+      if (t <= FIN.ouv) { const cx = Math.max(160, Math.min(W_D - 160, o.x)); o.x += (cx - o.x) * 0.12; p.x += (o.x - F.dir * 110 - p.x) * 0.12; p.y = SOL; }
+      if (t < FIN.emprise) { if (F.theme === "gravite" || F.theme === "telekinesie") o.y = SOL - 56 * Math.min(1, Math.max(0, (t - FIN.ouv) / 50)); else o.y = SOL; o.vy = 0; p.vy = 0; }
+      if (t === FIN.emprise - 20) evt({ k: "son", n: "signature" });
+      if (t >= FIN.emprise && t < FIN.rafale) {
+        const i = Math.floor((t - FIN.emprise) / 12), l = (t - FIN.emprise) % 12;
+        if (l === 0) {
+          const cote = i % 2 ? 1 : -1;
+          p.x = bord(o.x + cote * F.dir * -54); p.face = Math.sign(o.x - p.x) || 1; o.face = -p.face;
+          p.poseF = POSES_RAFALE[i % POSES_RAFALE.length];
+          evt({ k: "fcoup", x: o.x, y: o.y - 84, n: i + 1, el: F.el, depuis: p.x });
+        }
+        o.poseF = l < 6 && i % 2 ? "envol" : "touche"; o.rotF = (i % 2 ? 0.3 : -0.18) * o.face;
+        o.y = SOL - Math.min(64, 12 + i * 9) - Math.sin(l / 12 * Math.PI) * 7; o.vy = 0;
+        p.y = POSES_RAFALE[i % POSES_RAFALE.length] === "aerien" ? SOL - 46 : SOL; p.vy = 0;
+      }
+      if (t === FIN.rafale) { p.x = bord(o.x + F.dir * 84); p.face = F.dir; p.poseF = "finish"; p.y = SOL; o.poseF = "touche"; o.rotF = 0; evt({ k: "ffige", x: o.x, y: o.y - 84, el: F.el }); }
+      if (t > FIN.rafale && t < FIN.fige) { o.vy = 0; p.vy = 0; p.y = SOL; }
+      if (t === FIN.fige) { o.poseF = null; o.rotF = 0; o.face = -F.dir; changerEtat(o, "ko"); o.vy = -10; o.vx = F.dir * 3.4; o.y -= 1; evt({ k: "ffinal", x: o.x, y: o.y - 84, el: F.el, theme: F.theme }); }
+      if (t === FIN.fin) { p.poseF = null; finRound(F.camp, false, true); }
+    }
+    // ----- effets (hôte et invité, au rythme de l'horloge) -----
+    const hasard = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+    const lisse = (k) => k * k * (3 - 2 * k);
+    const ageF = (fx) => (performance.now() - fx.t0) / 1000 * 60;
+    const prog = (a, d, f) => Math.max(0, Math.min(1, (a - d) / (f - d)));
     function finishEffet(e) {
-      const E2 = ELEMENTS[e.el] || ELEMENTS.physique, x = e.x, base = SOL;
-      etat.finishFx = { el: e.el, x, age: 0, vie: 3.2 };
-      for (let k = 0; k < 6; k++) setTimeout(() => {
-        if (!vivante) return;
-        if (e.el === "sang") for (let i = 0; i < 30; i++) { const a = rnd(0, 6.28), r = rnd(10, 60); ajouter({ x: x + Math.cos(a) * r, y: base - 90 + Math.sin(a) * r, vx: -Math.sin(a) * 120, vy: Math.cos(a) * 120 - 40, couleur: i % 2 ? E2.c1 : E2.c2, forme: "goutte", g: 200, taille: rnd(3, 6), vie: 1, add: false }); }
-        else if (e.el === "lumiere") for (let i = 0; i < 30; i++) ajouter({ x: x + rnd(-30, 30), y: rnd(0, base), vy: rnd(200, 400), couleur: i % 2 ? "#fff6d0" : "#ffe58a", forme: "trait", rot: 1.57, taille: rnd(3, 6), vie: 0.6 });
-        else if (e.el === "arcane") for (let i = 0; i < 18; i++) { const a = rnd(0, 6.28); ajouter({ x: x + Math.cos(a) * 80, y: base - 90 + Math.sin(a) * 50, vx: -Math.cos(a) * 140, vy: -Math.sin(a) * 90, couleur: i % 3 ? "#f4ead0" : "#c0102a", forme: "carte", vr: rnd(-10, 10), taille: 6, vie: 0.8, add: false }); }
-        else eclat(x + rnd(-40, 40), base - rnd(40, 140), e.el, 1.6);
-        etat.secousse = 10; evt({ k: "flash", v: 0.3 });
-      }, k * 420);
+      const v = J[1 - e.camp];
+      etat.finishFx = { t0: performance.now(), theme: e.theme || e.el, el: e.el, nom: e.nom, ulti: e.ulti || "", desc: e.desc || "", camp: e.camp, coups: 0, cx: v.x, cy: SOL - 105, dirW: Math.sign(v.x - J[e.camp].x) || 1 };
+      etat.secousse = 6; etat.flash = 0.35;
+    }
+    function finEvenement(e) {
+      const fx = etat.finishFx, E2 = ELEMENTS[e.el] || ELEMENTS.physique;
+      if (e.k === "fcoup") {
+        if (fx) { fx.coups = e.n; fx.coupT = performance.now(); fx.coupA = hasard(e.n * 7) * 6.28; }
+        eclat(e.x, e.y, e.el, 1.3); anneau(e.x, e.y, E2.glow, 50); SON.jouer(e.n % 2 ? "fort" : "coup"); if (e.n >= 3) SON.jouer("combo", Math.min(8, e.n));
+        for (let i = 0; i < 8; i++) ajouter({ x: e.depuis + (e.x - e.depuis) * (i / 8), y: e.y + rnd(-10, 10), couleur: E2.glow, forme: "trait", taille: 3, vie: 0.25 });
+        etat.secousse = Math.max(etat.secousse, 7); etat.flash = Math.max(etat.flash, 0.12);
+      }
+      if (e.k === "ffige") { SON.jouer("vent"); SON.jouer("signature"); }
+      if (e.k === "ffinal") {
+        SON.jouer("ko"); SON.jouer("fort"); etat.secousse = 16; etat.flash = 0.8;
+        eclat(e.x, e.y, e.el, 3); anneau(e.x, SOL, E2.glow, 160); anneau(e.x, e.y, "#ffffff", 120);
+        const th = e.theme;
+        for (let i = 0; i < 46; i++) {
+          const a = rnd(0, 6.28), sp = rnd(120, 460);
+          const forme = th === "cartes" ? "carte" : ["sceaux", "glace", "temps", "espace", "mots", "illusion"].includes(th) ? "eclat" : th === "sang" ? "goutte" : th === "terre" || th === "gravite" ? "roche" : th === "feu" ? "rond" : "eclat";
+          ajouter({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, g: 420, couleur: forme === "carte" ? "#f4ead0" : i % 3 ? E2.c1 : "#ffffff", forme, vr: rnd(-12, 12), taille: rnd(3, 7), vie: rnd(0.7, 1.3), add: forme !== "carte" && forme !== "roche" });
+        }
+      }
+    }
+    // caméra : zoom sur la scène pendant le coup de grâce
+    function cameraFinish() {
+      const fx = etat.finishFx; if (!fx) return;
+      const a = ageF(fx); if (a > FIN.fin + 20) { etat.finishFx = null; return; }
+      const v = J[1 - fx.camp], w = J[fx.camp];
+      const z = 1 + 0.3 * lisse(prog(a, 0, 34)) + 0.1 * lisse(prog(a, FIN.rafale, FIN.fige)) - 0.4 * lisse(prog(a, FIN.fige + 10, FIN.fige + 70));
+      const cible = a < FIN.emprise ? (v.x + w.x) / 2 : v.x;
+      fx.cx += (cible - fx.cx) * 0.08; fx.cy += ((a < FIN.fige ? Math.min(SOL - 125, v.y - 110) : SOL - 130) - fx.cy) * 0.08;
+      const cx = Math.max(W_D / 2 / z, Math.min(W_D - W_D / 2 / z, fx.cx)), cy = Math.max(H_D / 2 / z, Math.min(H_D - H_D / 2 / z, fx.cy));
+      ctx.translate(W_D / 2, H_D / 2); ctx.scale(z, z); ctx.translate(-cx, -cy);
+    }
+    // --- petits dessins réutilisables ---
+    function sceau(cx, cy, r, rot, col, al, aplati = 1) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(1, aplati); ctx.rotate(rot); ctx.globalAlpha = al; ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.shadowColor = col; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, r * 0.76, 0, 7); ctx.stroke();
+      ctx.beginPath(); for (let i = 0; i <= 5; i++) { const an = i * 4 * Math.PI / 5 - Math.PI / 2; ctx.lineTo(Math.cos(an) * r * 0.76, Math.sin(an) * r * 0.76); } ctx.stroke();
+      for (let i = 0; i < 16; i++) { ctx.save(); ctx.rotate(i * Math.PI / 8); ctx.fillRect(r * 0.8, -1.5, r * (i % 2 ? 0.08 : 0.14), 3); ctx.restore(); }
+      ctx.restore();
+    }
+    function tentacules(x, y, s, a, n, couleur, bord, feuilles) {
+      ctx.save(); ctx.lineCap = "round";
+      for (let i = 0; i < n; i++) {
+        const bx = x + (i - (n - 1) / 2) * 26, ex = x + Math.sin(i * 2.1 + a * 0.06) * 26, ey = y + ((i % 3) - 1) * 26;
+        const tx = bx + (ex - bx) * s, ty = SOL + (ey - SOL) * s, c1x = bx + (i % 2 ? 50 : -50) * s, c1y = SOL - 60 * s;
+        for (const [lw, col] of [[9, bord], [5, couleur]]) { ctx.strokeStyle = col; ctx.lineWidth = lw * (0.6 + 0.4 * s); ctx.beginPath(); ctx.moveTo(bx, SOL); ctx.quadraticCurveTo(c1x, c1y, tx, ty); ctx.stroke(); }
+        if (feuilles && s > 0.3) { ctx.fillStyle = "#7fe07a"; for (let k = 1; k < 4; k++) { const q = k / 4; const lx = (1 - q) * (1 - q) * bx + 2 * (1 - q) * q * c1x + q * q * tx, ly = (1 - q) * (1 - q) * SOL + 2 * (1 - q) * q * c1y + q * q * ty; ctx.beginPath(); ctx.ellipse(lx + 5, ly, 6, 3, 0.6, 0, 7); ctx.fill(); } }
+      }
+      ctx.restore();
+    }
+    // derrière les combattants
+    function finArriere() {
+      const fx = etat.finishFx; if (!fx) return;
+      const a = ageF(fx), E2 = ELEMENTS[fx.el] || ELEMENTS.physique, v = J[1 - fx.camp], w = J[fx.camp], x = v.x, y = v.y - 84;
+      const s = lisse(prog(a, FIN.ouv, FIN.emprise)), sortie = 1 - prog(a, FIN.fige + 30, FIN.fin - 20);
+      ctx.save();
+      ctx.fillStyle = `rgba(4,2,12,${0.8 * Math.min(1, a / 20) * sortie})`; ctx.fillRect(-W_D, -H_D, W_D * 3, H_D * 3);
+      const g = ctx.createRadialGradient(x, SOL, 5, x, SOL, 160); g.addColorStop(0, E2.glow); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.globalAlpha = 0.35 * s * sortie; ctx.fillStyle = g; ctx.fillRect(x - 170, SOL - 120, 340, 160); ctx.globalAlpha = sortie;
+      const th = fx.theme;
+      if (th === "temps") {
+        const r = 70 + 50 * s; ctx.save(); ctx.translate(x, y - 10); ctx.globalAlpha = 0.85 * s * sortie; ctx.strokeStyle = E2.c2; ctx.lineWidth = 3; ctx.shadowColor = E2.glow; ctx.shadowBlur = 14;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.stroke(); ctx.fillStyle = E2.c1; ctx.font = `700 ${Math.round(r / 7)}px Georgia, serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ["XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"].forEach((n, i) => { const an = i * Math.PI / 6 - Math.PI / 2; ctx.fillText(n, Math.cos(an) * r * 0.82, Math.sin(an) * r * 0.82); });
+        const stop = Math.min(a, FIN.emprise); ctx.lineCap = "round";
+        [[stop * 0.35, r * 0.7, 3], [stop * 0.05, r * 0.45, 5]].forEach(([an, l, lw]) => { ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.sin(an) * l, -Math.cos(an) * l); ctx.stroke(); });
+        ctx.restore();
+      } else if (th === "sang") {
+        ctx.save(); ctx.globalAlpha = s * sortie; const lg = ctx.createRadialGradient(x, y - 120, 10, x, y - 120, 110); lg.addColorStop(0, "#ff3a4a"); lg.addColorStop(0.55, "#a00018"); lg.addColorStop(1, "rgba(80,0,10,0)"); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(x, y - 120, 110, 0, 7); ctx.fill(); ctx.restore();
+      } else if (th === "gravite") {
+        ctx.save(); ctx.globalAlpha = s * sortie; const r = 18 + 26 * s, cy = y - 90;
+        ctx.strokeStyle = E2.c1; ctx.lineWidth = 3; ctx.shadowColor = E2.glow; ctx.shadowBlur = 20;
+        for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(x, cy, r * (1.8 + k * 0.5), r * (0.45 + k * 0.1), a * 0.02 * (k % 2 ? -1 : 1), 0, 7); ctx.stroke(); }
+        ctx.shadowBlur = 0; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(x, cy, r, 0, 7); ctx.fill();
+        for (let i = 0; i < 10; i++) { const an = a * 0.04 + i * 0.63, rr = 70 + 30 * hasard(i); ctx.fillStyle = "#6a5a7a"; ctx.fillRect(x + Math.cos(an) * rr - 4, cy + 70 + Math.sin(an) * rr * 0.4 - 4 - 60 * s * hasard(i + 3), 8, 7); }
+        ctx.restore();
+      } else if (th === "invocation") {
+        sceau(w.x, SOL, 70, a * 0.03, E2.glow, s * sortie, 0.28);
+        ctx.save(); ctx.globalAlpha = 0.45 * s * sortie; ctx.fillStyle = E2.c2; ctx.shadowColor = E2.glow; ctx.shadowBlur = 30; const hx = w.x - fx.dirW * 40, hy = SOL - 260 * s + 40;
+        ctx.beginPath(); ctx.ellipse(hx, hy + 120, 90, 120, 0, 0, 7); ctx.fill(); ctx.beginPath(); ctx.arc(hx, hy, 44, 0, 7); ctx.fill();
+        ctx.globalAlpha = s * sortie; ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.ellipse(hx - 14, hy - 4, 7, 3, 0, 0, 7); ctx.ellipse(hx + 14, hy - 4, 7, 3, 0, 0, 7); ctx.fill();
+        ctx.strokeStyle = E2.glow; ctx.lineWidth = 6; ctx.lineCap = "round"; const bx = hx + fx.dirW * 70, by = hy + 60; ctx.beginPath(); ctx.moveTo(hx + fx.dirW * 40, hy + 50); ctx.quadraticCurveTo(bx, by - 30, x - fx.dirW * 20, y - 10 * s); ctx.stroke();
+        ctx.restore();
+      } else if (th === "metamorphose") {
+        ctx.save(); ctx.globalAlpha = 0.85 * s * sortie; const bx = w.x - fx.dirW * 50, by = SOL - 190 * s - 10;
+        ctx.fillStyle = "#14060c"; ctx.strokeStyle = E2.glow; ctx.lineWidth = 3; ctx.shadowColor = E2.glow; ctx.shadowBlur = 30; ctx.beginPath(); ctx.ellipse(bx, by + 80, 95 * s, 140 * s, 0, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx - 50 * s, by - 10); ctx.lineTo(bx - 34 * s, by - 80 * s); ctx.lineTo(bx - 14 * s, by - 20); ctx.moveTo(bx + 50 * s, by - 10); ctx.lineTo(bx + 34 * s, by - 80 * s); ctx.lineTo(bx + 14 * s, by - 20); ctx.fill();
+        ctx.shadowBlur = 16; ctx.shadowColor = "#ff2a2a"; ctx.fillStyle = "#ff3a3a"; ctx.beginPath(); ctx.ellipse(bx - 18 * s, by + 4, 9 * s, 4 * s, 0.3, 0, 7); ctx.ellipse(bx + 18 * s, by + 4, 9 * s, 4 * s, -0.3, 0, 7); ctx.fill(); ctx.restore();
+      } else if (th === "lumiere") {
+        ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = s * sortie; const lg = ctx.createLinearGradient(x - 50, 0, x + 50, 0); lg.addColorStop(0, "rgba(0,0,0,0)"); lg.addColorStop(0.5, "rgba(255,240,180,0.85)"); lg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = lg; ctx.fillRect(x - 50, -H_D, 100, SOL + H_D); ctx.restore();
+      } else if (th === "foudre") {
+        ctx.save(); ctx.globalAlpha = 0.9 * s * sortie; ctx.fillStyle = "#1a1626"; for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.ellipse(x + (i - 4) * 50, y - 170 + hasard(i) * 20, 60, 26, 0, 0, 7); ctx.fill(); } ctx.restore();
+      } else if (th === "arcane" || th === "sceaux" || th === "mots") {
+        sceau(x, SOL, 90, -a * 0.02, E2.glow, s * sortie, 0.26);
+        if (th === "arcane") sceau(x, y, 70 + 30 * s, a * 0.015, E2.c1, 0.6 * s * sortie);
+      } else if (th === "ombre") {
+        ctx.save(); ctx.globalAlpha = s * sortie; for (let i = 0; i < 6; i++) { const ex = x + (hasard(i) - 0.5) * 300, ey = y - 60 + (hasard(i + 9) - 0.5) * 80; ctx.fillStyle = "#c08aff"; ctx.shadowColor = "#9a5cff"; ctx.shadowBlur = 10; ctx.beginPath(); ctx.ellipse(ex - 7, ey, 5, 2, 0, 0, 7); ctx.ellipse(ex + 7, ey, 5, 2, 0, 0, 7); ctx.fill(); } ctx.restore();
+      }
+      ctx.restore();
+    }
+    // devant les combattants
+    function finAvant() {
+      const fx = etat.finishFx; if (!fx) return;
+      const a = ageF(fx), E2 = ELEMENTS[fx.el] || ELEMENTS.physique, v = J[1 - fx.camp], w = J[fx.camp], x = v.x, y = v.y - 84;
+      const s = lisse(prog(a, FIN.ouv, FIN.emprise)), tenue = 1 - prog(a, FIN.fige, FIN.fige + 14), th = fx.theme;
+      ctx.save();
+      if (th === "sceaux") {
+        const R = 150 - 92 * s; for (let i = 0; i < 3; i++) { const an = i * 2.094 + a * 0.02, sx = x + Math.cos(an) * R, sy = y + Math.sin(an) * R * 0.6;
+          sceau(sx, sy, 20 + 12 * s, a * 0.05 * (i % 2 ? 1 : -1), E2.glow, s * tenue);
+          if (s > 0.5) { ctx.save(); ctx.globalAlpha = (s - 0.5) * 2 * tenue; ctx.strokeStyle = "#e8d8ff"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(x, y + 10); ctx.stroke(); ctx.restore(); } }
+      } else if (th === "cartes") {
+        const n = 24, R = 150 - 80 * s; for (let i = 0; i < n; i++) { const an = i / n * 6.283 + a * 0.06 * (1 + s); const cx = x + Math.cos(an) * R, cy = y + Math.sin(an) * R * 0.35 + Math.sin(i * 1.7 + a * 0.1) * 10;
+          ctx.save(); ctx.translate(cx, cy); ctx.rotate(an + a * 0.05); ctx.globalAlpha = s * tenue; ctx.fillStyle = "#f4ead0"; ctx.strokeStyle = "#1a1018"; ctx.lineWidth = 1; ctx.fillRect(-6, -9, 12, 18); ctx.strokeRect(-6, -9, 12, 18); ctx.fillStyle = i % 2 ? "#c0102a" : "#1a1018"; ctx.font = "10px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("♠♥♣♦"[i % 4], 0, 0); ctx.restore(); }
+      } else if (th === "illusion") {
+        [[-120, "pied"], [120, "poing"], [-70, "uppercut"], [70, "special"]].forEach(([dx, pose], k) => { if (s <= 0) return; ctx.save(); ctx.globalAlpha = 0.32 * s * tenue; try { dessinerCombattant({ ...w, x: x + dx * (0.6 + 0.4 * s), y: SOL, face: dx > 0 ? -1 : 1, etat: "finish", poseF: pose, rotF: 0, t: 0 }, a / 60 + k); } catch (_) {} ctx.restore(); });
+      } else if (th === "necro") {
+        ctx.strokeStyle = "#e8e0c8"; ctx.lineCap = "round"; ctx.shadowColor = "#7fe0a0"; ctx.shadowBlur = 8; ctx.globalAlpha = tenue;
+        for (let i = 0; i < 6; i++) { const hx = x + (i - 2.5) * 22, h = 70 * s * (0.7 + 0.3 * hasard(i)), lean = (x - hx) * 0.3 * s, tx = hx + lean, ty = SOL - h;
+          ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hx, SOL); ctx.lineTo(tx, ty); ctx.stroke(); ctx.lineWidth = 2;
+          for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + k * 5, ty - 12, tx + k * 4 + Math.sign(x - hx) * 6, ty - 18); ctx.stroke(); } }
+      } else if (th === "telekinesie" || th === "son") {
+        ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = E2.glow; ctx.lineWidth = 2;
+        if (th === "son") { const dir = Math.sign(x - w.x) || 1; for (let k = 0; k < 6; k++) { const r = (a * 3 + k * 30) % 180; ctx.globalAlpha = (1 - r / 180) * s * tenue; ctx.beginPath(); ctx.arc(w.x, w.y - 90, r, dir > 0 ? -0.6 : Math.PI - 0.6, dir > 0 ? 0.6 : Math.PI + 0.6); ctx.stroke(); }
+          ctx.fillStyle = E2.c1; ctx.font = "18px serif"; for (let i = 0; i < 6; i++) { ctx.globalAlpha = s * tenue * 0.9; ctx.fillText(i % 2 ? "♪" : "♫", x + Math.cos(a * 0.05 + i) * 60, y + Math.sin(a * 0.07 + i * 2) * 50); } }
+        else { for (let k = 0; k < 3; k++) { const r = 40 + k * 22 + Math.sin(a * 0.2 + k) * 5; ctx.globalAlpha = 0.7 * s * tenue; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.5, 0, 0, 7); ctx.stroke(); }
+          ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#7a6a8a"; for (let i = 0; i < 8; i++) { const an = a * 0.05 + i * 0.785; ctx.globalAlpha = s * tenue; ctx.fillRect(x + Math.cos(an) * 95 - 5, y + Math.sin(an) * 40 - 5, 10, 8); } }
+      } else if (th === "espace") {
+        [[-95, -10], [95, -30], [-50, -70], [55, 30]].forEach(([dx, dy], k) => { const ox = x + dx, oy = y + dy, op = s * (0.7 + 0.3 * Math.sin(a * 0.1 + k)); if (op <= 0) return;
+          ctx.save(); ctx.globalAlpha = tenue; const pg = ctx.createRadialGradient(ox, oy, 2, ox, oy, 40); pg.addColorStop(0, "#000"); pg.addColorStop(0.7, "#2a0a4a"); pg.addColorStop(1, E2.glow); ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(ox, oy, 14 * op, 40 * op, 0.2 * k, 0, 7); ctx.fill(); ctx.strokeStyle = E2.glow; ctx.lineWidth = 2; ctx.shadowColor = E2.glow; ctx.shadowBlur = 14; ctx.stroke(); ctx.restore(); });
+      } else if (th === "mots") {
+        const txt = (fx.nom || "ANATHÈME").toUpperCase().replace(/\s+/g, " "), n = txt.length, R = 120 - 50 * s;
+        ctx.fillStyle = E2.c1; ctx.shadowColor = E2.glow; ctx.shadowBlur = 12; ctx.font = "700 15px Georgia, serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        for (let i = 0; i < n; i++) { const an = i / n * 6.283 + a * 0.03; ctx.save(); ctx.globalAlpha = s * tenue; ctx.translate(x + Math.cos(an) * R, y + Math.sin(an) * R * 0.45); ctx.fillText(txt[i], 0, 0); ctx.restore(); }
+      } else if (th === "sang") tentacules(x, y, s * tenue, a, 6, "#c0102a", "#3a0008", false);
+      else if (th === "ombre") tentacules(x, y, s * tenue, a, 7, "#2a0a4a", "#9a5cff", false);
+      else if (th === "nature") tentacules(x, y, s * tenue, a, 6, "#3a7a2a", "#1a3a12", true);
+      else if (th === "feu" || th === "lumiere") {
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 5; i++) { const px = x + (i - 2) * 38, h = 170 * s * (0.75 + 0.25 * Math.sin(a * 0.3 + i)) * tenue; if (h < 2) continue; const fg = ctx.createLinearGradient(0, SOL, 0, SOL - h); fg.addColorStop(0, th === "feu" ? "rgba(255,240,140,0.9)" : "rgba(255,255,230,0.9)"); fg.addColorStop(0.5, th === "feu" ? "rgba(255,110,20,0.7)" : "rgba(255,220,120,0.5)"); fg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = fg;
+          ctx.beginPath(); ctx.moveTo(px - 16, SOL); ctx.quadraticCurveTo(px - 22 + Math.sin(a * 0.4 + i) * 6, SOL - h * 0.5, px + Math.sin(a * 0.5 + i) * 8, SOL - h); ctx.quadraticCurveTo(px + 22, SOL - h * 0.5, px + 16, SOL); ctx.fill(); }
+      } else if (th === "glace" || th === "terre") {
+        for (let i = 0; i < 9; i++) { const bx = x + (i - 4) * 20, h = (40 + 90 * hasard(i)) * s * tenue, lean = (x - bx) * 0.5; if (h < 2) continue; ctx.fillStyle = th === "glace" ? "rgba(200,240,255,0.55)" : "#7a5a3a"; ctx.strokeStyle = th === "glace" ? "#ffffff" : "#3a2a1a"; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(bx - 10, SOL); ctx.lineTo(bx + lean * 0.4, SOL - h); ctx.lineTo(bx + 10, SOL); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      } else if (th === "foudre") {
+        const k = Math.floor(a / 4); if (s > 0.2 && k % 3 !== 2 && a < FIN.fige) { ctx.strokeStyle = "#fff"; ctx.shadowColor = E2.glow; ctx.shadowBlur = 16; ctx.lineWidth = 3; ctx.beginPath(); let bx = x + (hasard(k) - 0.5) * 120, by = y - 200; ctx.moveTo(bx, by); while (by < y) { by += 22; bx += (hasard(k * 13 + by) - 0.5) * 40 + (x - bx) * 0.2; ctx.lineTo(bx, by); } ctx.stroke(); }
+      } else if (th === "poison") {
+        for (let i = 0; i < 14; i++) { const by = SOL - ((a * 1.5 + i * 23) % 170), bx = x + Math.sin(i * 3 + a * 0.05) * 50; ctx.globalAlpha = 0.7 * s * tenue; ctx.strokeStyle = E2.c1; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx, by, 4 + hasard(i) * 6, 0, 7); ctx.stroke(); }
+        ctx.globalAlpha = 0.35 * s * tenue; ctx.fillStyle = E2.c2; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.ellipse(x + (i - 2) * 40, SOL - 20, 50, 22, 0, 0, 7); ctx.fill(); }
+      } else if (th === "eau" || th === "vent") {
+        ctx.strokeStyle = th === "eau" ? E2.c1 : "rgba(255,255,255,0.8)"; ctx.lineWidth = 2.5; ctx.globalCompositeOperation = "lighter";
+        for (let k = 0; k < 8; k++) { const hy = SOL - k * 26 * s, r = (th === "vent" ? 20 + k * 11 : 70 - k * 4) * s; ctx.globalAlpha = 0.75 * s * tenue; ctx.beginPath(); ctx.ellipse(x + Math.sin(a * 0.15 + k) * 8, hy - 10, r, r * 0.28, 0, (a * 0.12 + k) % 6.28, (a * 0.12 + k) % 6.28 + 4.4); ctx.stroke(); }
+      } else if (th === "physique" || th === "metamorphose" || th === "gravite" || th === "invocation" || th === "temps") {
+        if (s > 0 && a < FIN.fige) { ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1.5; const k = Math.floor(a / 3); for (let i = 0; i < 36; i++) { const an = hasard(k * 50 + i) * 6.283, r1 = 130 + 40 * hasard(i), r2 = 420; ctx.globalAlpha = 0.6 * s; ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * r1, y + Math.sin(an) * r1); ctx.lineTo(x + Math.cos(an) * r2, y + Math.sin(an) * r2); ctx.stroke(); } }
+      }
+      ctx.restore();
+      // la rafale : un éclair de lame à chaque coup
+      if (fx.coupT && a < FIN.rafale + 4) { const l = (performance.now() - fx.coupT) / 1000 * 60; if (l < 9) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.translate(x, y); ctx.rotate(fx.coupA); ctx.strokeStyle = "#fff"; ctx.shadowColor = E2.glow; ctx.shadowBlur = 18; ctx.lineWidth = 7 * (1 - l / 9); ctx.beginPath(); ctx.arc(0, 0, 54, -1.1, 1.1); ctx.stroke(); ctx.strokeStyle = E2.glow; ctx.lineWidth = 3 * (1 - l / 9); ctx.beginPath(); ctx.arc(-8, 0, 60, -1.2, 1.2); ctx.stroke(); ctx.restore(); } }
+      // l'instant figé : une grande entaille qui traverse l'écran
+      if (a >= FIN.rafale && a < FIN.fige + 6) { const k = lisse(prog(a, FIN.rafale + 2, FIN.rafale + 9)); ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = "#fff"; ctx.shadowColor = E2.glow; ctx.shadowBlur = 24; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x - 320, y + 140); ctx.lineTo(x - 320 + 640 * k, y + 140 - 280 * k); ctx.stroke(); ctx.restore(); }
+      // onde de choc finale
+      if (a >= FIN.fige && a < FIN.fige + 40) { const k = prog(a, FIN.fige, FIN.fige + 40); ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = E2.glow; ctx.lineWidth = 6 * (1 - k) + 1; ctx.beginPath(); ctx.ellipse(x, SOL, 30 + 300 * k, 8 + 50 * k, 0, 0, 7); ctx.stroke(); ctx.restore(); }
+    }
+    // par-dessus tout (hors caméra) : bandes noires, nom du coup, compteur, image figée, K.O.
+    function finEcran() {
+      const fx = etat.finishFx; if (!fx) return;
+      const a = ageF(fx), E2 = ELEMENTS[fx.el] || ELEMENTS.physique;
+      ctx.save();
+      if (fx.theme === "temps" && a > FIN.ouv && a < FIN.rafale) { ctx.globalCompositeOperation = "saturation"; ctx.globalAlpha = 0.9 * lisse(prog(a, FIN.ouv, FIN.ouv + 30)); ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1; }
+      if (a >= FIN.rafale + 4 && a < FIN.fige) { ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "difference"; ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "source-over"; }
+      const bande = 34 * lisse(Math.min(1, a / 14)) * (1 - lisse(prog(a, FIN.fin - 40, FIN.fin)));
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W_D, bande); ctx.fillRect(0, H_D - bande, W_D, bande);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const al = prog(a, 6, 18) * (1 - prog(a, FIN.emprise - 8, FIN.emprise + 4));
+      if (al > 0) {
+        const sc = 1 + 0.15 * (1 - lisse(prog(a, 6, 22)));
+        const yT = H_D - 92;
+        ctx.globalAlpha = al * 0.8; const bg = ctx.createLinearGradient(0, yT - 44, 0, yT + 50); bg.addColorStop(0, "rgba(0,0,0,0)"); bg.addColorStop(0.35, "rgba(0,0,0,0.85)"); bg.addColorStop(1, "rgba(0,0,0,0.9)"); ctx.fillStyle = bg; ctx.fillRect(0, yT - 44, W_D, 94);
+        ctx.globalAlpha = al; ctx.font = "700 11px system-ui"; ctx.fillStyle = E2.glow; ctx.fillText("✦  C O U P   D E   G R Â C E  ✦", W_D / 2, yT - 30);
+        ctx.save(); ctx.translate(W_D / 2, yT); ctx.scale(sc, sc); ctx.font = "900 32px Georgia, serif"; ctx.lineWidth = 6; ctx.strokeStyle = "#000"; ctx.strokeText(fx.nom, 0, 0); ctx.shadowColor = E2.glow; ctx.shadowBlur = 22; ctx.fillStyle = "#fff"; ctx.fillText(fx.nom, 0, 0); ctx.restore();
+        if (fx.ulti) { ctx.font = "italic 12px Georgia, serif"; ctx.fillStyle = "#e8dcc0"; const d = fx.desc ? `${fx.ulti} — ${fx.desc}` : fx.ulti; ctx.fillText(d.length > 86 ? d.slice(0, 84) + "…" : d, W_D / 2, yT + 28); }
+      }
+      if (a >= FIN.emprise && bande > 4) { ctx.globalAlpha = 1; ctx.textAlign = "left"; ctx.font = "700 13px Georgia, serif"; ctx.fillStyle = E2.glow; ctx.fillText("✦ " + fx.nom, 14, H_D - bande / 2); }
+      if (fx.coups > 0 && a < FIN.fige) { ctx.globalAlpha = 1; ctx.textAlign = "right"; ctx.font = "900 30px Georgia, serif"; ctx.lineWidth = 5; ctx.strokeStyle = "#000"; const tx = `${fx.coups} COUPS`; ctx.strokeText(tx, W_D - 18, 70); ctx.fillStyle = fx.coups >= 5 ? "#ff5a3a" : "#ffd84a"; ctx.fillText(tx, W_D - 18, 70); }
+      if (a >= FIN.fige + 6 && a < FIN.fin - 20) { const k = prog(a, FIN.fige + 6, FIN.fige + 18), sc = 1.8 - 0.8 * lisse(k); ctx.globalAlpha = Math.min(1, k * 2) * (1 - prog(a, FIN.fin - 40, FIN.fin - 20)); ctx.textAlign = "center"; ctx.save(); ctx.translate(W_D / 2, H_D / 2 - 10); ctx.scale(sc, sc); ctx.font = "900 64px Georgia, serif"; ctx.lineWidth = 8; ctx.strokeStyle = "#000"; ctx.strokeText("K.O.", 0, 0); ctx.shadowColor = E2.glow; ctx.shadowBlur = 26; ctx.fillStyle = "#ff3a3a"; ctx.fillText("K.O.", 0, 0); ctx.restore(); }
+      ctx.restore();
     }
     function finRound(gagnant, sansFinish, avecFinish) {
       if (etat.fini || etat.phase === "entreRounds") return;
@@ -4647,7 +4867,7 @@
 
     // ---- état réseau (l'hôte envoie, l'invité affiche) ----
     const exporter = () => ({
-      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: Math.round(p.pv), super: Math.round(p.super), rc: p.recharge, sr: p.sigRecharge, co: p.comboT > 0 ? p.comboAff : 0, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0, tb: p.toucheBas ? 1 : 0 })),
+      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: Math.round(p.pv), super: Math.round(p.super), rc: p.recharge, sr: p.sigRecharge, co: p.comboT > 0 ? p.comboAff : 0, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0, tb: p.toucheBas ? 1 : 0, pf: p.poseF || 0, rf: p.rotF ? Math.round(p.rotF * 100) / 100 : 0 })),
       v: etat.victoires, a: actifs.slice(), ep: equipes.map((eq) => eq.map((p) => Math.round(p.pv))),
       pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: Math.round(q.y), el: q.el, camp: q.camp, forme: q.forme, gros: q.gros, vx: q.vx, vy: q.vy })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
       evts: evts.splice(0),
@@ -4656,7 +4876,7 @@
       if (s.a) s.a.forEach((a, i) => { if (equipes[i][a] && actifs[i] !== a) { actifs[i] = a; J[i] = equipes[i][a]; } });
       if (s.ep) s.ep.forEach((l, i) => l.forEach((pv, k) => { if (equipes[i][k]) equipes[i][k].pv = pv; }));
       if (s.v) etat.victoires = s.v;
-      s.j.forEach((q, i) => { const p = J[i]; p.sigRecharge = q.sr || 0; if (q.co) { p.comboAff = q.co; p.comboT = 30; } p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, bloque: q.bloque, toucheBas: !!q.tb }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
+      s.j.forEach((q, i) => { const p = J[i]; p.sigRecharge = q.sr || 0; if (q.co) { p.comboAff = q.co; p.comboT = 30; } p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, bloque: q.bloque, toucheBas: !!q.tb, poseF: q.pf || null, rotF: q.rf || 0 }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
       etat.projectiles = s.pr; etat.chrono = s.ch; etat.round = s.r; etat.acheve = s.ac ? {} : null;
       if (s.fi && !etat.fini) { etat.fini = true; const g = etat.victoires[0] >= ROUNDS ? 0 : 1; setTimeout(() => vivante && opts.fin({ g, gagne: g === moiIdx, gagnant: J[g].c, perdant: J[1 - g].c, moi: J[moiIdx].c, titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
     }
@@ -4665,6 +4885,7 @@
     function apparenceSecours(p) { return { peau: "#e8c8b0", cheveux: "#2a2030", longueur: 1, haut: "#3a2a4a", pantalon: "#1a1420", bottes: "#100a0e", manteau: "#1a1420", manteauLong: true, aura: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow }; }
     function poseDe(p, t) {
       const P = COMBATTANT.POSES;
+      if (p.poseF && (p.etat === "finish" || p.etat === "sonne")) { const k = p.poseF; return { nom: { poing: "poing", uppercut: "poing", pied: "pied", aerien: "pied", special: "magie", finish: "finish" }[k] || "touche", art: P[k] || P.touche }; }
       switch (p.etat) {
         case "marche": return { nom: "marche", art: COMBATTANT.marche(p.t * 0.22) };
         case "accroupi": return { nom: "garde", art: p.bloque ? Object.assign({}, P.accroupi, { bdA: -150, bdB: 150 }) : P.accroupi, bas: true };
@@ -4688,6 +4909,8 @@
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.beginPath(); ctx.ellipse(p.x, SOL + 2, 34 * Math.max(0.5, 1 - (SOL - p.y) / 300), 7, 0, 0, Math.PI * 2); ctx.fill();
       ctx.translate(p.x, p.y);
+      if (p.rotF) { ctx.translate(0, -62); ctx.rotate(p.rotF); ctx.translate(0, 62); }
+      const fxm = etat.finishFx; if (fxm && fxm.theme === "metamorphose" && p.cote === fxm.camp && !p.fantome) { const k = 1 + 0.3 * lisse(prog(ageF(fxm), FIN.ouv, FIN.emprise)); ctx.scale(k, k); }
       if (ps.chute) {
         if (p.etat === "envol") {
           // projeté : le corps bascule en arrière en tournant autour des hanches, la tête part vers le sol
@@ -4749,7 +4972,6 @@
     }
     function fond(t) {
       dessinerArene(ctx, opts.arene || "cathedrale", t, W_D, H_D, SOL);
-      if (etat.finishFx) { const f = etat.finishFx; f.age += 1 / 60; const E2 = ELEMENTS[f.el] || ELEMENTS.physique; ctx.save(); ctx.globalAlpha = Math.min(0.55, f.age) * (f.age > f.vie - 0.5 ? (f.vie - f.age) * 2 : 1); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = E2.glow; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(f.x, SOL, 70 + Math.sin(f.age * 4) * 6, 18, 0, 0, 7); ctx.stroke(); if (f.el === "lumiere") { const gg = ctx.createLinearGradient(f.x - 40, 0, f.x + 40, 0); gg.addColorStop(0, "rgba(0,0,0,0)"); gg.addColorStop(0.5, "rgba(255,240,180,0.8)"); gg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = gg; ctx.fillRect(f.x - 40, 0, 80, SOL); } ctx.restore(); if (f.age > f.vie) etat.finishFx = null; }
     }
     function hud(t) {
       J.forEach((p, i) => {
@@ -4844,7 +5066,9 @@
       const t = (now - t0) / 1000;
       ctx.save();
       if (etat.secousse > 0.3) { ctx.translate(rnd(-etat.secousse, etat.secousse), rnd(-etat.secousse, etat.secousse)); etat.secousse *= 0.85; }
+      cameraFinish();
       fond(t);
+      finArriere();
       [...J].sort((a, b) => (a.etat === "attaque" ? 1 : 0) - (b.etat === "attaque" ? 1 : 0)).forEach((p) => {
         // sécurité : un combattant hors de l'écran ou avec une position invalide est remis en place
         if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { p.x = p.cote ? 460 : 180; p.y = SOL; p.vx = p.vy = 0; }
@@ -4859,8 +5083,10 @@
       });
       dessinerProjectiles(t);
       dessinerParts(dt);
+      finAvant();
       ctx.restore();
-      hud(t);
+      if (!etat.finishFx) hud(t);
+      finEcran();
       const errs = J.filter((p) => p.erreurDessin);
       if (errs.length) { ctx.font = "10px system-ui"; ctx.fillStyle = "#ff8a8a"; ctx.textAlign = "left"; errs.forEach((p, i) => ctx.fillText(`⚠ ${p.c.nom} : ${p.erreurDessin}`.slice(0, 90), 8, H_D - 30 - i * 12)); }
       if (etat.flash > 0.01) { ctx.fillStyle = `rgba(255,255,255,${etat.flash})`; ctx.fillRect(0, 0, W_D, H_D); etat.flash *= 0.85; }
