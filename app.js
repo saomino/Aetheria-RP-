@@ -3391,7 +3391,7 @@
     physique: ["Coup d'épée", "Frappe puissante", "Tourbillon", "Coup assommant", "Premiers soins", "Garde", "Cri de guerre"],
   };
   function elementDeFiche(f) {
-    const t = normal(`${f.titre} ${f.resume || ""} ${(f.infos || []).map((i) => `${i.cle} ${i.valeur}`).join(" ")}`);
+    const t = normal(`${f.titre || ""} ${f.resume || ""} ${(f.infos || []).map((i) => `${i.cle} ${i.valeur}`).join(" ")}`);
     const scores = MOTS_ELEMENTS.map(([e, re]) => [e, (t.match(new RegExp(re.source, "g")) || []).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     if (scores.length) return scores[0][0];
     const race = normal(infoPerso(f, /race|peuple|espece/));
@@ -3504,6 +3504,95 @@
       ? [c(n[0], "degats", "ennemi", 1, 0, "melee"), c(NOMS_LOCAUX.physique[6], "provocation", "soi", 2, 3, "melee"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[3], "etourdir", "ennemi", 2, 2, "melee")]
       : [c(n[0], "degats", "ennemi", 1, 0, el === "physique" ? "melee" : "distance"), c(n[1], "degats", "ennemi", 3, 2, "distance"), c(n[2], "degats", "tous_ennemis", 2, 3, "distance"), c(n[3], x.attaque % 2 ? "etourdir" : "affaiblir", "ennemi", 2, 2, "distance")];
     return { fiche_id: f.id, role, competences, puissance: puissance(f) };
+  }
+
+  /* ---------- Arènes du Duel ---------- */
+  const ARENES = {
+    cathedrale: { nom: "Cathédrale de la lune rouge", ic: "🌕" },
+    foret: { nom: "Forêt maudite", ic: "🌲" },
+    celeste: { nom: "Palais céleste", ic: "☁️" },
+    abysses: { nom: "Abysses", ic: "🌊" },
+    enfers: { nom: "Enfers", ic: "🔥" },
+    neige: { nom: "Citadelle gelée", ic: "❄️" },
+    trone: { nom: "Salle du trône", ic: "👑" },
+  };
+  // un lieu du wiki devient l'arène qui lui ressemble le plus
+  function areneDeLieu(f) {
+    const t = normal(`${f.titre} ${f.resume || ""} ${(f.infos || []).map((i) => i.valeur).join(" ")}`);
+    return /enfer|lave|volcan|brasier|flamm|demon/.test(t) ? "enfers" : /mer\b|ocean|abyss|sous-marin|lac|eau\b|sirene|maree/.test(t) ? "abysses"
+      : /ciel|celest|nuage|paradis|ange|divin/.test(t) ? "celeste" : /neige|glace|givre|nord|hiver|gel/.test(t) ? "neige"
+      : /foret|bois|sylv|arbre|jungle|marais/.test(t) ? "foret" : /palais|trone|chateau|royaume|cour\b|capitale/.test(t) ? "trone" : "cathedrale";
+  }
+  function dessinerArene(ctx, nom, t, W, H, SOLY) {
+    const ciel = (c) => { const g = ctx.createLinearGradient(0, 0, 0, H); c.forEach(([k, v]) => g.addColorStop(k, v)); ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40); };
+    const sol = (c1, c2, lignes) => { const g = ctx.createLinearGradient(0, 230, 0, H); g.addColorStop(0, c1); g.addColorStop(1, c2); ctx.fillStyle = g; ctx.fillRect(-20, 230, W + 40, H); if (lignes) { ctx.strokeStyle = lignes; ctx.lineWidth = 1; for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W / 2 + i * 40, 230); ctx.lineTo(W / 2 + i * 120, H); ctx.stroke(); } } };
+    const poussiere = (coul, n, vy) => { for (let i = 0; i < n; i++) { const x = (i * 97 + t * 10 * ((i % 3) + 1)) % W, y = ((i * 41 + t * vy * ((i % 4) + 1)) % H + H) % H; ctx.fillStyle = coul; ctx.globalAlpha = 0.25 + (i % 4) * 0.12; ctx.fillRect(x, y, 1.8, 1.8); } ctx.globalAlpha = 1; };
+    const astre = (x, y, r, c, halo) => { ctx.fillStyle = c; ctx.globalAlpha = halo; ctx.beginPath(); ctx.arc(x, y, r * 1.8, 0, 7); ctx.fill(); ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.globalAlpha = 1; };
+    switch (nom) {
+      case "foret": {
+        ciel([[0, "#0a1410"], [0.6, "#1a2a1c"], [1, "#0a0c08"]]);
+        astre(110, 60, 22, "#c8e8b0", 0.12);
+        for (let c = 0; c < 3; c++) { ctx.fillStyle = ["#0e1a12", "#0a140e", "#060a07"][c]; for (let i = 0; i < 12; i++) { const x = i * 62 - 20 + c * 25, h = 120 + ((i * 37 + c * 13) % 70); ctx.beginPath(); ctx.moveTo(x, 232); ctx.lineTo(x + 14, 232 - h); ctx.lineTo(x + 28, 232); ctx.fill(); ctx.fillRect(x + 11, 200, 6, 32); } }
+        sol("#14200f", "#070a05", null);
+        ctx.fillStyle = "rgba(160,220,140,0.06)"; for (let i = 0; i < 3; i++) ctx.fillRect(-20, 250 + i * 20 + Math.sin(t + i) * 4, W + 40, 14);
+        for (let i = 0; i < 14; i++) { const x = (i * 53 + Math.sin(t * 0.7 + i) * 30 + t * 6) % W, y = 120 + (i * 29) % 150 + Math.sin(t * 2 + i) * 10; ctx.fillStyle = `rgba(200,255,120,${0.4 + Math.sin(t * 4 + i) * 0.4})`; ctx.beginPath(); ctx.arc(x, y, 1.6, 0, 7); ctx.fill(); }
+        break;
+      }
+      case "celeste": {
+        ciel([[0, "#5a7ad0"], [0.5, "#c8d8f8"], [0.64, "#f4ecd8"], [1, "#d8c8a0"]]);
+        astre(500, 60, 30, "#fff6d0", 0.35);
+        ctx.fillStyle = "rgba(255,255,255,0.85)"; for (let i = 0; i < 7; i++) { const x = ((i * 120 + t * 8) % (W + 160)) - 80, y = 50 + (i % 3) * 40; ctx.beginPath(); ctx.ellipse(x, y, 50, 12, 0, 0, 7); ctx.ellipse(x + 26, y - 8, 30, 12, 0, 0, 7); ctx.fill(); }
+        ctx.fillStyle = "#e8e0f0"; for (let i = 0; i < 7; i++) { const x = 30 + i * 100; ctx.fillRect(x, 120, 16, 112); ctx.fillRect(x - 4, 116, 24, 6); ctx.fillRect(x - 4, 228, 24, 6); }
+        ctx.strokeStyle = "rgba(255,230,150,0.3)"; ctx.lineWidth = 6; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(470 + i * 20, 70); ctx.lineTo(300 + i * 90, 232); ctx.stroke(); }
+        sol("#f0e6cc", "#b8a070", "rgba(200,160,80,0.25)");
+        poussiere("#fff6c0", 20, -6);
+        break;
+      }
+      case "abysses": {
+        ciel([[0, "#06223a"], [0.6, "#0a3a5a"], [1, "#021018"]]);
+        ctx.globalCompositeOperation = "lighter"; for (let i = 0; i < 5; i++) { const x = 80 + i * 130 + Math.sin(t * 0.5 + i) * 20; const g = ctx.createLinearGradient(x, 0, x + 40, 260); g.addColorStop(0, "rgba(120,200,255,0.18)"); g.addColorStop(1, "rgba(120,200,255,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 30, 0); ctx.lineTo(x + 80, 260); ctx.lineTo(x + 20, 260); ctx.fill(); } ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "#052030"; for (let i = 0; i < 8; i++) { const x = i * 90; ctx.beginPath(); ctx.moveTo(x, 232); ctx.quadraticCurveTo(x + 20, 140 - (i % 3) * 30, x + 50, 232); ctx.fill(); }
+        for (let i = 0; i < 4; i++) { const x = (i * 170 + t * 12) % (W + 60) - 30, y = 80 + i * 30 + Math.sin(t + i) * 10; ctx.fillStyle = "rgba(220,150,255,0.35)"; ctx.beginPath(); ctx.arc(x, y, 10, Math.PI, 0); ctx.fill(); ctx.strokeStyle = "rgba(220,150,255,0.3)"; for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(x + k * 4, y); ctx.quadraticCurveTo(x + k * 4 + Math.sin(t * 3 + k) * 4, y + 12, x + k * 3, y + 24); ctx.stroke(); } }
+        sol("#0a2a3a", "#020a10", "rgba(120,200,255,0.12)");
+        for (let i = 0; i < 18; i++) { const x = (i * 71) % W + Math.sin(t + i) * 6, y = H - ((t * 30 + i * 47) % H); ctx.strokeStyle = "rgba(200,240,255,0.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, 2 + (i % 3), 0, 7); ctx.stroke(); }
+        break;
+      }
+      case "enfers": {
+        ciel([[0, "#1a0404"], [0.55, "#5a1006"], [1, "#100202"]]);
+        ctx.fillStyle = "#200606"; for (let i = 0; i < 8; i++) { const x = i * 95 - 20; ctx.beginPath(); ctx.moveTo(x, 232); ctx.lineTo(x + 30, 90 + (i % 3) * 40); ctx.lineTo(x + 70, 232); ctx.fill(); }
+        ctx.strokeStyle = "#ff5a1a"; ctx.shadowColor = "#ff5a1a"; ctx.shadowBlur = 10; ctx.lineWidth = 2; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(60 + i * 160, 232); ctx.lineTo(70 + i * 160, 180); ctx.lineTo(62 + i * 160, 150); ctx.stroke(); } ctx.shadowBlur = 0;
+        sol("#2a0804", "#0a0201", null);
+        const g = ctx.createLinearGradient(0, H - 30, 0, H); g.addColorStop(0, "rgba(255,90,20,0)"); g.addColorStop(1, `rgba(255,90,20,${0.4 + Math.sin(t * 2) * 0.1})`); ctx.fillStyle = g; ctx.fillRect(0, H - 30, W, 30);
+        for (let i = 0; i < 26; i++) { const x = (i * 61 + Math.sin(t + i) * 12) % W, y = H - ((t * 40 * ((i % 3) + 1) + i * 37) % H); ctx.fillStyle = `rgba(255,${120 + (i % 4) * 30},40,${0.5 + (i % 3) * 0.15})`; ctx.fillRect(x, y, 2, 2); }
+        break;
+      }
+      case "neige": {
+        ciel([[0, "#0a1430"], [0.6, "#2a3a60"], [1, "#0a1020"]]);
+        astre(120, 70, 26, "#e8f0ff", 0.18);
+        ctx.fillStyle = "#1a2440"; for (let i = 0; i < 6; i++) { const x = 300 + i * 50, h = 90 + (i % 3) * 40; ctx.fillRect(x, 232 - h, 30, h); ctx.beginPath(); ctx.moveTo(x - 4, 232 - h); ctx.lineTo(x + 15, 232 - h - 40); ctx.lineTo(x + 34, 232 - h); ctx.fill(); ctx.fillStyle = "rgba(255,220,150,0.6)"; ctx.fillRect(x + 12, 232 - h + 20, 5, 8); ctx.fillStyle = "#1a2440"; }
+        ctx.fillStyle = "#c8d8f0"; for (let i = 0; i < 6; i++) { const x = 300 + i * 50, h = 90 + (i % 3) * 40; ctx.beginPath(); ctx.moveTo(x - 4, 232 - h); ctx.lineTo(x + 15, 232 - h - 40); ctx.lineTo(x + 8, 232 - h - 20); ctx.fill(); }
+        sol("#c8d8ec", "#7a8aa8", "rgba(255,255,255,0.3)");
+        for (let i = 0; i < 40; i++) { const x = ((i * 53 + t * 20 + Math.sin(t + i) * 20) % W + W) % W, y = (i * 29 + t * 30 * (1 + (i % 3) * 0.5)) % H; ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.beginPath(); ctx.arc(x, y, 1 + (i % 3) * 0.6, 0, 7); ctx.fill(); }
+        break;
+      }
+      case "trone": {
+        ciel([[0, "#1a0e14"], [0.62, "#3a1a1e"], [1, "#0e0808"]]);
+        ctx.fillStyle = "#6a0a14"; for (let i = 0; i < 4; i++) { const x = 40 + i * 170; ctx.fillRect(x, 20, 46, 120); ctx.beginPath(); ctx.moveTo(x, 140); ctx.lineTo(x + 23, 160); ctx.lineTo(x + 46, 140); ctx.fill(); ctx.fillStyle = "#c8a050"; ctx.fillRect(x + 18, 60, 10, 10); ctx.fillStyle = "#6a0a14"; }
+        ctx.fillStyle = "#2a1414"; ctx.fillRect(W / 2 - 40, 120, 80, 112); ctx.fillStyle = "#c8a050"; ctx.fillRect(W / 2 - 46, 112, 92, 8); ctx.beginPath(); ctx.moveTo(W / 2 - 40, 112); ctx.lineTo(W / 2, 80); ctx.lineTo(W / 2 + 40, 112); ctx.fill();
+        for (let i = 0; i < 6; i++) { const x = 20 + i * 125; ctx.fillStyle = "#c8a050"; ctx.fillRect(x, 180, 4, 52); const fl = Math.sin(t * 8 + i) * 2; ctx.fillStyle = "rgba(255,200,100,0.9)"; ctx.beginPath(); ctx.ellipse(x + 2, 174 + fl * 0.3, 4, 8 + fl, 0, 0, 7); ctx.fill(); ctx.fillStyle = "rgba(255,180,80,0.08)"; ctx.beginPath(); ctx.arc(x + 2, 176, 30, 0, 7); ctx.fill(); }
+        sol("#2a1a1a", "#0a0606", null);
+        ctx.fillStyle = "rgba(140,10,20,0.5)"; ctx.beginPath(); ctx.moveTo(W / 2 - 40, 232); ctx.lineTo(W / 2 + 40, 232); ctx.lineTo(W / 2 + 140, H); ctx.lineTo(W / 2 - 140, H); ctx.fill();
+        ctx.strokeStyle = "rgba(200,160,80,0.25)"; for (let k = 0; k < 6; k++) { const y = 240 + Math.pow(k / 5, 1.5) * 120; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+        break;
+      }
+      default: {
+        ciel([[0, "#120a22"], [0.62, "#3a1a30"], [0.64, "#1c1320"], [1, "#0a0710"]]);
+        astre(520, 70, 34, "#a01020", 0.15);
+        ctx.fillStyle = "#1a0e1c"; for (let i = 0; i < 9; i++) { const x = i * 80 - 10, h = 70 + (i % 3) * 34; ctx.fillRect(x, 230 - h, 28, h); ctx.beginPath(); ctx.moveTo(x - 4, 230 - h); ctx.lineTo(x + 14, 230 - h - 34); ctx.lineTo(x + 32, 230 - h); ctx.fill(); }
+        ctx.strokeStyle = "rgba(227,184,102,0.14)"; ctx.lineWidth = 1; for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W / 2 + i * 40, 230); ctx.lineTo(W / 2 + i * 120, H); ctx.stroke(); }
+        poussiere("#f5d08a", 20, 0);
+      }
+    }
   }
 
   /* =====================================================================
@@ -3655,7 +3744,8 @@
     const [duelData, rpData] = await Promise.all([api.duelPersos().catch(() => []), api.rpgPersos().catch(() => [])]);
     const params = new URLSearchParams((location.hash.split("?")[1] || ""));
     const codeSalle = params.get("salle");
-    let choix = { p1: lireLS("aetheria_duel_p1", null), p2: lireLS("aetheria_duel_p2", null), mode: lireLS("aetheria_duel_mode", "ordi"), niveau: lireLS("aetheria_duel_niveau", "normal") };
+    const lieux = [...indexParId.values()].filter((f) => f.categorie === "monde").sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
+    let choix = { arene: lireLS("aetheria_duel_arene", "hasard"), p1: lireLS("aetheria_duel_p1", null), p2: lireLS("aetheria_duel_p2", null), mode: lireLS("aetheria_duel_mode", "ordi"), niveau: lireLS("aetheria_duel_niveau", "normal") };
     if (!persos.some((f) => f.id === choix.p1)) choix.p1 = persos[0].id;
     if (!persos.some((f) => f.id === choix.p2)) choix.p2 = persos[persos.length > 1 ? 1 : 0].id;
     let partie = null, salle = null;
@@ -3689,6 +3779,11 @@
             <div class="dc-vs-mot">VS</div>
             <div class="dc-cote"><div class="dc-label">${choix.mode === "deux" ? "Joueur 2" : choix.mode === "ligne" ? "Ton ami" : "Ordinateur"}</div>${choix.mode === "ligne" ? `<div class="dc-mystere">?</div><div class="dc-nom">Il choisira</div>` : `<div id="ap2"></div><div class="dc-nom">${esc(f2.titre)}</div><button class="btn petit" data-changer="p2">Changer</button>`}</div>
           </div>
+          <label class="champ-court centre">🗺️ Arène<select id="duel-arene">
+            <option value="hasard" ${choix.arene === "hasard" ? "selected" : ""}>🎲 Au hasard</option>
+            ${Object.entries(ARENES).map(([k, a]) => `<option value="${k}" ${choix.arene === k ? "selected" : ""}>${a.ic} ${esc(a.nom)}</option>`).join("")}
+            ${lieux.length ? `<optgroup label="Lieux du wiki">${lieux.map((f) => `<option value="lieu:${esc(f.id)}" ${choix.arene === "lieu:" + f.id ? "selected" : ""}>📍 ${esc(f.titre)}</option>`).join("")}</optgroup>` : ""}
+          </select></label>
           <div class="modes onglets-roue">
             ${[["ordi", "🤖 Contre l'ordi"], ["deux", "👥 2 joueurs (clavier)"], ["ligne", "🌐 En ligne"]].map(([m, n]) => `<button class="mode ${choix.mode === m ? "actif" : ""}" data-mode="${m}" ${m === "ligne" && !enLigneOk ? "disabled" : ""}>${n}</button>`).join("")}
           </div>
@@ -3701,6 +3796,7 @@
         </div>`;
       $("#ap1").appendChild(apercu(f1, 0));
       if ($("#ap2")) $("#ap2").appendChild(apercu(f2, 1));
+      $("#duel-arene").onchange = (e) => { choix.arene = e.target.value; ecrireLS("aetheria_duel_arene", choix.arene); };
       $$("[data-mode]", z).forEach((b) => (b.onclick = () => { choix.mode = b.dataset.mode; ecrireLS("aetheria_duel_mode", choix.mode); ecranChoix(); }));
       $$("[data-niveau]", z).forEach((b) => (b.onclick = () => { choix.niveau = b.dataset.niveau; ecrireLS("aetheria_duel_niveau", choix.niveau); ecranChoix(); }));
       $$("[data-changer]", z).forEach((b) => (b.onclick = () => liste(b.dataset.changer)));
@@ -3772,7 +3868,10 @@
           <button class="btn petit duel-plein" id="duel-plein" title="Plein écran">⛶</button>
         </div>
         <div class="rangee centre"><button class="btn petit" id="duel-quitter">↩ Quitter</button></div>`;
-      partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { mode: opts.mode || choix.mode, niveau: choix.niveau, salle: opts.salle || null, role: opts.role || "hote", fin: finPartie });
+      const areneDe = (a) => { if (a === "hasard" || !a) { const l = Object.keys(ARENES); return l[Math.floor(Math.random() * l.length)]; } if (a.startsWith("lieu:")) { const f = indexParId.get(a.slice(5)); return f ? areneDeLieu(f) : "cathedrale"; } return ARENES[a] ? a : "cathedrale"; };
+      const arene = opts.arene || areneDe(choix.arene);
+      const lieu = !opts.arene && choix.arene.startsWith("lieu:") ? (indexParId.get(choix.arene.slice(5)) || {}).titre : opts.lieu;
+      partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { arene, lieu, mode: opts.mode || choix.mode, niveau: choix.niveau, salle: opts.salle || null, role: opts.role || "hote", fin: finPartie });
       $("#duel-quitter").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
       $("#duel-plein").onclick = async () => {
         const cadre = $("#duel-cadre");
@@ -3827,8 +3926,10 @@
       const annoncer = () => salle && salle.track({ pseudo: moiPseudo(), fiche: monChoix, pret, role });
       const verifier = () => {
         if (role !== "hote" || !pret || !autre || !autre.pret) return;
-        salle.send({ type: "broadcast", event: "debut", payload: { p1: monChoix, p2: autre.fiche } });
-        lancer({ p1: monChoix, p2: autre.fiche, mode: "ligne", salle, role: "hote" });
+        const ar = choix.arene.startsWith("lieu:") ? areneDeLieu(indexParId.get(choix.arene.slice(5)) || {}) : ARENES[choix.arene] ? choix.arene : Object.keys(ARENES)[Math.floor(Math.random() * Object.keys(ARENES).length)];
+        const li = choix.arene.startsWith("lieu:") ? (indexParId.get(choix.arene.slice(5)) || {}).titre : null;
+        salle.send({ type: "broadcast", event: "debut", payload: { p1: monChoix, p2: autre.fiche, arene: ar, lieu: li } });
+        lancer({ p1: monChoix, p2: autre.fiche, mode: "ligne", salle, role: "hote", arene: ar, lieu: li });
       };
       salle.on("presence", { event: "sync" }, () => {
         const etat = salle.presenceState(), autres = Object.entries(etat).filter(([k]) => k !== ((api.moi || {}).user || {}).id).map(([, v]) => v[v.length - 1]);
@@ -3836,7 +3937,7 @@
         if (partie && avant && !autre) { toast("Ton adversaire s'est déconnecté.", "erreur"); partie.arreter(); finPartie({ titre: "🔌 Adversaire déconnecté" }); return; }
         if (!partie) { dessinerSalle(); verifier(); }
       });
-      salle.on("broadcast", { event: "debut" }, ({ payload }) => { if (role === "invite") lancer({ p1: payload.p1, p2: payload.p2, mode: "ligne", salle, role: "invite" }); });
+      salle.on("broadcast", { event: "debut" }, ({ payload }) => { if (role === "invite") lancer({ p1: payload.p1, p2: payload.p2, mode: "ligne", salle, role: "invite", arene: payload.arene, lieu: payload.lieu }); });
       salle.subscribe((s) => { if (s === "SUBSCRIBED") annoncer(); if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") toast("Connexion à la salle impossible. Réessaie.", "erreur"); });
       dessinerSalle();
     };
@@ -3923,7 +4024,7 @@
     const debutRound = () => {
       J.forEach((p, i) => Object.assign(p, { x: i ? 460 : 180, y: SOL, vx: 0, vy: 0, face: i ? -1 : 1, pv: p.pvMax, pvAff: p.pvMax, etat: "garde", t: 0, coup: null, stun: 0, invuln: 0, recharge: 0 }));
       etat.projectiles = []; etat.chrono = 60 * 60; etat.phase = "intro"; etat.phaseT = 0; etat.acheve = null; etat.finish = null;
-      evt({ k: "banniere", txt: `Round ${etat.round}`, sous: `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.3 });
+      evt({ k: "banniere", txt: `Round ${etat.round}`, sous: etat.round === 1 ? `📍 ${opts.lieu || (ARENES[opts.arene] || ARENES.cathedrale).nom}` : `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.5 });
     };
     function changerEtat(p, e) { p.etat = e; p.t = 0; }
     function attaquer(p, nom) { p.coup = { ...COUPS[nom], nom }; p.touche = false; changerEtat(p, "attaque"); }
@@ -4093,12 +4194,12 @@
 
     // ---- état réseau (l'hôte envoie, l'invité affiche) ----
     const exporter = () => ({
-      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: p.pv, super: Math.round(p.super), gagnes: p.gagnes, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
+      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: p.pv, super: Math.round(p.super), rc: p.recharge, gagnes: p.gagnes, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
       pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: q.y, el: q.el, camp: q.camp })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
       evts: evts.splice(0),
     });
     function importer(s) {
-      s.j.forEach((q, i) => { const p = J[i]; p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, gagnes: q.gagnes, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
+      s.j.forEach((q, i) => { const p = J[i]; p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, gagnes: q.gagnes, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
       etat.projectiles = s.pr; etat.chrono = s.ch; etat.round = s.r; etat.acheve = s.ac ? {} : null;
       if (s.fi && !etat.fini) { etat.fini = true; const g = J[0].gagnes >= 2 ? 0 : 1; setTimeout(() => vivante && opts.fin({ titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
     }
@@ -4145,16 +4246,36 @@
       // garde : bouclier hexagonal
       if (p.bloque && ["garde", "garde_coup", "accroupi"].includes(p.etat) && p.etat !== "marche") { ctx.save(); ctx.globalAlpha = p.etat === "garde_coup" ? 0.8 : 0.25; ctx.strokeStyle = "#9adcff"; ctx.lineWidth = 2; ctx.beginPath(); const cx = p.x + p.face * 30, cy = p.y - (p.etat === "accroupi" ? 50 : 90); for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + 0.52; ctx.lineTo(cx + Math.cos(a) * 14, cy + Math.sin(a) * 38); } ctx.closePath(); ctx.stroke(); ctx.restore(); }
       if (p.etat === "sonne") for (let i = 0; i < 4; i++) { const a = t * 4 + i * 1.57; ctx.fillStyle = "#fff2a0"; ctx.font = "14px sans-serif"; ctx.fillText("★", p.x + Math.cos(a) * 24 - 6, p.y - 168 + Math.sin(a) * 6); }
+      // aura quand l'attaque spéciale ou le super est disponible
+      if (etat.phase === "combat" && !["ko", "sonne", "envol"].includes(p.etat)) {
+        const E2 = ELEMENTS[p.c.element] || ELEMENTS.physique, h = 150 * (p.c.app.taille || 1);
+        if (p.super >= 100) {
+          ctx.save(); ctx.globalCompositeOperation = "lighter";
+          // flammes d'énergie qui montent tout autour du corps
+          for (let i = 0; i < 9; i++) {
+            const k = i / 8, ph = t * 5 + i * 1.3, hx = p.x + (k - 0.5) * 70 + Math.sin(ph) * 5, haut = h * (0.75 + 0.3 * Math.sin(ph * 1.7));
+            const g = ctx.createLinearGradient(hx, p.y, hx, p.y - haut); g.addColorStop(0, E2.glow); g.addColorStop(0.6, E2.c2); g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.globalAlpha = 0.22; ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(hx - 12, p.y); ctx.quadraticCurveTo(hx - 16 + Math.sin(ph) * 8, p.y - haut * 0.5, hx + Math.sin(ph * 2) * 6, p.y - haut); ctx.quadraticCurveTo(hx + 16 + Math.cos(ph) * 8, p.y - haut * 0.5, hx + 12, p.y); ctx.fill();
+          }
+          ctx.globalAlpha = 0.5 + Math.sin(t * 8) * 0.2; ctx.strokeStyle = E2.glow; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(p.x, p.y + 1, 44, 9, 0, 0, 7); ctx.stroke();
+          ctx.restore();
+          if (Math.random() < 0.5) ajouter({ x: p.x + rnd(-34, 34), y: p.y - rnd(0, 30), vy: rnd(-140, -70), vx: rnd(-10, 10), couleur: Math.random() < 0.5 ? E2.c1 : "#ffffff", taille: rnd(1.5, 3), vie: rnd(0.4, 0.8), forme: p.c.element === "sang" ? "goutte" : "rond" });
+        } else if (p.recharge <= 0) {
+          // spécial prêt : petit halo pulsant dans la main et cercle au sol
+          ctx.save(); ctx.globalCompositeOperation = "lighter";
+          const pul = 0.5 + Math.sin(t * 6) * 0.5;
+          ctx.globalAlpha = 0.25 + pul * 0.25; ctx.strokeStyle = E2.glow; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(p.x, p.y + 1, 30 + pul * 4, 6 + pul, 0, 0, 7); ctx.stroke();
+          const mx = p.x + p.face * 26, my = p.y - h * 0.55, g = ctx.createRadialGradient(mx, my, 0, mx, my, 14 + pul * 4);
+          g.addColorStop(0, "#fff"); g.addColorStop(0.35, E2.c1); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.globalAlpha = 0.55 + pul * 0.3; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(mx, my, 18, 0, 7); ctx.fill();
+          ctx.restore();
+          if (Math.random() < 0.15) ajouter({ x: mx + rnd(-6, 6), y: my + rnd(-6, 6), vy: rnd(-40, -10), couleur: E2.c1, taille: rnd(1.2, 2.4), vie: 0.5 });
+        }
+      }
       // aura de magie pendant le super
       if (p.etat === "super" || p.etat === "finish") { const E2 = ELEMENTS[p.c.element] || ELEMENTS.physique; ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.35 + Math.sin(t * 12) * 0.15; const g = ctx.createRadialGradient(p.x, p.y - 80, 10, p.x, p.y - 80, 110); g.addColorStop(0, E2.glow); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(p.x - 120, p.y - 200, 240, 220); ctx.restore(); }
     }
     function fond(t) {
-      const g = ctx.createLinearGradient(0, 0, 0, H_D); g.addColorStop(0, "#120a22"); g.addColorStop(0.62, "#3a1a30"); g.addColorStop(0.64, "#1c1320"); g.addColorStop(1, "#0a0710");
-      ctx.fillStyle = g; ctx.fillRect(-20, -20, W_D + 40, H_D + 40);
-      ctx.fillStyle = "#a01020"; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(520, 70, 34, 0, 7); ctx.fill(); ctx.globalAlpha = 0.15; ctx.beginPath(); ctx.arc(520, 70, 60, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
-      ctx.fillStyle = "#1a0e1c"; for (let i = 0; i < 9; i++) { const x = i * 80 - 10, h = 70 + (i % 3) * 34; ctx.fillRect(x, 230 - h, 28, h); ctx.beginPath(); ctx.moveTo(x - 4, 230 - h); ctx.lineTo(x + 14, 230 - h - 34); ctx.lineTo(x + 32, 230 - h); ctx.fill(); }
-      ctx.strokeStyle = "rgba(227,184,102,0.14)"; ctx.lineWidth = 1; for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W_D / 2 + i * 40, 230); ctx.lineTo(W_D / 2 + i * 120, H_D); ctx.stroke(); }
-      for (let i = 0; i < 20; i++) { const x = (i * 97 + t * 10 * ((i % 3) + 1)) % W_D, y = (i * 41 + Math.sin(t + i) * 8) % 230; ctx.fillStyle = `rgba(245,208,138,${0.15 + (i % 4) * 0.05})`; ctx.fillRect(x, y, 1.6, 1.6); }
+      dessinerArene(ctx, opts.arene || "cathedrale", t, W_D, H_D, SOL);
       if (etat.finishFx) { const f = etat.finishFx; f.age += 1 / 60; const E2 = ELEMENTS[f.el] || ELEMENTS.physique; ctx.save(); ctx.globalAlpha = Math.min(0.55, f.age) * (f.age > f.vie - 0.5 ? (f.vie - f.age) * 2 : 1); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = E2.glow; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(f.x, SOL, 70 + Math.sin(f.age * 4) * 6, 18, 0, 0, 7); ctx.stroke(); if (f.el === "lumiere") { const gg = ctx.createLinearGradient(f.x - 40, 0, f.x + 40, 0); gg.addColorStop(0, "rgba(0,0,0,0)"); gg.addColorStop(0.5, "rgba(255,240,180,0.8)"); gg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = gg; ctx.fillRect(f.x - 40, 0, 80, SOL); } ctx.restore(); if (f.age > f.vie) etat.finishFx = null; }
     }
     function hud(t) {
@@ -4174,6 +4295,7 @@
         const E2 = ELEMENTS[p.c.element] || ELEMENTS.physique;
         ctx.fillStyle = p.super >= 100 ? `rgba(255,255,255,${0.7 + Math.sin(t * 10) * 0.3})` : E2.glow; ctx.fillRect(i ? sx + sw * (1 - p.super / 100) : sx, sy, sw * p.super / 100, 6);
         ctx.font = "700 10px system-ui"; ctx.fillStyle = p.super >= 100 ? "#fff" : "#c8c0b0"; ctx.fillText(p.super >= 100 ? "SUPER PRÊT" : "Super", i ? sx + sw : sx, sy - 5);
+        const pret = p.recharge <= 0; ctx.fillStyle = pret ? E2.glow : "rgba(255,255,255,0.25)"; ctx.textAlign = i ? "right" : "left"; ctx.fillText(pret ? "✦ Spécial" : `Spécial ${Math.ceil(p.recharge / 60)}s`, i ? sx - 8 : sx + sw + 8, sy + 5);
       });
       ctx.textAlign = "center"; ctx.font = "700 24px Georgia, serif"; ctx.fillStyle = "#f5d08a"; ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
       ctx.fillText(String(Math.max(0, Math.ceil(etat.chrono / 60))), W_D / 2, 32); ctx.shadowBlur = 0;
