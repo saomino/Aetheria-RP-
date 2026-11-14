@@ -3817,11 +3817,13 @@
   // ---- moteur ----
   const W_D = 640, H_D = 360, SOL = 318;
   const COUPS = {
-    coup: { debut: 4, actif: 4, fin: 9, dmg: 44, portee: 74, stun: 13, recul: 3, gain: 7, pose: "poing" },
-    fort: { debut: 10, actif: 5, fin: 17, dmg: 92, portee: 90, stun: 22, recul: 8, gain: 12, pose: "pied", secousse: 5 },
-    bas: { debut: 5, actif: 4, fin: 10, dmg: 36, portee: 76, stun: 12, recul: 3, gain: 6, pose: "balayage", bas: true },
-    balayage: { debut: 9, actif: 5, fin: 20, dmg: 68, portee: 96, stun: 0, recul: 6, gain: 11, pose: "balayage", bas: true, chute: true },
-    aerien: { debut: 4, actif: 12, fin: 2, dmg: 64, portee: 70, stun: 16, recul: 5, gain: 9, pose: "aerien", haut: true },
+    // stun = paralysie à l'impact, bstun = paralysie en garde (à la Street Fighter : léger avantage si ça touche, les gros coups sont punissables en garde)
+    coup: { debut: 4, actif: 3, fin: 9, dmg: 44, portee: 74, stun: 14, bstun: 12, recul: 3, gain: 7, pose: "poing" },
+    fort: { debut: 10, actif: 5, fin: 17, dmg: 92, portee: 90, stun: 24, bstun: 16, recul: 8, gain: 12, pose: "pied", secousse: 5 },
+    bas: { debut: 5, actif: 3, fin: 10, dmg: 36, portee: 76, stun: 15, bstun: 12, recul: 3, gain: 6, pose: "balayage", bas: true },
+    balayage: { debut: 9, actif: 5, fin: 20, dmg: 68, portee: 96, stun: 0, bstun: 13, recul: 6, gain: 11, pose: "balayage", bas: true, chute: true },
+    aerien: { debut: 4, actif: 12, fin: 2, dmg: 64, portee: 70, stun: 18, bstun: 14, recul: 5, gain: 9, pose: "aerien", haut: true },
+    lanceur: { debut: 7, actif: 6, fin: 20, dmg: 74, portee: 78, stun: 0, bstun: 12, recul: 2, gain: 12, pose: "uppercut", lance: true, antiair: true },
   };
   function creerCombattant(c, cote) {
     const x = c.stats;
@@ -3898,8 +3900,11 @@
           <div id="duel-liste"></div>
           ${estMembre() ? `<details class="duel-reglages"><summary>🎨 Apparence de ${esc(f1.titre)} dans le jeu</summary><div id="duel-apparence"></div></details>` : ""}
           <details class="duel-aide"><summary>🎮 Commandes et combos</summary><ul class="petit-texte">
-            <li><b>Ordi</b> : flèches ou ZQSD pour bouger · J coup · K fort · L spécial · I super · O signature · U relais (duo). <b>Téléphone</b> : manette à l'écran (mets-toi à l'horizontale, bouton ⛶).</li>
-            <li><b>Garde</b> : recule (accroupi pour les coups bas). <b>Ruée</b> : avant, avant.</li>
+            <li><b>Ordi</b> : flèches ou ZQSD pour bouger · J coup · K fort · L spécial · I super · O signature · U relais (duo). <b>Téléphone</b> : mets-toi à l'horizontale, le combat passe en grand écran. À gauche, la croix : garde le pouce dessus et glisse-le (les diagonales marchent, ↓ ↘ → aussi). À droite : Coup et Fort en gros, Spé / Super / ★ au-dessus.</li>
+            <li><b>Garde</b> : recule (accroupi pour les coups bas ; les coups sautés se parent debout). <b>Ruée</b> : avant, avant.</li>
+            <li><b>Projection</b> : collé à l'adversaire, avant (ou arrière) + Coup. Elle passe la garde : parfait contre quelqu'un qui ne fait que se protéger. Si les deux projettent en même temps : dégagement.</li>
+            <li><b>Lanceur</b> : avant + Fort (uppercut, aussi anti-aérien). <b>Balayage</b> : bas + Fort, fait tomber.</li>
+            <li><b>Attention</b> : un coup raté ou paré te laisse ouvert un instant. Marteler les boutons se fait punir.</li>
             <li><b>Combo</b> : Coup → Coup → Fort → Spécial, en enchaînant pendant que ça touche. Plus le combo est long, plus le compteur monte (les dégâts baissent un peu à chaque coup).</li>
             <li><b>Signature</b> : ↓ ↘ → + Spécial (ou O / bouton ★). Chaque personnage a la sienne : éventail de cartes, téléportation, vague, pluie céleste, pilier, charge…</li>
             <li><b>Coup de grâce</b> : quand l'adversaire est sonné à la fin, appuie sur Super.</li></ul></details>
@@ -4039,10 +4044,11 @@
         <div class="duel-cadre" id="duel-cadre">
           <canvas id="duel-canvas" width="${W_D}" height="${H_D}"></canvas>
           <div class="manette" id="manette">
-            <div class="croix">${[["g", "◀"], ["h", "▲"], ["b", "▼"], ["d", "▶"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
-            <div class="boutons-combat">${[["coup", "Coup"], ["fort", "Fort"], ["spe", "Spé"], ["sup", "Super"], ["sig", "★"], ...(equipes ? [["tag", "⇄"]] : [])].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
+            <div class="stick" id="stick" aria-label="Croix : glisse le pouce, les diagonales marchent">${[["h", "▲"], ["g", "◀"], ["b", "▼"], ["d", "▶"]].map(([k, s]) => `<span class="st-f st-${k}">${s}</span>`).join("")}<div class="st-pouce"></div></div>
+            <div class="boutons-combat${equipes ? " avec-tag" : ""}">${[["spe", "Spé"], ["sup", "Super"], ["sig", "★"], ...(equipes ? [["tag", "⇄"]] : []), ["coup", "Coup"], ["fort", "Fort"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
           </div>
           <button class="btn petit duel-plein" id="duel-plein" title="Plein écran">⛶</button>
+          <button class="btn petit duel-sortie" id="duel-sortie" title="Quitter">↩</button>
           <button class="btn petit duel-son" id="duel-son" title="Son">${SON.coupe ? "🔇" : "🔊"}</button>
         </div>
         <div class="rangee centre"><button class="btn petit" id="duel-quitter">↩ Quitter</button></div>`;
@@ -4051,14 +4057,25 @@
       const lieu = !opts.arene && choix.arene.startsWith("lieu:") ? (indexParId.get(choix.arene.slice(5)) || {}).titre : opts.lieu;
       partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { arene, lieu, mode, equipes, niveau: opts.niveau || choix.niveau, boss: opts.boss, mannequin: choix.mannequin, salle: opts.salle || null, role: opts.role || "hote", fin: opts.fin || finPartie });
       $("#duel-son").onclick = () => { const m = partie.basculerSon(); $("#duel-son").textContent = m ? "🔇" : "🔊"; };
-      $("#duel-quitter").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
+      $("#duel-quitter").onclick = () => { quitterPlein(); if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
+      $("#duel-sortie").onclick = () => $("#duel-quitter").click();
+      // téléphone à l'horizontale : le combat prend tout l'écran, croix à gauche, boutons à droite
+      const cadreJeu = $("#duel-cadre");
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) {
+        cadreJeu.classList.add("tactile");
+        const ajuster = () => { if (!document.body.contains(cadreJeu)) { window.removeEventListener("resize", ajuster); return; } if (cadreJeu.dataset.fini) return; cadreJeu.classList.toggle("pseudo-plein", innerWidth > innerHeight || !!document.fullscreenElement); };
+        ajuster(); window.addEventListener("resize", ajuster);
+      }
       $("#duel-plein").onclick = async () => {
         const cadre = $("#duel-cadre");
         try { if (!document.fullscreenElement) { await cadre.requestFullscreen(); if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape").catch(() => {}); } else await document.exitFullscreen(); } catch (e) { cadre.classList.toggle("pseudo-plein"); }
       };
     };
+    // fin du combat : on sort du plein écran pour voir les résultats
+    const quitterPlein = () => { const c = $("#duel-cadre"); if (c) { c.dataset.fini = "1"; c.classList.remove("pseudo-plein"); } if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
     const posterDiscord = async (titre, texte) => { try { await api.ia("discord", { type: "jeu", salon: "des", titre, texte }); toast("Résultat posté sur Discord !"); } catch (e) { toast(e.message, "erreur"); } };
     const finPartie = (res) => {
+      quitterPlein();
       const mode = salle ? "ligne" : choix.mode;
       if (res.gagne && res.moi && estMembre()) {
         if (mode === "ordi") sauverScore("duel", 1, { perso: res.moi.f.id, contre: res.perdant && res.perdant.f.id, niveau: choix.niveau });
@@ -4176,6 +4193,7 @@
       $("#arcade-quitter").onclick = () => { arcade = null; ecranChoix(); };
     };
     const arcadeFin = (res) => {
+      quitterPlein();
       const a = arcade; if (!a) return;
       if (!res.gagne) {
         const zr = document.createElement("div"); zr.className = "duel-fin";
@@ -4264,6 +4282,23 @@
     };
     const kd = (e) => clavier(e, 1), ku = (e) => clavier(e, 0);
     window.addEventListener("keydown", kd); window.addEventListener("keyup", ku);
+    const stick = document.getElementById("stick");
+    if (stick) {
+      const dirs = { g: 0, d: 0, h: 0, b: 0 }, pouce = stick.querySelector(".st-pouce"); let doigt = null;
+      const appliquer = (n) => { for (const k of ["g", "d", "h", "b"]) if (n[k] !== dirs[k]) { dirs[k] = n[k]; presser(moiIdx, k, n[k]); const f = stick.querySelector(".st-" + k); if (f) f.classList.toggle("appuye", !!n[k]); } };
+      const lire = (e) => {
+        const r = stick.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2), dist = Math.hypot(dx, dy);
+        const n = { g: 0, d: 0, h: 0, b: 0 };
+        if (dist > r.width * 0.13) { const a = Math.atan2(dy, dx) * 180 / Math.PI; if (a > -67.5 && a < 67.5) n.d = 1; if (a > 112.5 || a < -112.5) n.g = 1; if (a > 22.5 && a < 157.5) n.b = 1; if (a < -22.5 && a > -157.5) n.h = 1; }
+        const m = Math.min(dist, r.width * 0.3), k = dist ? m / dist : 0; pouce.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+        appliquer(n);
+      };
+      stick.addEventListener("pointerdown", (e) => { e.preventDefault(); if (doigt !== null) return; doigt = e.pointerId; try { stick.setPointerCapture(doigt); } catch (_) {} SON.init(); stick.classList.add("actif"); lire(e); });
+      stick.addEventListener("pointermove", (e) => { if (e.pointerId === doigt) { e.preventDefault(); lire(e); } });
+      const lacher = (e) => { if (e.pointerId !== doigt) return; doigt = null; stick.classList.remove("actif"); pouce.style.transform = ""; appliquer({ g: 0, d: 0, h: 0, b: 0 }); };
+      ["pointerup", "pointercancel", "lostpointercapture"].forEach((t) => stick.addEventListener(t, lacher));
+      stick.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
     const manette = document.getElementById("manette");
     if (manette) $$("[data-k]", manette).forEach((b) => {
       const k = b.dataset.k;
@@ -4288,6 +4323,7 @@
     function jouerEvt(e) {
       if (e.k === "impact") SON.jouer(e.fort ? "fort" : "coup"); else if (e.k === "garde") SON.jouer("garde"); else if (e.k === "lancer") SON.jouer("magie"); else if (e.k === "son") SON.jouer(e.n, e.f || 1); else if (e.k === "finish") SON.jouer("super");
       if (e.k === "banniere") { const v = { "K.O.": "K.O. !", "COMBAT !": "Combat !", "ACHÈVE-LE !": "Achève-le !" }[e.txt] || (/^Round \d/.test(e.txt) ? e.txt : /gagne !$/.test(e.txt) ? e.txt : null); if (v) SON.voix(v); if (e.txt === "K.O.") SON.jouer("ko"); if (/^SUPER/.test(e.sous || "")) SON.jouer("super"); }
+      if (e.k === "chute") { SON.jouer("fort", 0.6); etat.secousse = Math.max(etat.secousse, 4); for (let i = 0; i < 18; i++) ajouter({ x: e.x + rnd(-40, 40), y: SOL - 2, vx: rnd(-90, 90), vy: rnd(-70, -15), couleur: "rgba(200,190,170,0.8)", forme: "fumee", taille: rnd(5, 10), vie: rnd(0.4, 0.7), add: false }); }
       if (e.k === "fumee") { for (let i = 0; i < 26; i++) ajouter({ x: e.x + rnd(-20, 20), y: e.y + rnd(-60, 10), vx: rnd(-40, 40), vy: rnd(-60, -10), couleur: i % 2 ? "#2a1430" : "#5a2a6a", forme: "fumee", taille: rnd(8, 16), vie: rnd(0.4, 0.8), add: false }); anneau(e.x, e.y - 40, "#9a5cff", 40); }
       if (e.k === "marque") { const E2 = ELEMENTS[e.el] || ELEMENTS.physique; anneau(e.x, SOL, E2.glow, 46); for (let i = 0; i < 10; i++) ajouter({ x: e.x + rnd(-30, 30), y: SOL - 2, vy: rnd(-40, -10), couleur: E2.c1, taille: rnd(2, 3), vie: 0.6 }); }
       if (e.k === "pilier") { const E2 = ELEMENTS[e.el] || ELEMENTS.physique; for (let i = 0; i < 60; i++) ajouter({ x: e.x + rnd(-26, 26), y: SOL - rnd(0, 20), vx: rnd(-20, 20), vy: rnd(-520, -220), couleur: i % 3 ? E2.c1 : "#ffffff", taille: rnd(3, 7), vie: rnd(0.4, 0.8), forme: e.el === "terre" ? "roche" : "rond", g: e.el === "terre" ? 600 : 0, add: e.el !== "terre" }); etat.secousse = Math.max(etat.secousse, 7); }
@@ -4323,7 +4359,9 @@
       evt({ k: "banniere", txt: `Round ${etat.round}`, sous: etat.round === 1 ? `📍 ${opts.lieu || (ARENES[opts.arene] || ARENES.cathedrale).nom}` : `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.5 });
     };
     function changerEtat(p, e) { p.etat = e; p.t = 0; }
-    function attaquer(p, nom) { p.coup = { ...COUPS[nom], nom }; p.touche = false; changerEtat(p, "attaque"); }
+    function attaquer(p, nom) { p.tampon = null; p.coup = { ...COUPS[nom], nom }; p.touche = false; changerEtat(p, "attaque"); evt({ k: "son", n: "vent" }); }
+    // un coup raté laisse ouvert : on récupère plus lentement (marteler ne paie plus)
+    const PENALITE_RATE = { coup: 7, bas: 7, fort: 14, balayage: 16, lanceur: 18, aerien: 0 };
     function ia(p, o) {
       const n = { facile: [26, 0.15, 0.25], normal: [14, 0.45, 0.5], difficile: [7, 0.75, 0.8] }[opts.niveau] || [14, 0.45, 0.5];
       const c = cmd[p.cote];
@@ -4332,7 +4370,12 @@
       p.iaT = (p.iaT || 0) - 1;
       const dist = Math.abs(o.x - p.x), devant = Math.sign(o.x - p.x) || 1;
       // se protéger si l'adversaire attaque
-      if ((o.etat === "attaque" || etat.projectiles.some((q) => q.camp !== p.cote && Math.abs(q.x - p.x) < 160)) && Math.random() < n[1] * 0.25) { if (devant > 0) c.g = 1; else c.d = 1; if (o.coup && o.coup.bas) c.b = 1; return; }
+      if (o.etat === "attaque" && o.coup && !o.touche && o.t > o.coup.debut + o.coup.actif && dist < 110 && Math.random() < n[1]) { c.coup = 1; if (Math.random() < 0.5) { c.fort = 1; c.coup = 0; } return; }
+      if (o.etat === "saut" && o.vy > -4 && dist < 130 && dist > 30 && p.etat !== "attaque" && Math.random() < n[1] * 0.35) { c.fort = 1; if (devant > 0) c.d = 1; else c.g = 1; return; }
+      const menace = (o.etat === "attaque" && o.coup) || etat.projectiles.some((q) => q.camp !== p.cote && Math.abs(q.x - p.x) < 160);
+      if (menace) { const id = o.etat === "attaque" ? o.coup : "proj"; if (p.iaVu !== id) { p.iaVu = id; p.iaGarde = Math.random() < n[1] * 1.3; } } else p.iaVu = null;
+      if (menace && p.iaGarde) { if (devant > 0) c.g = 1; else c.d = 1; if (o.coup && o.coup.bas && o.etat === "attaque") c.b = 1; return; }
+      if (dist < 62 && o.bloque && ["garde", "accroupi"].includes(o.etat) && Math.random() < n[1] * 0.08) { c.coup = 1; if (devant > 0) c.d = 1; else c.g = 1; return; }
       if (p.iaT > 0) { if (p.iaPlan === "avance") { if (devant > 0) c.d = 1; else c.g = 1; } if (p.iaPlan === "recule") { if (devant > 0) c.g = 1; else c.d = 1; } return; }
       p.iaT = n[0] + Math.floor(Math.random() * n[0]);
       if (p.super >= 100 && dist < 300 && Math.random() < n[2]) { c.sup = 1; return; }
@@ -4340,7 +4383,7 @@
       if (dist > 95) { p.iaPlan = Math.random() < 0.2 ? "saut" : "avance"; if (p.iaPlan === "saut") { c.h = 1; if (devant > 0) c.d = 1; else c.g = 1; } return; }
       const r = Math.random();
       p.iaPlan = "frappe";
-      if (r < 0.35) c.coup = 1; else if (r < 0.6) c.fort = 1; else if (r < 0.72) { c.b = 1; c.fort = 1; } else if (r < 0.85) p.iaPlan = "recule"; else { c.h = 1; c.coup = 1; }
+      if (r < 0.32) c.coup = 1; else if (r < 0.5) c.fort = 1; else if (r < 0.6) { c.fort = 1; if (devant > 0) c.d = 1; else c.g = 1; } else if (r < 0.72) { c.b = 1; c.fort = 1; } else if (r < 0.85) p.iaPlan = "recule"; else { c.h = 1; c.coup = 1; }
     }
     function pas() {
       if (etat.gel > 0) { etat.gel--; return; }
@@ -4375,6 +4418,11 @@
     }
     function majCombattant(p, o, c0) {
       const c = Object.assign({}, c0, { h: c0.h || c0.tap_h, b: c0.b || c0.tap_b, g: c0.g || c0.tap_g, d: c0.d || c0.tap_d });
+      // un appui reste en mémoire 5 images : plus besoin d'appuyer pile au bon moment pour enchaîner
+      if (c0.coup || c0.fort) p.tampon = { k: c0.fort ? "fort" : "coup", n: 5 }; else if (p.tampon && --p.tampon.n <= 0) p.tampon = null;
+      if (p.tampon && !c.coup && !c.fort) c[p.tampon.k] = 1;
+      const consommer = () => { p.tampon = null; };
+      if (p.pousse) { p.x += p.pousse; p.pousse *= 0.8; if (Math.abs(p.pousse) < 0.2) p.pousse = 0; }
       p.t++; if (p.invuln > 0) p.invuln--; if (p.recharge > 0) p.recharge--;
       const actif = etat.phase === "combat" && !etat.fini;
       const versO = Math.sign(o.x - p.x) || p.face;
@@ -4386,7 +4434,7 @@
       const demandeSig = c.sig || (c.spe && quartDeCercle());
       const arriere = (versO > 0 && c.g) || (versO < 0 && c.d);
       // gravité
-      if (!auSol(p) || p.vy < 0) { p.vy += 0.75; p.y += p.vy; p.x += p.vx; if (p.y >= SOL) { p.y = SOL; p.vy = 0; p.vx = 0; if (p.etat === "saut" || p.etat === "attaque" && p.coup && p.coup.haut) changerEtat(p, "garde"); if (p.etat === "envol") changerEtat(p, "aterre"); } }
+      if (!auSol(p) || p.vy < 0) { p.vy += 0.75; p.y += p.vy; p.x += p.vx; if (p.y >= SOL) { p.y = SOL; p.vy = 0; p.vx = 0; if (p.etat === "saut" || p.etat === "attaque" && p.coup && p.coup.haut) changerEtat(p, "garde"); if (p.etat === "envol") { changerEtat(p, "aterre"); p.jongle = 0; evt({ k: "chute", x: p.x }); } } }
       switch (p.etat) {
         case "ko": return;
         case "sonne": return;
@@ -4394,32 +4442,53 @@
         case "touche": p.x += p.recul || 0; p.recul *= 0.85; if (p.t >= p.stun) changerEtat(p, "garde"); return;
         case "garde_coup": p.x += p.recul || 0; p.recul *= 0.8; if (p.t >= p.stun) changerEtat(p, "garde"); return;
         case "envol": return;
-        case "aterre": if (p.t > 36) { changerEtat(p, "garde"); p.invuln = 24; } return;
+        case "aterre": p.invuln = Math.max(p.invuln, 2); if (p.t > 46) { changerEtat(p, "garde"); p.invuln = 4; } return;
         case "magie": if (p.t === 12) { etat.projectiles.push({ x: p.x + p.face * 40, y: SOL - 86, vx: p.face * 6.5, camp: p.cote, el: p.c.element, dmg: Math.round(76 * p.attMul), age: 0 }); evt({ k: "lancer", x: p.x + p.face * 40, y: SOL - 86, el: p.c.element }); } if (p.t > 30) changerEtat(p, "garde"); return;
         case "super": superCoup(p, o); return;
         case "signature": majSignature(p, o); return;
         case "dash": p.x += p.face * (p.t < 8 ? 8 : 3) * p.vitesse; if (p.t > 12) changerEtat(p, "garde"); return;
         case "entree": if (auSol(p) && p.t > 4) changerEtat(p, "garde"); return;
         case "finish": return;
+        case "saisie": {
+          if (p.t === 5) {
+            const prise = Math.abs(o.x - p.x) < 82 && auSol(o) && o.invuln <= 0 && saisissable(o);
+            if (prise && o.etat === "saisie") { // les deux saisissent en même temps : dégagement
+              const g = p.x < o.x ? p : o; g.pousse = -6; (g === p ? o : p).pousse = 6; [p, o].forEach((q) => { q.recul = 0; q.stun = 14; changerEtat(q, "garde_coup"); });
+              evt({ k: "banniere", txt: "DÉGAGÉ !", vie: 0.6, couleur: "#9adcff" }); evt({ k: "garde", x: (p.x + o.x) / 2, y: p.y - 90 }); return;
+            }
+            if (prise) {
+              p.touche = true; p.tient = true;
+              if (p.saisieArriere) { const nx = p.x - p.face * 46; if (nx > 40 && nx < W_D - 40) { o.x = nx; } }
+              toucher(p, o, { dmg: 110, stun: 0, recul: 0, gain: 14, el: "physique", chute: true, saisie: true }, (p.x + o.x) / 2);
+              evt({ k: "banniere", txt: "PROJECTION !", vie: 0.6, couleur: "#ffd84a" });
+            }
+          }
+          if (p.t > (p.tient ? 22 : 30)) { p.tient = false; changerEtat(p, "garde"); }
+          return;
+        }
         case "attaque": {
           const k = p.coup;
           if (p.t >= k.debut && p.t < k.debut + k.actif && !p.touche) {
             const dx = (o.x - p.x) * p.face;
-            const portee = dx > 0 && dx < k.portee + 18 && Math.abs((o.y - (k.haut ? 30 : 0)) - p.y) < 90;
+            const enlair = o.etat === "envol";
+            const portee = dx > 0 && dx < k.portee + 18 && Math.abs((o.y - (k.haut ? 30 : 0)) - p.y) < (enlair || (k.antiair && o.etat === "saut") ? 150 : 90);
             const saute = o.y < SOL - 40;
-            if (portee && !(k.bas && saute) && o.invuln <= 0 && !["ko", "envol"].includes(o.etat)) { p.touche = true; toucher(p, o, { ...k, el: k.nom === "fort" ? p.c.element : "physique" }, o.x - p.face * 18); }
+            if (portee && !(k.bas && saute && !enlair) && o.invuln <= 0 && !["ko", "aterre"].includes(o.etat) && !(enlair && (o.jongle || 0) >= 3)) { p.touche = true; toucher(p, o, { ...k, el: k.nom === "fort" ? p.c.element : "physique" }, o.x - p.face * 18); }
           }
           // combos : un coup qui touche peut s'enchaîner (annulation) sur un coup plus fort
           if (p.touche && auSol(p) && p.t >= k.debut + 1) {
-            if (["coup", "bas"].includes(k.nom) && c.fort) { attaquer(p, c.b ? "balayage" : "fort"); return; }
+            // après un lanceur réussi : on peut enchaîner (jonglage) ou sauter pour le poursuivre en l'air
+            if (k.nom === "lanceur" && p.t >= k.debut + k.actif) { if (c.coup || c.fort) { attaquer(p, c.coup ? "coup" : "fort"); return; } if (c.h) { p.vy = -14.5; p.vx = p.face * 3.2 * p.vitesse; p.y -= 1; changerEtat(p, "saut"); evt({ k: "son", n: "saut" }); return; } }
+            if (["coup", "bas"].includes(k.nom) && c.fort) { attaquer(p, c.b ? "balayage" : avant ? "lanceur" : "fort"); return; }
             if (["coup", "bas"].includes(k.nom) && c.coup && (p.chaine || 0) < 2) { p.chaine = (p.chaine || 0) + 1; attaquer(p, c.b ? "bas" : "coup"); p.chaine = p.chaine; return; }
-            if (["coup", "bas", "fort"].includes(k.nom)) {
+            if (["coup", "bas", "fort", "lanceur"].includes(k.nom)) {
               if (demandeSig && p.sigRecharge <= 0) { lancerSignature(p, o); return; }
               if (c.spe && p.recharge <= 0) { p.recharge = 70; changerEtat(p, "magie"); return; }
               if (c.sup && p.super >= 100) { p.super = 0; changerEtat(p, "super"); return; }
             }
           }
-          if (p.t >= k.debut + k.actif + k.fin && (auSol(p) || !k.haut)) { p.chaine = 0; changerEtat(p, auSol(p) ? (c.b ? "accroupi" : "garde") : "saut"); }
+          const recup = k.fin + (p.touche ? 0 : PENALITE_RATE[k.nom] || 0);
+          if (p.t >= k.debut + k.actif + recup && (auSol(p) || !k.haut)) { p.chaine = 0; changerEtat(p, auSol(p) ? (c.b ? "accroupi" : "garde") : "saut"); }
           return;
         }
       }
@@ -4434,8 +4503,9 @@
         if (demandeSig && p.sigRecharge <= 0) { lancerSignature(p, o); return; }
         if (c.spe && p.recharge <= 0) { p.recharge = 70; changerEtat(p, "magie"); return; }
         if (p.tapsAvant.length >= 2 && !c.b) { p.tapsAvant = []; changerEtat(p, "dash"); evt({ k: "son", n: "dash" }); return; }
+        if (c.coup && !c.b && (avant || recule) && Math.abs(o.x - p.x) < 66 && auSol(o) && saisissable(o)) { consommer(); p.saisieArriere = recule; p.touche = false; p.tient = false; changerEtat(p, "saisie"); evt({ k: "son", n: "vent" }); return; }
         if (c.coup) { attaquer(p, c.b ? "bas" : "coup"); return; }
-        if (c.fort) { attaquer(p, c.b ? "balayage" : "fort"); return; }
+        if (c.fort) { attaquer(p, c.b ? "balayage" : avant && !recule ? "lanceur" : "fort"); return; }
         if (c.h) { p.vy = -14.5; p.vx = (c.d ? 3.6 : c.g ? -3.6 : 0) * p.vitesse; p.y -= 1; changerEtat(p, "saut"); evt({ k: "son", n: "saut" }); return; }
         if (c.b) { if (p.etat !== "accroupi") changerEtat(p, "accroupi"); p.bloque = arriere; return; }
         p.bloque = arriere;
@@ -4443,19 +4513,26 @@
         else if (p.etat !== "garde") changerEtat(p, "garde");
       } else if (p.etat === "saut" && (c.coup || c.fort)) attaquer(p, "aerien");
     }
+    function saisissable(o) { return ["garde", "marche", "accroupi", "saisie"].includes(o.etat) || (o.etat === "attaque" && o.coup && o.t < o.coup.debut); }
     function toucher(a, d, k, xImpact) {
       if (["sonne", "ko"].includes(d.etat) || etat.acheve) return;
       const y = d.y - (k.bas ? 30 : 92);
-      const garde = d.bloque && auSol(d) && ["garde", "marche", "accroupi", "garde_coup"].includes(d.etat) && !(k.bas && d.etat !== "accroupi") && !(k.haut && d.etat === "accroupi");
+      // anti-aérien : le lanceur passe sous les attaques sautées pendant son démarrage
+      if (k.haut && d.etat === "attaque" && d.coup && d.coup.antiair && d.t <= d.coup.debut + d.coup.actif) return;
+      const garde = !k.saisie && d.bloque && auSol(d) && ["garde", "marche", "accroupi", "garde_coup"].includes(d.etat) && !(k.bas && d.etat !== "accroupi") && !(k.haut && d.etat === "accroupi");
       if (garde) {
         const chip = Math.round(k.dmg * a.attMul * 0.12);
-        d.pv = Math.max(1, d.pv - chip); d.recul = -d.face * 3.5; d.stun = 10; changerEtat(d, "garde_coup");
+        d.pv = Math.max(1, d.pv - chip); d.recul = -d.face * 3.5; d.stun = k.bstun || 14; changerEtat(d, "garde_coup");
+        if (d.x < 70 || d.x > W_D - 70) a.pousse = -a.face * 3.5;
         a.super = Math.min(100, a.super + k.gain * 0.5); d.super = Math.min(100, d.super + 4);
         evt({ k: "garde", x: xImpact, y }); etat.gel = 3; return;
       }
-      const enchaine = ["touche", "envol"].includes(d.etat) || (d.etat === "aterre" && d.t < 6);
+      if (d.etat === "aterre") return;
+      const contre = d.etat === "attaque" && d.coup && d.t < (d.coup.debut || 0) + (d.coup.actif || 0);
+      if (contre) evt({ k: "banniere", txt: "CONTRE !", vie: 0.6, couleur: "#ff9a3a" });
+      const enchaine = ["touche", "envol"].includes(d.etat);
       a.combo = enchaine && a.comboT > 0 ? a.combo + 1 : 1; if (a.combo === 1) a.comboDmg = 0;
-      const dmg = Math.round(k.dmg * a.attMul * (1 - d.defRed) * Math.max(0.45, 1 - 0.1 * (a.combo - 1)));
+      const dmg = Math.round(k.dmg * a.attMul * (1 - d.defRed) * Math.max(0.45, 1 - 0.1 * (a.combo - 1)) * (contre ? 1.25 : 1));
       a.comboDmg += dmg; a.comboT = 70; a.comboAff = a.combo;
       if (a.combo >= 2) evt({ k: "son", n: "combo", f: Math.min(8, a.combo) });
       d.pv = Math.max(0, d.pv - dmg); d.blanc = 1;
@@ -4464,8 +4541,14 @@
       evt({ k: "impact", x: xImpact, y, el: k.el || "physique", txt: "-" + dmg, fort: dmg > 80 });
       etat.gel = dmg > 80 ? 7 : 4;
       if (d.pv <= 0) { ko(a, d); return; }
-      if (k.chute || !auSol(d)) { d.vy = -7; d.vx = -d.face * 3; d.y -= 1; changerEtat(d, "envol"); }
-      else { d.stun = k.stun; d.recul = -d.face * k.recul * 0.7; changerEtat(d, "touche"); }
+      d.face = Math.sign(a.x - d.x) || d.face;
+      if (d.x < 70 || d.x > W_D - 70) a.pousse = -a.face * Math.max(2.5, (k.recul || 3) * 0.8);
+      if (k.saisie) { d.vy = -9; d.vx = -d.face * 4.2; d.y -= 1; d.jongle = 3; changerEtat(d, "envol"); }
+      else if (k.lance && auSol(d) && d.etat !== "envol") { d.vy = -13; d.vx = -d.face * 0.4; d.y -= 1; d.jongle = 0; changerEtat(d, "envol"); evt({ k: "son", n: "fort" }); }
+      else if (!auSol(d) || d.etat === "envol") { d.jongle = (d.jongle || 0) + 1; d.vy = Math.min(d.vy, d.jongle >= 3 ? -4 : -7); d.vx = -d.face * 2.4; d.y -= 1; changerEtat(d, "envol"); }
+      else if (k.chute) { d.vy = k.bas ? -5 : -8; d.vx = -d.face * (k.bas ? 1.5 : 3.5); d.y -= 1; d.jongle = 3; changerEtat(d, "envol"); }
+      else if (contre && dmg > 70) { d.vy = -7; d.vx = -d.face * 4; d.y -= 1; d.jongle = 2; changerEtat(d, "envol"); }
+      else { d.stun = k.stun + (contre ? 8 : 0); d.recul = -d.face * k.recul * 0.9; d.toucheBas = !!k.bas || d.etat === "accroupi"; changerEtat(d, "touche"); }
     }
     function lancerSignature(p, o) {
       p.sigRecharge = 200; p.touche = false; p.face = Math.sign(o.x - p.x) || p.face; changerEtat(p, "signature");
@@ -4564,7 +4647,7 @@
 
     // ---- état réseau (l'hôte envoie, l'invité affiche) ----
     const exporter = () => ({
-      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: Math.round(p.pv), super: Math.round(p.super), rc: p.recharge, sr: p.sigRecharge, co: p.comboT > 0 ? p.comboAff : 0, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
+      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: Math.round(p.pv), super: Math.round(p.super), rc: p.recharge, sr: p.sigRecharge, co: p.comboT > 0 ? p.comboAff : 0, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0, tb: p.toucheBas ? 1 : 0 })),
       v: etat.victoires, a: actifs.slice(), ep: equipes.map((eq) => eq.map((p) => Math.round(p.pv))),
       pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: Math.round(q.y), el: q.el, camp: q.camp, forme: q.forme, gros: q.gros, vx: q.vx, vy: q.vy })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
       evts: evts.splice(0),
@@ -4573,7 +4656,7 @@
       if (s.a) s.a.forEach((a, i) => { if (equipes[i][a] && actifs[i] !== a) { actifs[i] = a; J[i] = equipes[i][a]; } });
       if (s.ep) s.ep.forEach((l, i) => l.forEach((pv, k) => { if (equipes[i][k]) equipes[i][k].pv = pv; }));
       if (s.v) etat.victoires = s.v;
-      s.j.forEach((q, i) => { const p = J[i]; p.sigRecharge = q.sr || 0; if (q.co) { p.comboAff = q.co; p.comboT = 30; } p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
+      s.j.forEach((q, i) => { const p = J[i]; p.sigRecharge = q.sr || 0; if (q.co) { p.comboAff = q.co; p.comboT = 30; } p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, bloque: q.bloque, toucheBas: !!q.tb }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
       etat.projectiles = s.pr; etat.chrono = s.ch; etat.round = s.r; etat.acheve = s.ac ? {} : null;
       if (s.fi && !etat.fini) { etat.fini = true; const g = etat.victoires[0] >= ROUNDS ? 0 : 1; setTimeout(() => vivante && opts.fin({ g, gagne: g === moiIdx, gagnant: J[g].c, perdant: J[1 - g].c, moi: J[moiIdx].c, titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
     }
@@ -4589,10 +4672,12 @@
         case "attaque": { const k = p.coup || {}; const ph = Math.min(1, p.t / Math.max(1, k.debut || 4)); const art = COMBATTANT.melanger(P.garde, P[k.pose] || P.poing, ph); return { nom: k.pose === "pied" || k.pose === "balayage" || k.pose === "aerien" ? "pied" : "poing", art, bas: k.pose === "balayage" }; }
         case "magie": case "super": case "signature": return { nom: "magie", art: P.special };
         case "dash": return { nom: "marche", art: COMBATTANT.marche(p.t * 0.6) };
+        case "saisie": return { nom: "poing", art: p.t < 6 ? COMBATTANT.melanger(P.garde, P.poing, p.t / 5) : p.tient ? COMBATTANT.melanger(P.poing, P.uppercut || P.special, Math.min(1, (p.t - 5) / 6)) : P.poing };
         case "entree": return { nom: "garde", art: P.saut };
         case "finish": return { nom: "finish", art: P.finish };
-        case "touche": case "garde_coup": return { nom: p.etat === "garde_coup" ? "garde" : "touche", art: p.etat === "garde_coup" ? P.bloc : P.touche };
-        case "envol": case "aterre": case "ko": return { nom: "touche", art: P.touche, chute: true };
+        case "touche": case "garde_coup": return { nom: p.etat === "garde_coup" ? "garde" : "touche", art: p.etat === "garde_coup" ? P.bloc : p.toucheBas ? P.touche_bas || P.touche : P.touche };
+        case "envol": return { nom: "touche", art: P.envol || P.touche, chute: true };
+        case "aterre": case "ko": return { nom: "touche", art: p.etat === "aterre" && p.t > 32 ? COMBATTANT.melanger(P.allonge || P.touche, P.accroupi, (p.t - 32) / 14) : P.allonge || P.touche, chute: true };
         case "sonne": return { nom: "touche", art: Object.assign({}, P.touche, { hy: 10, tronc: -14 + Math.sin(t * 3) * 10, tete: 24, bdA: 20, bgA: 30, jdA: 20, jdB: -40, jgA: -20, jgB: -30 }) };
         case "victoire": return { nom: "finish", art: P.victoire };
         default: return { nom: "garde", art: p.bloque && (p.etat === "garde") ? P.bloc : Object.assign({}, P.garde, { hy: Math.sin(t * 2.4 + p.phase) * 1.3 }) };
@@ -4603,7 +4688,18 @@
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.beginPath(); ctx.ellipse(p.x, SOL + 2, 34 * Math.max(0.5, 1 - (SOL - p.y) / 300), 7, 0, 0, Math.PI * 2); ctx.fill();
       ctx.translate(p.x, p.y);
-      if (ps.chute) { const k = p.etat === "ko" ? Math.min(1, p.t / 18) : p.etat === "aterre" ? 1 - Math.min(1, p.t / 30) * 0.7 : 0.5; ctx.rotate(-p.face * k * 1.35); }
+      if (ps.chute) {
+        if (p.etat === "envol") {
+          // projeté : le corps bascule en arrière en tournant autour des hanches, la tête part vers le sol
+          const a = Math.min(Math.PI * 0.62, 0.35 + p.t * 0.075) + (p.vy > 4 ? 0.15 : 0);
+          ctx.translate(0, -62); ctx.rotate(-p.face * a); ctx.translate(0, 62);
+        } else {
+          // au sol, sur le dos (la tête au sol, derrière) ; se relève à la fin
+          const releve = p.etat === "aterre" ? Math.min(1, Math.max(0, (p.t - 32) / 14)) : 0;
+          const k = p.etat === "ko" ? Math.min(1, p.t / 10) : 1 - releve;
+          ctx.translate(-p.face * 10 * k, 0); ctx.rotate(-p.face * k * Math.PI / 2);
+        }
+      }
       if (p.invuln > 0 && p.etat === "garde" && Math.floor(p.invuln / 3) % 2) ctx.globalAlpha = 0.5;
       ctx.scale(p.face, 1);
       const pl = p.c.planche;
@@ -4686,7 +4782,7 @@
         ctx.font = "10px system-ui"; ctx.fillStyle = "#e0d8c8";
         ctx.fillText("Combo : Coup → Coup → Fort → Spécial (enchaîne pendant que ça touche)", W_D / 2, 84);
         ctx.fillText(`Signature (${J[0].c.sigNom}) : ↓ ↘ → + Spécial  ·  Ruée : → →`, W_D / 2, 98);
-        ctx.fillText("Super : jauge pleine + Super  ·  Garde : recule", W_D / 2, 112); ctx.restore();
+        ctx.fillText("Projection : → + Coup collé  ·  Lanceur : → + Fort  ·  Garde : recule", W_D / 2, 112); ctx.restore();
       }
       ctx.textAlign = "center"; ctx.font = "700 24px Georgia, serif"; ctx.fillStyle = "#f5d08a"; ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
       ctx.fillText(entrainement ? "∞" : String(Math.max(0, Math.ceil(etat.chrono / 60))), W_D / 2, 32); ctx.shadowBlur = 0;
@@ -4742,7 +4838,7 @@
       let dt = Math.min(0.1, (now - dernier) / 1000); dernier = now;
       if (!invite) {
         acc += dt * 1000 * (etat.ralenti > 0 ? 0.35 : 1);
-        while (acc >= 16.67) { pas(); acc -= 16.67; if (etat.ralenti > 0) etat.ralenti--; }
+        while (acc >= 16.67) { if (!etat.pauseTest) pas(); acc -= 16.67; if (etat.ralenti > 0) etat.ralenti--; }
         if (salle && now - envoiEtat > 33) { envoiEtat = now; salle.send({ type: "broadcast", event: "etat", payload: exporter() }); }
       } else if (instantane) { importer(instantane); instantane = null; }
       const t = (now - t0) / 1000;
@@ -4774,7 +4870,7 @@
     SON.lancerMusique(opts.arene || "cathedrale");
     if (!invite) debutRound();
     requestAnimationFrame(image);
-    return { arreter, _etat: etat, _J: J, _cmd: cmd, _equipes: equipes, basculerSon: () => SON.basculer(opts.arene || "cathedrale") };
+    return { arreter, _etat: etat, _J: J, _cmd: cmd, _pas: pas, _equipes: equipes, basculerSon: () => SON.basculer(opts.arene || "cathedrale") };
   }
 
   pages.jeux.rpg = () => enTete("⚔️", "Aetheria Tactics", "Collectionne les personnages, monte ton équipe de 5 et affronte des équipes de plus en plus fortes.") + `<div id="rpg-zone"><p class="discret">Chargement du jeu…</p></div>`;

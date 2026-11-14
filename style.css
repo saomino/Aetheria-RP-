@@ -768,19 +768,38 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .duel-cadre { position: relative; background: #000; border-radius: var(--rayon); overflow: hidden; border: 1px solid var(--or); user-select: none; -webkit-user-select: none; }
 #duel-canvas { display: block; width: 100%; aspect-ratio: 16 / 9; touch-action: none; }
 .duel-plein { position: absolute; top: 40px; right: 6px; opacity: 0.75; }
-.manette { display: flex; justify-content: space-between; align-items: center; padding: 10px; gap: 10px; background: #0c0912; touch-action: none; }
-.croix { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 50px); gap: 6px; }
-.mk { border: 2px solid rgba(245, 208, 138, 0.5); background: rgba(40, 30, 60, 0.85); color: var(--or-vif); border-radius: 14px; font: 700 1rem system-ui, sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.manette { display: flex; justify-content: space-between; align-items: flex-end; padding: 10px; gap: 10px; background: #0c0912; touch-action: none; }
+/* croix analogique : un seul pouce, on glisse (diagonales et ↓ ↘ → possibles) */
+.stick { position: relative; flex: none; width: clamp(122px, 34vw, 150px); aspect-ratio: 1; border-radius: 50%; border: 2px solid rgba(245, 208, 138, 0.5); background: radial-gradient(circle, rgba(40, 30, 60, 0.9) 0 42%, rgba(40, 30, 60, 0.6) 43% 100%); touch-action: none; -webkit-tap-highlight-color: transparent; }
+.stick.actif { border-color: var(--or); }
+.st-f { position: absolute; color: var(--or-vif); font: 700 0.95rem system-ui, sans-serif; pointer-events: none; opacity: 0.75; }
+.st-h { top: 6px; left: 50%; transform: translateX(-50%); } .st-b { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.st-g { left: 8px; top: 50%; transform: translateY(-50%); } .st-d { right: 8px; top: 50%; transform: translateY(-50%); }
+.st-f.appuye { color: #fff; opacity: 1; text-shadow: 0 0 8px var(--or); }
+.st-pouce { position: absolute; left: 50%; top: 50%; width: 40%; aspect-ratio: 1; transform: none; translate: -50% -50%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f5d08a, #9a7330); box-shadow: 0 2px 8px #000; pointer-events: none; }
+.mk { border: 2px solid rgba(245, 208, 138, 0.5); background: rgba(40, 30, 60, 0.85); color: var(--or-vif); border-radius: 14px; font: 700 0.85rem system-ui, sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; padding: 0; }
 .mk.appuye { background: var(--or); color: #1a1408; transform: scale(0.94); }
-.mk-h { grid-column: 2; grid-row: 1; } .mk-g { grid-column: 1; grid-row: 2; } .mk-b { grid-column: 2; grid-row: 2; } .mk-d { grid-column: 3; grid-row: 2; }
-.boutons-combat { display: grid; grid-template-columns: repeat(2, 66px); grid-template-rows: repeat(2, 50px); gap: 8px; }
-.mk-coup { background: rgba(60, 90, 160, 0.85); } .mk-fort { background: rgba(160, 50, 50, 0.85); } .mk-spe { background: rgba(110, 50, 150, 0.85); } .mk-sup { background: rgba(170, 130, 30, 0.9); color: #fff; }
+/* boutons : Spé / Super / ★ en petit au-dessus, Coup et Fort en gros sous le pouce */
+.boutons-combat { flex: none; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 7px; width: clamp(160px, 46vw, 196px); }
+.boutons-combat .mk { grid-column: span 4; height: 44px; }
+.boutons-combat.avec-tag .mk { grid-column: span 3; }
+.boutons-combat .mk-coup, .boutons-combat .mk-fort { grid-column: span 6 !important; height: 64px; font-size: 1.05rem; }
+.mk-coup { background: rgba(60, 90, 160, 0.9); } .mk-fort { background: rgba(160, 50, 50, 0.9); } .mk-spe { background: rgba(110, 50, 150, 0.85); } .mk-sup { background: rgba(170, 130, 30, 0.9); color: #fff; }
 @media (hover: hover) and (pointer: fine) { .manette { display: none; } }
-.duel-cadre:fullscreen, .duel-cadre.pseudo-plein { display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; border: 0; border-radius: 0; }
+.duel-sortie { display: none; position: absolute; top: 40px; right: 86px; opacity: 0.75; }
+.duel-cadre:fullscreen, .duel-cadre.pseudo-plein { display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; box-sizing: border-box; }
 .duel-cadre.pseudo-plein { position: fixed; inset: 0; z-index: 200; }
-.duel-cadre:fullscreen #duel-canvas, .duel-cadre.pseudo-plein #duel-canvas { width: auto; height: 100vh; max-width: 100vw; margin: 0 auto; }
-.duel-cadre:fullscreen .manette, .duel-cadre.pseudo-plein .manette { position: absolute; inset: auto 0 0 0; background: transparent; pointer-events: none; }
-.duel-cadre:fullscreen .manette > *, .duel-cadre.pseudo-plein .manette > * { pointer-events: auto; opacity: 0.8; }
+.duel-cadre:fullscreen .duel-sortie, .duel-cadre.pseudo-plein .duel-sortie { display: block; }
+.duel-cadre:fullscreen #duel-canvas, .duel-cadre.pseudo-plein #duel-canvas { width: auto; height: auto; max-width: 100vw; max-height: 100%; margin: 0 auto; }
+.duel-cadre:fullscreen .manette, .duel-cadre.pseudo-plein .manette { background: transparent; }
+/* à l'horizontale sur téléphone : croix | combat | boutons, sans rien cacher */
+@media (orientation: landscape) {
+  .duel-cadre.tactile:fullscreen, .duel-cadre.tactile.pseudo-plein { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); }
+  .duel-cadre.tactile:fullscreen .manette, .duel-cadre.tactile.pseudo-plein .manette { display: contents; }
+  .duel-cadre.tactile:fullscreen #duel-canvas, .duel-cadre.tactile.pseudo-plein #duel-canvas { order: 1; flex: 0 1 auto; width: min(calc(100vw - 340px), calc((100dvh - 12px) * 16 / 9)); max-width: none; height: auto; margin: 0; }
+  .duel-cadre.tactile:fullscreen .stick, .duel-cadre.tactile.pseudo-plein .stick { order: 0; width: 132px; align-self: flex-end; margin-bottom: 10px; }
+  .duel-cadre.tactile:fullscreen .boutons-combat, .duel-cadre.tactile.pseudo-plein .boutons-combat { order: 2; width: 172px; align-self: flex-end; margin-bottom: 10px; }
+}
 .duel-fin { margin-top: 10px; }
 .centre { text-align: center; }
 .editeur-app { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
@@ -800,7 +819,6 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .duo-case { justify-content: center; }
 .duel-son { position: absolute; top: 40px; right: 46px; opacity: 0.75; }
 .mk-sig { background: rgba(200, 160, 40, 0.85); color: #fff; } .mk-tag { background: rgba(40, 120, 140, 0.85); color: #fff; }
-.boutons-combat { grid-template-columns: repeat(3, 58px) !important; }
 .duel-aide summary { cursor: pointer; color: var(--or); }
 .duel-aide ul { padding-left: 1.2em; }
 .arcade-echelle { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px; }
