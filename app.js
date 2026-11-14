@@ -4205,6 +4205,7 @@
     }
 
     // ---- dessin ----
+    function apparenceSecours(p) { return { peau: "#e8c8b0", cheveux: "#2a2030", longueur: 1, haut: "#3a2a4a", pantalon: "#1a1420", bottes: "#100a0e", manteau: "#1a1420", manteauLong: true, aura: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow }; }
     function poseDe(p, t) {
       const P = COMBATTANT.POSES;
       switch (p.etat) {
@@ -4354,11 +4355,24 @@
       ctx.save();
       if (etat.secousse > 0.3) { ctx.translate(rnd(-etat.secousse, etat.secousse), rnd(-etat.secousse, etat.secousse)); etat.secousse *= 0.85; }
       fond(t);
-      [...J].sort((a, b) => (a.etat === "attaque" ? 1 : 0) - (b.etat === "attaque" ? 1 : 0)).forEach((p) => dessinerCombattant(p, t));
+      [...J].sort((a, b) => (a.etat === "attaque" ? 1 : 0) - (b.etat === "attaque" ? 1 : 0)).forEach((p) => {
+        // sécurité : un combattant hors de l'écran ou avec une position invalide est remis en place
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { p.x = p.cote ? 460 : 180; p.y = SOL; p.vx = p.vy = 0; }
+        try { dessinerCombattant(p, t); }
+        catch (e) {
+          // si l'apparence pose problème, on dessine une silhouette simple et on affiche l'erreur
+          for (let k = 0; k < 8; k++) ctx.restore();
+          ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.shadowBlur = 0; ctx.filter = "none";
+          if (!p.erreurDessin) { p.erreurDessin = e.message || String(e); console.error("Duel – dessin de", p.c.nom, e); }
+          try { ctx.save(); ctx.translate(p.x, p.y); ctx.scale(p.face * 1.12, 1.12); COMBATTANT.dessiner(ctx, apparenceSecours(p), poseDe(p, t).art, t); ctx.restore(); } catch (_) {}
+        }
+      });
       dessinerProjectiles(t);
       dessinerParts(dt);
       ctx.restore();
       hud(t);
+      const errs = J.filter((p) => p.erreurDessin);
+      if (errs.length) { ctx.font = "10px system-ui"; ctx.fillStyle = "#ff8a8a"; ctx.textAlign = "left"; errs.forEach((p, i) => ctx.fillText(`⚠ ${p.c.nom} : ${p.erreurDessin}`.slice(0, 90), 8, H_D - 30 - i * 12)); }
       if (etat.flash > 0.01) { ctx.fillStyle = `rgba(255,255,255,${etat.flash})`; ctx.fillRect(0, 0, W_D, H_D); etat.flash *= 0.85; }
       requestAnimationFrame(image);
     }
