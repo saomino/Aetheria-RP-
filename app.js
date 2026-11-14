@@ -3799,10 +3799,49 @@
   // ---- données d'un combattant ----
   // thème du coup de grâce : la magie du perso (sceaux, cartes…) sinon son élément
   const THEMES_KITS = ["sceaux", "cartes", "metamorphose", "illusion", "temps", "gravite", "invocation", "necro", "telekinesie", "son", "espace", "mots"];
+  const MOTS_FINISH = [
+    ["foudre", ["foudr", "eclair", "tonnerr", "electr", "orage", "fulgur", "surtension", "tension", "volt", "courant", "statique", "plasma", "thunder", "lightning", "spark", "storm", "raijin", "zeus"]],
+    ["feu", ["feu\\b", "feux", "flamm", "brul", "braise", "incend", "ignis", "pyro", "magma", "lave\\b", "fire", "flame", "blaze", "inferno", "burn", "ember", "solaire"]],
+    ["glace", ["glac", "gel\\b", "givr", "neige", "cryo", "froid", "blizzard", "ice\\b", "frost", "freez", "snow"]],
+    ["sang", ["sang", "hemo", "vampir", "saign", "blood", "bleed"]],
+    ["eau", ["eau\\b", "eaux\\b", "vague", "maree", "ocean", "aqua", "torrent", "water", "tide", "tsunami"]],
+    ["vent", ["vent\\b", "vents\\b", "tornade", "tempete", "ouragan", "bourrasque", "wind", "gale", "tornado", "cyclone"]],
+    ["terre", ["terre", "roche", "pierre", "seism", "rock", "stone", "earth", "quake", "sable"]],
+    ["poison", ["poison", "venin", "toxi", "acide", "venom"]],
+    ["nature", ["ronce", "liane", "vegetal", "racine", "epine", "thorn", "vine", "root"]],
+    ["ombre", ["ombre", "tenebr", "neant", "obscur", "shadow", "dark", "void", "abyss"]],
+    ["lumiere", ["lumi", "sacre", "divin", "celest", "saint", "holy", "light\\b", "radian", "jugement"]],
+  ].map(([el, l]) => [el, motsDebut(l)]);
+  const COULEURS_FINISH = [
+    [["rouge", "red\\b", "ecarlate", "cramois", "carmin", "vermeil", "rubis", "crimson", "scarlet"], "#ff2a2a"],
+    [["bleu", "blue", "azur", "saphir", "cyan"], "#3a8aff"],
+    [["violet", "purple", "mauve", "pourpre", "amethyst"], "#a04aff"],
+    [["vert\\b", "verte", "green", "emeraude", "jade"], "#3aff6a"],
+    [["or\\b", "dore", "gold", "jaune", "yellow"], "#ffd23a"],
+    [["noir", "black"], "#5a2aa0"],
+    [["blanc", "white", "argent", "silver"], "#ffffff"],
+    [["rose\\b", "pink"], "#ff6ad0"],
+    [["orange"], "#ff8a1a"],
+  ].map(([l, c]) => [motsDebut(l), c]);
+  // palette complète à partir d'une couleur
+  function paletteDe(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return null;
+    const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    const mix = (k, v) => "#" + [r, g, b].map((x) => Math.round(x + (v - x) * k).toString(16).padStart(2, "0")).join("");
+    return { c1: mix(0.45, 255), c2: mix(0.55, 0), glow: "#" + m[1], nom: "finish" };
+  }
   function themeFinishDe(f, ulti, el) {
-    const t = normal(`${ulti ? `${ulti.nom} ${ulti.description || ""}` : ""} ${magieDe(f) || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b|aptitude/.test(normal(i.cle))).map((i) => i.valeur).join(" ")}`);
+    const tu = normal(ulti ? `${ulti.nom} ${ulti.description || ""}` : "");
+    const iu = KITS_MAGIE.findIndex((k) => k.re.test(tu)); if (iu >= 0 && THEMES_KITS[iu]) return THEMES_KITS[iu];
+    const mu = MOTS_FINISH.find(([, re]) => re.test(tu)); if (mu) return mu[0];
+    const t = normal(`${magieDe(f) || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b|aptitude/.test(normal(i.cle))).map((i) => i.valeur).join(" ")}`);
     const i = KITS_MAGIE.findIndex((k) => k.re.test(t));
     return i >= 0 && THEMES_KITS[i] ? THEMES_KITS[i] : el;
+  }
+  function couleurFinishDe(ulti) {
+    if (!ulti) return null;
+    for (const txt of [normal(ulti.nom), normal(ulti.description || "")]) { const c = COULEURS_FINISH.find(([re]) => re.test(txt)); if (c) return c[1]; }
+    return null;
   }
   async function combattantDe(f, duelData, rpData) {
     const dd = duelData.find((d) => d.fiche_id === f.id) || {};
@@ -3814,7 +3853,8 @@
     const offensives = comp.filter((c) => ["degats", "etourdir", "affaiblir"].includes(c.type));
     const ulti = (offensives.length ? offensives : comp).slice().sort((a, b) => (b.puissance || 0) - (a.puissance || 0) || (b.description || "").length - (a.description || "").length)[0] || null;
     return {
-      f, nom: f.titre, app, ulti: ulti ? { nom: ulti.nom, description: ulti.description || "" } : null, theme: themeFinishDe(f, ulti, ELEMENTS[el] ? el : "physique"), element: ELEMENTS[el] ? el : "physique", stats: x,
+      f, nom: f.titre, app, ulti: ulti ? { nom: ulti.nom, description: ulti.description || "" } : null, theme: app.finTheme || themeFinishDe(f, ulti, ELEMENTS[el] ? el : "physique"),
+      palFinish: paletteDe(app.finCouleur) || paletteDe(couleurFinishDe(ulti)), element: ELEMENTS[el] ? el : "physique", stats: x,
       special: (comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || { nom: "Attaque spéciale" }).nom,
       super: (comp.find((c) => c.cible === "tous_ennemis") || comp[2] || { nom: "Super" }).nom,
       finish: dd.finish_nom || "", planche: await chargerPlanche(dd.planche_url), planche_url: dd.planche_url || null,
@@ -3995,6 +4035,7 @@
       ["Tenue", [["haut", "Haut", "c"], ["torseNu", "Torse ouvert", "b"], ["tatouage", "Tatouage du torse", "c?"], ["armure", "Plastron", "c?"], ["manteau", "Manteau / cape", "c?"], ["manteauLong", "Manteau long", "b"], ["doublure", "Bordure", "c?"], ["robe", "Robe longue", "c?"], ["chaines", "Chaînes", "c?"], ["gants", "Gants", "c?"], ["pantalon", "Pantalon", "c"], ["bottes", "Bottes", "c"]]],
       ["Ailes et queue", [["ailes", "Ailes", [":Aucune", "plumes:Plumes", "chauve:Chauve-souris"]], ["ailesNb", "Nombre d'ailes", ["2:2", "6:6"]], ["couleurAiles", "Couleur des ailes", "c?"], ["veinesAiles", "Veines lumineuses", "c?"], ["queue", "Queue", "c?"]]],
       ["Coup signature", [["sig", "Type", [":Selon sa magie", "eventail:Éventail de projectiles", "teleport:Téléportation + coup", "vague:Vague au sol", "pluie:Pluie du ciel", "colonne:Pilier sous l'adversaire", "charge:Charge"]], ["sigNom", "Nom", "t"]]],
+      ["Coup de grâce", [["finTheme", "Effet", [":Automatique (selon sa compétence)", "foudre:Foudre du ciel", "feu:Piliers de feu", "glace:Prison de glace", "sang:Lune de sang", "ombre:Tentacules d'ombre", "lumiere:Colonne de lumière", "nature:Ronces", "poison:Poison", "eau:Tourbillon d'eau", "vent:Tornade", "terre:Pics de pierre", "arcane:Cercle de runes", "physique:Pure force", "sceaux:Sceaux", "cartes:Cartes", "metamorphose:Bête (métamorphose)", "illusion:Copies (illusion)", "temps:Horloge (temps arrêté)", "gravite:Trou noir", "invocation:Spectre invoqué", "necro:Mains de squelettes", "telekinesie:Télékinésie", "son:Ondes sonores", "espace:Portails", "mots:Lettres"]], ["finCouleur", "Couleur (sinon selon le nom de la compétence)", "c?"]]],
       ["Combat", [["arme", "Arme", [":Aucune", "epee:Épée", "epee_sang:Épée de sang", "epee_noire:Épée noire", "faux:Faux", "lance:Lance", "trident:Trident", "baton:Bâton", "canne:Canne", "livre:Livre", "cartes:Cartes", "griffes:Griffes"]], ["aura", "Couleur de la magie", "c?"], ["mainMagique", "Magie dans la main", "b"]]],
     ];
     const versHex = (c) => { if (!c) return "#888888"; if (/^#[0-9a-f]{6}$/i.test(c)) return c; const m = /rgb\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return m ? "#" + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, "0")).join("") : "#888888"; };
@@ -4628,11 +4669,13 @@
     const POSES_RAFALE = ["poing", "pied", "uppercut", "poing", "aerien", "pied", "uppercut"];
     function lancerFinish(p, o) {
       const th = p.c.theme || p.c.element;
-      const nom = p.c.finish || NOMS_FINISH_THEME[th] || NOMS_FINISH[p.c.element] || "Coup de grâce";
+      const nom = p.c.finish || (p.c.ulti && p.c.ulti.nom) || NOMS_FINISH_THEME[th] || NOMS_FINISH[th] || NOMS_FINISH[p.c.element] || "Coup de grâce";
       p.face = Math.sign(o.x - p.x) || p.face;
-      etat.finish = { t: 0, el: p.c.element, nom, theme: th, camp: p.cote, dir: p.face };
+      const pal = p.c.palFinish || null, el = pal ? "finish" + p.cote : p.c.element;
+      if (pal) ELEMENTS[el] = pal;
+      etat.finish = { t: 0, el, nom, theme: th, camp: p.cote, dir: p.face };
       changerEtat(p, "finish"); changerEtat(o, "sonne"); o.face = -p.face; p.poseF = "special"; o.poseF = null; o.rotF = 0; etat.ralenti = 0;
-      evt({ k: "finish", camp: p.cote, el: p.c.element, theme: th, nom, ulti: p.c.ulti ? p.c.ulti.nom : "", desc: p.c.ulti ? p.c.ulti.description : "" });
+      evt({ k: "finish", camp: p.cote, el, pal, theme: th, nom, ulti: p.c.ulti ? p.c.ulti.nom : "", desc: p.c.ulti ? p.c.ulti.description : "" });
     }
     function majFinish() {
       const F = etat.finish; if (!F) return;
@@ -4663,6 +4706,7 @@
     const ageF = (fx) => (performance.now() - fx.t0) / 1000 * 60;
     const prog = (a, d, f) => Math.max(0, Math.min(1, (a - d) / (f - d)));
     function finishEffet(e) {
+      if (e.pal && e.el) ELEMENTS[e.el] = e.pal;
       const v = J[1 - e.camp];
       etat.finishFx = { t0: performance.now(), theme: e.theme || e.el, el: e.el, nom: e.nom, ulti: e.ulti || "", desc: e.desc || "", camp: e.camp, coups: 0, cx: v.x, cy: SOL - 105, dirW: Math.sign(v.x - J[e.camp].x) || 1 };
       etat.secousse = 6; etat.flash = 0.35;
@@ -4716,6 +4760,18 @@
       }
       ctx.restore();
     }
+    function eclairCiel(x0, y0, x1, y1, graine, larg, col) {
+      ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      const n = 14, pts = []; for (let i = 0; i <= n; i++) { const q = i / n; pts.push([x0 + (x1 - x0) * q + (i && i < n ? (hasard(graine * 31 + i) - 0.5) * 10 * larg : 0), y0 + (y1 - y0) * q]); }
+      for (const [lw, c, blur, al] of [[larg * 3.2, col, 34, 0.55], [larg, "#ffffff", 12, 1]]) {
+        ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.shadowColor = col; ctx.shadowBlur = blur; ctx.globalAlpha = al;
+        ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+        for (let b = 0; b < 3; b++) { const k = 3 + Math.floor(hasard(graine + b * 7) * 8); let [bx, by] = pts[k]; ctx.lineWidth = lw * 0.4; ctx.beginPath(); ctx.moveTo(bx, by); const sens = hasard(graine + b) > 0.5 ? 1 : -1; for (let j = 0; j < 4; j++) { bx += (hasard(graine + b * 13 + j) - 0.3) * 30 * sens; by += 20; ctx.lineTo(bx, by); } ctx.stroke(); }
+      }
+      // point d'impact
+      const g = ctx.createRadialGradient(x1, y1, 2, x1, y1, larg * 9); g.addColorStop(0, "#ffffff"); g.addColorStop(0.3, col); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.globalAlpha = 0.8; ctx.shadowBlur = 0; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x1, y1, larg * 9, 0, 7); ctx.fill();
+      ctx.restore();
+    }
     // derrière les combattants
     function finArriere() {
       const fx = etat.finishFx; if (!fx) return;
@@ -4756,7 +4812,11 @@
       } else if (th === "lumiere") {
         ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = s * sortie; const lg = ctx.createLinearGradient(x - 50, 0, x + 50, 0); lg.addColorStop(0, "rgba(0,0,0,0)"); lg.addColorStop(0.5, "rgba(255,240,180,0.85)"); lg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = lg; ctx.fillRect(x - 50, -H_D, 100, SOL + H_D); ctx.restore();
       } else if (th === "foudre") {
-        ctx.save(); ctx.globalAlpha = 0.9 * s * sortie; ctx.fillStyle = "#1a1626"; for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.ellipse(x + (i - 4) * 50, y - 170 + hasard(i) * 20, 60, 26, 0, 0, 7); ctx.fill(); } ctx.restore();
+        // ciel d'orage qui s'illumine de la couleur de la foudre
+        ctx.save(); const flash = (Math.floor(a / 4) % 3 !== 2 && a > FIN.ouv + 10) || (a > FIN.fige - 4 && a < FIN.fige + 16) ? 1 : 0.35;
+        for (let i = 0; i < 12; i++) { const nx = x + (i - 5.5) * 48, ny = y - 175 + hasard(i) * 26 - (i % 2) * 18; ctx.globalAlpha = 0.95 * s * sortie; ctx.fillStyle = "#16121e"; ctx.beginPath(); ctx.ellipse(nx, ny, 62, 30, 0, 0, 7); ctx.fill();
+          ctx.globalAlpha = 0.35 * s * sortie * flash; const cg = ctx.createRadialGradient(nx, ny + 10, 4, nx, ny + 10, 60); cg.addColorStop(0, E2.glow); cg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = cg; ctx.beginPath(); ctx.ellipse(nx, ny + 6, 60, 28, 0, 0, 7); ctx.fill(); }
+        ctx.restore();
       } else if (th === "arcane" || th === "sceaux" || th === "mots") {
         sceau(x, SOL, 90, -a * 0.02, E2.glow, s * sortie, 0.26);
         if (th === "arcane") sceau(x, y, 70 + 30 * s, a * 0.015, E2.c1, 0.6 * s * sortie);
@@ -4809,7 +4869,11 @@
         for (let i = 0; i < 9; i++) { const bx = x + (i - 4) * 20, h = (40 + 90 * hasard(i)) * s * tenue, lean = (x - bx) * 0.5; if (h < 2) continue; ctx.fillStyle = th === "glace" ? "rgba(200,240,255,0.55)" : "#7a5a3a"; ctx.strokeStyle = th === "glace" ? "#ffffff" : "#3a2a1a"; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.moveTo(bx - 10, SOL); ctx.lineTo(bx + lean * 0.4, SOL - h); ctx.lineTo(bx + 10, SOL); ctx.closePath(); ctx.fill(); ctx.stroke(); }
       } else if (th === "foudre") {
-        const k = Math.floor(a / 4); if (s > 0.2 && k % 3 !== 2 && a < FIN.fige) { ctx.strokeStyle = "#fff"; ctx.shadowColor = E2.glow; ctx.shadowBlur = 16; ctx.lineWidth = 3; ctx.beginPath(); let bx = x + (hasard(k) - 0.5) * 120, by = y - 200; ctx.moveTo(bx, by); while (by < y) { by += 22; bx += (hasard(k * 13 + by) - 0.5) * 40 + (x - bx) * 0.2; ctx.lineTo(bx, by); } ctx.stroke(); }
+        // la foudre tombe du ciel autour de l'adversaire, puis sur lui
+        const k = Math.floor(a / 5);
+        if (s > 0.15 && a < FIN.emprise && k % 3 !== 2) { const cible = s > 0.7 && k % 2 ? x : x + (hasard(k) - 0.5) * 180; eclairCiel(cible + (hasard(k + 5) - 0.5) * 60, y - 190, cible, cible === x ? y : SOL, k, 3 + 2 * s, E2.glow); }
+        if (fx.coupT && a >= FIN.emprise && a < FIN.rafale) { const l = (performance.now() - fx.coupT) / 1000 * 60; if (l < 6) eclairCiel(x + (hasard(fx.coups) - 0.5) * 50, y - 210, x, y, fx.coups * 3, 4, E2.glow); }
+        if (a > FIN.fige - 4 && a < FIN.fige + 22) { const l = prog(a, FIN.fige - 4, FIN.fige + 22); eclairCiel(x + 20, y - 420, x, SOL, 99 + Math.floor(a / 3), 10 * (1 - l * 0.6), E2.glow); }
       } else if (th === "poison") {
         for (let i = 0; i < 14; i++) { const by = SOL - ((a * 1.5 + i * 23) % 170), bx = x + Math.sin(i * 3 + a * 0.05) * 50; ctx.globalAlpha = 0.7 * s * tenue; ctx.strokeStyle = E2.c1; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx, by, 4 + hasard(i) * 6, 0, 7); ctx.stroke(); }
         ctx.globalAlpha = 0.35 * s * tenue; ctx.fillStyle = E2.c2; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.ellipse(x + (i - 2) * 40, SOL - 20, 50, 22, 0, 0, 7); ctx.fill(); }
@@ -4834,6 +4898,7 @@
       ctx.save();
       if (fx.theme === "temps" && a > FIN.ouv && a < FIN.rafale) { ctx.globalCompositeOperation = "saturation"; ctx.globalAlpha = 0.9 * lisse(prog(a, FIN.ouv, FIN.ouv + 30)); ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1; }
       if (a >= FIN.rafale + 4 && a < FIN.fige) { ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "difference"; ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "source-over"; }
+      if (a >= FIN.fige && a < FIN.fige + 20) { ctx.globalCompositeOperation = "screen"; ctx.globalAlpha = 0.6 * (1 - prog(a, FIN.fige, FIN.fige + 20)); ctx.fillStyle = E2.glow; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1; }
       const bande = 34 * lisse(Math.min(1, a / 14)) * (1 - lisse(prog(a, FIN.fin - 40, FIN.fin)));
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W_D, bande); ctx.fillRect(0, H_D - bande, W_D, bande);
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -4844,7 +4909,7 @@
         ctx.globalAlpha = al * 0.8; const bg = ctx.createLinearGradient(0, yT - 44, 0, yT + 50); bg.addColorStop(0, "rgba(0,0,0,0)"); bg.addColorStop(0.35, "rgba(0,0,0,0.85)"); bg.addColorStop(1, "rgba(0,0,0,0.9)"); ctx.fillStyle = bg; ctx.fillRect(0, yT - 44, W_D, 94);
         ctx.globalAlpha = al; ctx.font = "700 11px system-ui"; ctx.fillStyle = E2.glow; ctx.fillText("✦  C O U P   D E   G R Â C E  ✦", W_D / 2, yT - 30);
         ctx.save(); ctx.translate(W_D / 2, yT); ctx.scale(sc, sc); ctx.font = "900 32px Georgia, serif"; ctx.lineWidth = 6; ctx.strokeStyle = "#000"; ctx.strokeText(fx.nom, 0, 0); ctx.shadowColor = E2.glow; ctx.shadowBlur = 22; ctx.fillStyle = "#fff"; ctx.fillText(fx.nom, 0, 0); ctx.restore();
-        if (fx.ulti) { ctx.font = "italic 12px Georgia, serif"; ctx.fillStyle = "#e8dcc0"; const d = fx.desc ? `${fx.ulti} — ${fx.desc}` : fx.ulti; ctx.fillText(d.length > 86 ? d.slice(0, 84) + "…" : d, W_D / 2, yT + 28); }
+        if (fx.ulti || fx.desc) { ctx.font = "italic 12px Georgia, serif"; ctx.fillStyle = "#e8dcc0"; const d = fx.ulti && fx.ulti !== fx.nom ? (fx.desc ? `${fx.ulti} — ${fx.desc}` : fx.ulti) : fx.desc; ctx.fillText(d.length > 86 ? d.slice(0, 84) + "…" : d, W_D / 2, yT + 28); }
       }
       if (a >= FIN.emprise && bande > 4) { ctx.globalAlpha = 1; ctx.textAlign = "left"; ctx.font = "700 13px Georgia, serif"; ctx.fillStyle = E2.glow; ctx.fillText("✦ " + fx.nom, 14, H_D - bande / 2); }
       if (fx.coups > 0 && a < FIN.fige) { ctx.globalAlpha = 1; ctx.textAlign = "right"; ctx.font = "900 30px Georgia, serif"; ctx.lineWidth = 5; ctx.strokeStyle = "#000"; const tx = `${fx.coups} COUPS`; ctx.strokeText(tx, W_D - 18, 70); ctx.fillStyle = fx.coups >= 5 ? "#ff5a3a" : "#ffd84a"; ctx.fillText(tx, W_D - 18, 70); }
