@@ -748,3 +748,38 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 @keyframes tourne-engrenage { to { transform: rotate(360deg); } }
 .barre-prepa.en-cours span { background: linear-gradient(90deg, var(--or), var(--or-vif), var(--or)); background-size: 200% 100%; animation: reflet 1.2s linear infinite; }
 @keyframes reflet { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+/* ---------- Duel (jeu de combat) ---------- */
+.duel-choix { display: flex; flex-direction: column; gap: 12px; }
+.duel-vs { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.dc-cote { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.dc-label { font: 600 0.75rem system-ui, sans-serif; color: var(--texte-doux); text-transform: uppercase; letter-spacing: 1px; }
+.dc-nom { font: 700 1rem var(--titres); color: var(--or-vif); text-align: center; }
+.dc-vs-mot { font: 900 2rem Georgia, serif; color: var(--rouge); text-shadow: 0 0 12px rgba(255, 60, 60, 0.6); }
+.dc-mystere { width: 120px; height: 150px; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: var(--texte-doux); border: 2px dashed var(--bord); border-radius: 12px; }
+.dc-pret { color: var(--vert); font-weight: 700; }
+.apercu-duel { width: 150px; height: 175px; background: radial-gradient(ellipse at 50% 85%, rgba(160, 16, 32, 0.35), transparent 70%); border-radius: 12px; }
+.grille-duel { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 8px; }
+.perso-duel { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border: 1px solid var(--bord); border-radius: 10px; background: var(--nuit-2); color: var(--texte); font: 0.72rem system-ui, sans-serif; cursor: pointer; }
+.perso-duel.actif { border-color: var(--or); box-shadow: 0 0 0 2px var(--or); }
+.perso-duel .vignette { width: 56px; height: 56px; }
+.lien-salle { flex: 1 1 200px; min-width: 0; font-size: 0.8rem; }
+.duel-reglages summary { cursor: pointer; color: var(--or); }
+.duel-cadre { position: relative; background: #000; border-radius: var(--rayon); overflow: hidden; border: 1px solid var(--or); user-select: none; -webkit-user-select: none; }
+#duel-canvas { display: block; width: 100%; aspect-ratio: 16 / 9; touch-action: none; }
+.duel-plein { position: absolute; top: 40px; right: 6px; opacity: 0.75; }
+.manette { display: flex; justify-content: space-between; align-items: center; padding: 10px; gap: 10px; background: #0c0912; touch-action: none; }
+.croix { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 50px); gap: 6px; }
+.mk { border: 2px solid rgba(245, 208, 138, 0.5); background: rgba(40, 30, 60, 0.85); color: var(--or-vif); border-radius: 14px; font: 700 1rem system-ui, sans-serif; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.mk.appuye { background: var(--or); color: #1a1408; transform: scale(0.94); }
+.mk-h { grid-column: 2; grid-row: 1; } .mk-g { grid-column: 1; grid-row: 2; } .mk-b { grid-column: 2; grid-row: 2; } .mk-d { grid-column: 3; grid-row: 2; }
+.boutons-combat { display: grid; grid-template-columns: repeat(2, 66px); grid-template-rows: repeat(2, 50px); gap: 8px; }
+.mk-coup { background: rgba(60, 90, 160, 0.85); } .mk-fort { background: rgba(160, 50, 50, 0.85); } .mk-spe { background: rgba(110, 50, 150, 0.85); } .mk-sup { background: rgba(170, 130, 30, 0.9); color: #fff; }
+@media (hover: hover) and (pointer: fine) { .manette { display: none; } }
+.duel-cadre:fullscreen, .duel-cadre.pseudo-plein { display: flex; flex-direction: column; justify-content: center; width: 100vw; height: 100vh; border: 0; border-radius: 0; }
+.duel-cadre.pseudo-plein { position: fixed; inset: 0; z-index: 200; }
+.duel-cadre:fullscreen #duel-canvas, .duel-cadre.pseudo-plein #duel-canvas { width: auto; height: 100vh; max-width: 100vw; margin: 0 auto; }
+.duel-cadre:fullscreen .manette, .duel-cadre.pseudo-plein .manette { position: absolute; inset: auto 0 0 0; background: transparent; pointer-events: none; }
+.duel-cadre:fullscreen .manette > *, .duel-cadre.pseudo-plein .manette > * { pointer-events: auto; opacity: 0.8; }
+.duel-fin { margin-top: 10px; }
+.centre { text-align: center; }

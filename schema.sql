@@ -589,6 +589,25 @@ revoke all on function public.rpg_maj_puissance(jsonb), public.rpg_demarrer(), p
 grant execute on function public.rpg_maj_puissance(jsonb), public.rpg_demarrer(), public.rpg_tirer(), public.rpg_fin_combat(boolean), public.rpg_sauver_equipe(jsonb) to authenticated;
 grant execute on function public.rpg_raretes(), public.rpg_jour() to anon, authenticated;
 
+-- ---------- Jeu de combat (Duel) : apparence du combattant, planche de poses, coup de grâce ----------
+create table if not exists public.duel_persos (
+  fiche_id    uuid primary key references public.fiches(id) on delete cascade,
+  apparence   jsonb not null default '{}'::jsonb,
+  planche_url text check (planche_url is null or planche_url ~ '^https?://'),
+  finish_nom  text check (char_length(finish_nom) <= 60),
+  maj_par     uuid references public.profils(id) on delete set null default auth.uid(),
+  maj_le      timestamptz not null default now()
+);
+alter table public.duel_persos enable row level security;
+drop policy if exists "duel_persos lecture" on public.duel_persos;
+create policy "duel_persos lecture" on public.duel_persos for select using (true);
+drop policy if exists "duel_persos ajout" on public.duel_persos;
+create policy "duel_persos ajout" on public.duel_persos for insert to authenticated
+  with check (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
+drop policy if exists "duel_persos modification" on public.duel_persos;
+create policy "duel_persos modification" on public.duel_persos for update to authenticated
+  using (public.est_membre() and (public.est_admin() or exists (select 1 from public.fiches f where f.id = fiche_id and f.auteur_id = auth.uid())));
+
 -- ---------- Images (Supabase Storage) ---------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

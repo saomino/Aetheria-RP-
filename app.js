@@ -2314,6 +2314,7 @@
      MINI-JEUX : Aetherdle, Qui suis-je ?, Bataille de cartes, Grand Tournoi
      ===================================================================== */
   const JEUX = [
+    ["duel", "🥊", "Duel", "Jeu de combat : tes personnages s'affrontent façon Street Fighter, contre l'ordi, à deux ou en ligne."],
     ["rpg", "⚔️", "Aetheria Tactics", "RPG gacha : collectionne les personnages, monte ton équipe de 5 et combats."],
     ["aetherdle", "🔍", "Aetherdle", "Le personnage du jour : devine-le en un minimum d'essais."],
     ["qui", "🕵️", "Qui suis-je ?", "Des indices de plus en plus clairs : trouve le personnage avant la fin."],
@@ -3503,6 +3504,746 @@
       ? [c(n[0], "degats", "ennemi", 1, 0, "melee"), c(NOMS_LOCAUX.physique[6], "provocation", "soi", 2, 3, "melee"), c(n[5], "bouclier", "allie", 2, 2, "distance"), c(n[3], "etourdir", "ennemi", 2, 2, "melee")]
       : [c(n[0], "degats", "ennemi", 1, 0, el === "physique" ? "melee" : "distance"), c(n[1], "degats", "ennemi", 3, 2, "distance"), c(n[2], "degats", "tous_ennemis", 2, 3, "distance"), c(n[3], x.attaque % 2 ? "etourdir" : "affaiblir", "ennemi", 2, 2, "distance")];
     return { fiche_id: f.id, role, competences, puissance: puissance(f) };
+  }
+
+  /* =====================================================================
+     DUEL — jeu de combat façon Street Fighter
+     ===================================================================== */
+  const COULEURS_MOTS = [
+    [/argent|blanc|platine|neige/, "#e6e4ee"], [/gris|cendre/, "#9a98a4"], [/noir|ebene|corbeau/, "#17121c"], [/roux|cuivr|orange/, "#c4501c"],
+    [/rouge|ecarlate|sang|carmin|pourpre/, "#a81024"], [/blond|dore|or\b/, "#e6c46c"], [/brun|chatain|marron/, "#5a3a24"], [/bleu|azur|saphir/, "#2a4ab4"],
+    [/violet|mauve|lilas|amethyste/, "#6a2aa4"], [/vert|emeraude/, "#2a7a44"], [/rose/, "#e07aa4"],
+  ];
+  const couleurDe = (mot) => { const m = normal(mot || ""); const c = COULEURS_MOTS.find(([re]) => re.test(m)); return c ? c[1] : null; };
+  function apparenceAuto(f) {
+    const t = normal(`${f.resume || ""} ${(f.infos || []).map((i) => `${i.cle} ${i.valeur}`).join(" ")}`);
+    const race = normal((raceDuPerso(f) || {}).nom || infoPerso(f, /race|peuple|espece/));
+    const h = hachage(f.id), el = elementDeFiche(f), E = ELEMENTS[el] || ELEMENTS.physique;
+    const genre = normal(infoPerso(f, /sexe|genre/));
+    const femme = /^f|femme|fille/.test(genre) || (!genre && (t.match(/\belle\b/g) || []).length > (t.match(/\bil\b/g) || []).length);
+    const cheveuxMot = (t.match(/cheveux\s+(?:longs\s+|courts\s+)?(\w+)/) || [])[1];
+    const yeuxMot = (t.match(/yeux\s+(\w+)/) || [])[1];
+    const a = {
+      femme, peau: ["#f2dcc8", "#e8c4a4", "#c89470", "#8a5a3c", "#f4e4e0"][h % 5],
+      cheveux: couleurDe(cheveuxMot) || ["#17121c", "#e6e4ee", "#5a3a24", "#a81024", "#e6c46c", "#2a2a3a"][h % 6],
+      longueur: /longs|longue/.test(t) ? 3 : /courts|rase/.test(t) ? 0 : femme ? 2 + (h % 2) : h % 3,
+      coiffure: ["lisse", "ebouriffe", "lisse"][(h >> 3) % 3], yeux: couleurDe(yeuxMot) || ["#5a3a24", "#2a6ab0", "#3a8a4a", "#7a5a9a"][(h >> 4) % 4],
+      haut: teinteSombre(E.c2, 0.45), manteau: (h >> 5) % 3 ? "#17121a" : teinteSombre(E.c2, 0.3), manteauLong: true, doublure: (h >> 6) % 2 ? "#c8a050" : E.c1,
+      pantalon: "#17121a", bottes: "#0e0a0c", ceinture: "#2a1a14", aura: E.glow, mainMagique: el !== "physique",
+    };
+    if (/vampir/.test(race + t)) Object.assign(a, { crocs: true, yeux: "#d01020", yeuxBrillants: true, peau: "#f4e4e4", doublure: "#a01020" });
+    if (/demon|diable/.test(race)) Object.assign(a, { cornes: "belier", queue: "#2a0a10", yeux: "#ff2030", yeuxBrillants: true });
+    if (/peche/.test(race)) Object.assign(a, { ailes: "chauve" });
+    if (/oni/.test(race)) Object.assign(a, { cornes: "oni" });
+    if (/ange|archange|celest/.test(race)) Object.assign(a, { ailes: "plumes", aureole: !/dechu/.test(race), ailesNb: /archange/.test(race) ? 6 : 2 });
+    if (/dechu/.test(race)) Object.assign(a, { couleurAiles: "#17121a", veinesAiles: "#d01020", aureole: false });
+    if (/elfe/.test(race)) Object.assign(a, { oreilles: "pointues" });
+    if (/elfe noir/.test(race)) Object.assign(a, { peau: "#8a6a7a" });
+    if (/elfe aile/.test(race)) Object.assign(a, { ailes: "plumes", couleurAiles: "#e8fff4" });
+    if (/siren/.test(race)) Object.assign(a, { oreilles: "nageoire", nageoire: "#5ab0e0", aura: "#5ad0ff" });
+    if (/bete|hybride|chat|loup|garou/.test(race + " " + t)) Object.assign(a, { chat: true });
+    if (/dieu/.test(race)) Object.assign(a, { aureole: true, couronne: "#e6c46c", aura: "#ffe58a" });
+    if (/roi|reine|prince|princesse|empereur|imperatrice|souverain/.test(t)) Object.assign(a, { couronne: a.couronne || "#c8a050" });
+    const comp = competencesLocales(f);
+    a.arme = /\bcarte/.test(t) ? "cartes" : /faux\b/.test(t) ? "faux" : /trident/.test(t) ? "trident" : /lance\b/.test(t) ? "lance" : /livre|grimoire/.test(t) ? "livre" : /canne/.test(t) ? "canne"
+      : comp.role === "soutien" ? "baton" : comp.role === "defenseur" ? "epee" : el === "sang" ? "epee_sang" : (h >> 7) % 2 ? "epee" : null;
+    if (comp.role === "defenseur") a.armure = "#8a8aa0";
+    return a;
+  }
+  function teinteSombre(c, f) { const m = /^#?([0-9a-f]{6})$/i.exec(c || ""); if (!m) return c; const n = parseInt(m[1], 16); const t = (v) => Math.round(v * f).toString(16).padStart(2, "0"); return "#" + t((n >> 16) & 255) + t((n >> 8) & 255) + t(n & 255); }
+
+  // ---- planche de poses (image d'une IA) : découpage automatique ----
+  const NOMS_POSES = ["garde", "marche", "poing", "pied", "magie", "touche", "finish"];
+  const planches = new Map();
+  function chargerPlanche(url) {
+    if (!url) return Promise.resolve(null);
+    if (planches.has(url)) return planches.get(url);
+    const p = new Promise((ok) => {
+      const essai = (cors) => {
+        const im = new Image();
+        if (cors) im.crossOrigin = "anonymous";
+        im.onload = () => { try { ok(decouperPlanche(im)); } catch (e) { console.warn(e); ok(null); } };
+        im.onerror = () => (cors ? essai(false) : ok(null));
+        im.src = url;
+      };
+      essai(true);
+    });
+    planches.set(url, p);
+    return p;
+  }
+  function decouperPlanche(img) {
+    const k = Math.min(1, 420 / img.naturalHeight), w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0, w, h);
+    const id = cx.getImageData(0, 0, w, h), d = id.data;
+    // fond : couleur des coins, effacée par remplissage depuis les bords
+    const coin = [0, 1, 2].map((c) => Math.round((d[c] + d[(w - 1) * 4 + c] + d[(h - 1) * w * 4 + c] + d[((h - 1) * w + w - 1) * 4 + c]) / 4));
+    const vu = new Uint8Array(w * h), pile = [];
+    for (let x = 0; x < w; x++) pile.push(x, 0, x, h - 1);
+    for (let y = 0; y < h; y++) pile.push(0, y, w - 1, y);
+    while (pile.length) {
+      const y = pile.pop(), x = pile.pop(); if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const i = y * w + x; if (vu[i]) continue;
+      const p = i * 4; if (d[p + 3] > 20 && Math.abs(d[p] - coin[0]) + Math.abs(d[p + 1] - coin[1]) + Math.abs(d[p + 2] - coin[2]) > 60) continue;
+      vu[i] = 1; d[p + 3] = 0; pile.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+    }
+    cx.putImageData(id, 0, 0);
+    // colonnes occupées → une pose par bloc
+    const plein = new Array(w).fill(0);
+    for (let x = 0; x < w; x++) for (let y = 0; y < h; y += 2) if (d[(y * w + x) * 4 + 3] > 40) plein[x]++;
+    let blocs = [], debut = -1;
+    for (let x = 0; x <= w; x++) { const o = x < w && plein[x] > 1; if (o && debut < 0) debut = x; if (!o && debut >= 0) { blocs.push([debut, x - 1]); debut = -1; } }
+    blocs = blocs.filter(([a, b]) => b - a > w / 60);
+    // fusionner les morceaux trop proches (une épée détachée…)
+    for (let i = 0; i < blocs.length - 1; i++) if (blocs[i + 1][0] - blocs[i][1] < w / 80) { blocs[i] = [blocs[i][0], blocs[i + 1][1]]; blocs.splice(i + 1, 1); i--; }
+    if (blocs.length < 5 || blocs.length > 8) { const n = blocs.length > 8 ? 7 : 6; blocs = Array.from({ length: n }, (_, i) => [Math.round((i * w) / n), Math.round(((i + 1) * w) / n) - 1]); }
+    const poses = {};
+    blocs.slice(0, 7).forEach(([x0, x1], i) => {
+      let y0 = h, y1 = 0;
+      for (let y = 0; y < h; y++) for (let x = x0; x <= x1; x += 2) if (d[(y * w + x) * 4 + 3] > 40) { if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (y1 <= y0) return;
+      const c = document.createElement("canvas"); c.width = x1 - x0 + 1; c.height = y1 - y0 + 1;
+      c.getContext("2d").drawImage(cv, x0, y0, c.width, c.height, 0, 0, c.width, c.height);
+      const b = document.createElement("canvas"); b.width = c.width; b.height = c.height;
+      const bx = b.getContext("2d"); bx.drawImage(c, 0, 0); bx.globalCompositeOperation = "source-in"; bx.fillStyle = "#fff"; bx.fillRect(0, 0, b.width, b.height);
+      poses[NOMS_POSES[i]] = { img: c, blanc: b };
+    });
+    if (!poses.garde) return null;
+    for (const n of NOMS_POSES) if (!poses[n]) poses[n] = poses[n === "finish" ? "magie" : "garde"] || poses.garde;
+    return poses;
+  }
+
+  // ---- données d'un combattant ----
+  async function combattantDe(f, duelData, rpData) {
+    const dd = duelData.find((d) => d.fiche_id === f.id) || {};
+    const app = Object.keys(dd.apparence || {}).length ? dd.apparence : apparenceAuto(f);
+    const comp = (rpData.find((p) => p.fiche_id === f.id) || competencesLocales(f)).competences || [];
+    const el = (comp.find((c) => c.element && c.element !== "physique") || {}).element || elementDeFiche(f);
+    const x = forces(f);
+    return {
+      f, nom: f.titre, app, element: ELEMENTS[el] ? el : "physique", stats: x,
+      special: (comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || { nom: "Attaque spéciale" }).nom,
+      super: (comp.find((c) => c.cible === "tous_ennemis") || comp[2] || { nom: "Super" }).nom,
+      finish: dd.finish_nom || "", planche: await chargerPlanche(dd.planche_url), planche_url: dd.planche_url || null,
+    };
+  }
+
+  // ---- moteur ----
+  const W_D = 640, H_D = 360, SOL = 318;
+  const COUPS = {
+    coup: { debut: 4, actif: 4, fin: 9, dmg: 44, portee: 74, stun: 13, recul: 3, gain: 7, pose: "poing" },
+    fort: { debut: 10, actif: 5, fin: 17, dmg: 92, portee: 90, stun: 22, recul: 8, gain: 12, pose: "pied", secousse: 5 },
+    bas: { debut: 5, actif: 4, fin: 10, dmg: 36, portee: 76, stun: 12, recul: 3, gain: 6, pose: "balayage", bas: true },
+    balayage: { debut: 9, actif: 5, fin: 20, dmg: 68, portee: 96, stun: 0, recul: 6, gain: 11, pose: "balayage", bas: true, chute: true },
+    aerien: { debut: 4, actif: 12, fin: 2, dmg: 64, portee: 70, stun: 16, recul: 5, gain: 9, pose: "aerien", haut: true },
+  };
+  function creerCombattant(c, cote) {
+    const x = c.stats;
+    return {
+      c, x: cote === 0 ? 180 : 460, y: SOL, vx: 0, vy: 0, face: cote === 0 ? 1 : -1, cote,
+      pvMax: Math.round(1000 + x.defense * 9 + x.soutien * 4), pv: 0, pvAff: 0, super: 0,
+      attMul: 1 + x.attaque / 55, defRed: Math.min(0.32, x.defense / 110), vitesse: 1 + Math.min(0.25, x.soutien / 120),
+      etat: "garde", t: 0, coup: null, touche: false, stun: 0, invuln: 0, blanc: 0, recharge: 0, gagnes: 0, phase: Math.random() * 6,
+    };
+  }
+
+  pages.jeux.duel = () => enTete("🥊", "Duel", "Choisis ton combattant et affronte l'ordinateur, un ami sur le même clavier… ou en ligne avec un lien.") + `<div id="duel-zone"><p class="discret">Chargement…</p></div>`;
+  pages.jeux.duel.apres = async () => {
+    const z = $("#duel-zone");
+    const persos = persosJeu();
+    if (persos.length < 2) { z.innerHTML = `<p class="note">Il faut au moins deux fiches de personnage.</p>`; return; }
+    const [duelData, rpData] = await Promise.all([api.duelPersos().catch(() => []), api.rpgPersos().catch(() => [])]);
+    const params = new URLSearchParams((location.hash.split("?")[1] || ""));
+    const codeSalle = params.get("salle");
+    let choix = { p1: lireLS("aetheria_duel_p1", null), p2: lireLS("aetheria_duel_p2", null), mode: lireLS("aetheria_duel_mode", "ordi"), niveau: lireLS("aetheria_duel_niveau", "normal") };
+    if (!persos.some((f) => f.id === choix.p1)) choix.p1 = persos[0].id;
+    if (!persos.some((f) => f.id === choix.p2)) choix.p2 = persos[persos.length > 1 ? 1 : 0].id;
+    let partie = null, salle = null;
+
+    /* ----- écran de sélection ----- */
+    const apercu = (f, cote) => {
+      const cv = document.createElement("canvas"); cv.width = 180; cv.height = 210; cv.className = "apercu-duel";
+      combattantDe(f, duelData, rpData).then((c) => {
+        const ctx = cv.getContext("2d"); let t0 = performance.now();
+        const anim = () => {
+          if (!document.body.contains(cv)) return;
+          const t = (performance.now() - t0) / 1000; ctx.clearRect(0, 0, 180, 210);
+          ctx.save(); ctx.translate(90, 196); ctx.scale(cote ? -1.05 : 1.05, 1.05);
+          ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.beginPath(); ctx.ellipse(0, 0, 32, 6, 0, 0, 7); ctx.fill();
+          if (c.planche) { const p = c.planche.garde, hh = 170, ww = (hh * p.img.width) / p.img.height; ctx.drawImage(p.img, -ww / 2, -hh + Math.sin(t * 2.2) * 1.5, ww, hh); }
+          else { const pose = Object.assign({}, COMBATTANT.POSES.garde); pose.hy = Math.sin(t * 2.2) * 1.2; COMBATTANT.dessiner(ctx, c.app, pose, t); }
+          ctx.restore(); requestAnimationFrame(anim);
+        };
+        anim();
+      });
+      return cv;
+    };
+    const ecranChoix = () => {
+      if (partie) partie.arreter(); partie = null;
+      const f1 = indexParId.get(choix.p1), f2 = indexParId.get(choix.p2);
+      const enLigneOk = api.enLigne && estMembre();
+      z.innerHTML = `
+        <div class="duel-choix">
+          <div class="duel-vs">
+            <div class="dc-cote"><div class="dc-label">Joueur 1</div><div id="ap1"></div><div class="dc-nom">${esc(f1.titre)}</div><button class="btn petit" data-changer="p1">Changer</button></div>
+            <div class="dc-vs-mot">VS</div>
+            <div class="dc-cote"><div class="dc-label">${choix.mode === "deux" ? "Joueur 2" : choix.mode === "ligne" ? "Ton ami" : "Ordinateur"}</div>${choix.mode === "ligne" ? `<div class="dc-mystere">?</div><div class="dc-nom">Il choisira</div>` : `<div id="ap2"></div><div class="dc-nom">${esc(f2.titre)}</div><button class="btn petit" data-changer="p2">Changer</button>`}</div>
+          </div>
+          <div class="modes onglets-roue">
+            ${[["ordi", "🤖 Contre l'ordi"], ["deux", "👥 2 joueurs (clavier)"], ["ligne", "🌐 En ligne"]].map(([m, n]) => `<button class="mode ${choix.mode === m ? "actif" : ""}" data-mode="${m}" ${m === "ligne" && !enLigneOk ? "disabled" : ""}>${n}</button>`).join("")}
+          </div>
+          ${choix.mode === "ordi" ? `<div class="rangee centre">${[["facile", "Facile"], ["normal", "Normal"], ["difficile", "Difficile"]].map(([n, l]) => `<button class="btn petit ${choix.niveau === n ? "btn-or" : ""}" data-niveau="${n}">${l}</button>`).join("")}</div>` : ""}
+          ${choix.mode === "deux" ? `<p class="discret petit-texte centre">J1 : Z/Q/S/D (ou W/A) + F coup, G fort, H spécial, T super — J2 : flèches + 1 coup, 2 fort, 3 spécial, 0 super.</p>` : ""}
+          <div class="rangee centre"><button class="btn btn-or large" id="duel-go">${choix.mode === "ligne" ? "🌐 Créer le défi" : "⚔️ Combattre"}</button></div>
+          <div id="duel-liste"></div>
+          ${estMembre() ? `<details class="duel-reglages"><summary>🎨 Apparence de ${esc(f1.titre)} dans le jeu</summary><div id="duel-apparence"></div></details>` : ""}
+          <p class="discret petit-texte">Ordi : flèches ou ZQSD pour bouger, J coup, K fort, L spécial, I super. Téléphone : manette à l'écran (mets-toi à l'horizontale). Recule pour te protéger. Au dernier round, quand l'adversaire est sonné, appuie sur Super pour son <b>coup de grâce</b>.</p>
+        </div>`;
+      $("#ap1").appendChild(apercu(f1, 0));
+      if ($("#ap2")) $("#ap2").appendChild(apercu(f2, 1));
+      $$("[data-mode]", z).forEach((b) => (b.onclick = () => { choix.mode = b.dataset.mode; ecrireLS("aetheria_duel_mode", choix.mode); ecranChoix(); }));
+      $$("[data-niveau]", z).forEach((b) => (b.onclick = () => { choix.niveau = b.dataset.niveau; ecrireLS("aetheria_duel_niveau", choix.niveau); ecranChoix(); }));
+      $$("[data-changer]", z).forEach((b) => (b.onclick = () => liste(b.dataset.changer)));
+      $("#duel-go").onclick = () => (choix.mode === "ligne" ? creerSalle() : lancer());
+      if ($("#duel-apparence")) editeurApparence($("#duel-apparence"), f1);
+    };
+    const liste = (qui) => {
+      const zl = $("#duel-liste");
+      zl.innerHTML = `<div class="grille-duel">${persos.map((f) => `<button class="perso-duel ${choix[qui] === f.id ? "actif" : ""}" data-p="${esc(f.id)}">${vignette(f)}<span>${esc(f.titre)}</span></button>`).join("")}</div>`;
+      $$("[data-p]", zl).forEach((b) => (b.onclick = () => { choix[qui] = b.dataset.p; ecrireLS("aetheria_duel_" + qui, choix[qui]); ecranChoix(); }));
+      zl.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    /* ----- éditeur d'apparence (auteur de la fiche ou admin) ----- */
+    const editeurApparence = (zone, f) => {
+      const dd = duelData.find((d) => d.fiche_id === f.id) || {};
+      const peut = peutModifier(f);
+      zone.innerHTML = `
+        <p class="discret petit-texte">${dd.planche_url ? "✅ Ce personnage a une planche de poses." : "Sans planche, le jeu dessine le personnage d'après sa fiche."} ${dd.apparence && Object.keys(dd.apparence).length ? "Apparence enregistrée." : "Apparence devinée automatiquement."}</p>
+        ${peut ? `<div class="rangee">
+          <button class="btn petit btn-or" id="app-ia">🤖 L'IA regarde son image et règle son apparence</button>
+          <label class="btn petit">🖼️ Envoyer une planche de poses<input type="file" accept="image/*" id="app-planche" hidden></label>
+          ${dd.planche_url ? `<button class="btn petit btn-danger" id="app-sans-planche">Retirer la planche</button>` : ""}
+        </div>
+        <label class="champ-court">Nom du coup de grâce<input id="app-finish" maxlength="40" value="${esc(dd.finish_nom || "")}" placeholder="ex : Danse des cartes funèbres"></label>
+        <button class="btn petit" id="app-finish-ok">Enregistrer le nom</button>
+        <details><summary class="petit-texte">Texte à donner à ton IA d'images pour la planche</summary><pre class="partage-dle">2D fighting game character sprite sheet, [description of ${esc(f.titre)}], full body, side view facing right, anime dark fantasy style, 7 poses in a single row, evenly spaced, same size: idle fighting stance, walking, punch, high kick, casting magic, getting hit, signature finishing move. Plain white background, no text, no shadow</pre></details>
+        <div id="app-msg" class="petit-texte"></div>` : `<p class="discret petit-texte">Seuls l'auteur de la fiche et les admins peuvent changer son apparence.</p>`}`;
+      if (!peut) return;
+      const msg = (t) => ($("#app-msg").innerHTML = t);
+      const sauver = async (champs, texte) => {
+        try {
+          const d = await api.sauverDuelPerso(f.id, { apparence: dd.apparence || {}, planche_url: dd.planche_url || null, finish_nom: dd.finish_nom || null, ...champs });
+          const i = duelData.findIndex((x) => x.fiche_id === f.id); if (i >= 0) duelData[i] = d; else duelData.push(d);
+          toast(texte); ecranChoix();
+        } catch (e) { msg(`⚠️ ${esc(e.message)}`); }
+      };
+      $("#app-ia").onclick = async () => {
+        const b = $("#app-ia"); b.disabled = true;
+        const stop = attenteIA($("#app-msg"), ["L'IA regarde l'image…", "Elle note les cheveux, les yeux, la tenue…", "Elle prépare le combattant…"]);
+        try { const r = await avecDelai(api.ia("apparence", { fiche_id: f.id })); stop(); await sauver({ apparence: r.apparence || {}, finish_nom: dd.finish_nom || r.finish || null }, "Apparence enregistrée !"); }
+        catch (e) { stop(); msg(`⚠️ ${esc(e.message)}`); b.disabled = false; }
+      };
+      $("#app-planche").onchange = async (e) => {
+        const fi = e.target.files[0]; if (!fi) return;
+        msg("⏳ Envoi de la planche…");
+        try {
+          const url = await api.envoyerImage(fi);
+          const p = await chargerPlanche(url);
+          if (!p) return msg("⚠️ Je n'arrive pas à découper cette image. Vérifie que le fond est blanc et uni.");
+          await sauver({ planche_url: url }, "Planche enregistrée !");
+        } catch (er) { msg(`⚠️ ${esc(er.message)}`); }
+      };
+      const sp = $("#app-sans-planche"); if (sp) sp.onclick = () => sauver({ planche_url: null }, "Planche retirée.");
+      $("#app-finish-ok").onclick = () => sauver({ finish_nom: $("#app-finish").value.trim() || null }, "Nom du coup de grâce enregistré.");
+    };
+
+    /* ----- lancement ----- */
+    const lancer = async (opts = {}) => {
+      const f1 = indexParId.get(opts.p1 || choix.p1), f2 = indexParId.get(opts.p2 || choix.p2);
+      const [c1, c2] = await Promise.all([combattantDe(f1, duelData, rpData), combattantDe(f2, duelData, rpData)]);
+      z.innerHTML = `
+        <div class="duel-cadre" id="duel-cadre">
+          <canvas id="duel-canvas" width="${W_D}" height="${H_D}"></canvas>
+          <div class="manette" id="manette">
+            <div class="croix">${[["g", "◀"], ["h", "▲"], ["b", "▼"], ["d", "▶"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
+            <div class="boutons-combat">${[["coup", "Coup"], ["fort", "Fort"], ["spe", "Spé"], ["sup", "Super"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
+          </div>
+          <button class="btn petit duel-plein" id="duel-plein" title="Plein écran">⛶</button>
+        </div>
+        <div class="rangee centre"><button class="btn petit" id="duel-quitter">↩ Quitter</button></div>`;
+      partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { mode: opts.mode || choix.mode, niveau: choix.niveau, salle: opts.salle || null, role: opts.role || "hote", fin: finPartie });
+      $("#duel-quitter").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
+      $("#duel-plein").onclick = async () => {
+        const cadre = $("#duel-cadre");
+        try { if (!document.fullscreenElement) { await cadre.requestFullscreen(); if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape").catch(() => {}); } else await document.exitFullscreen(); } catch (e) { cadre.classList.toggle("pseudo-plein"); }
+      };
+    };
+    const finPartie = (res) => {
+      const zr = document.createElement("div");
+      zr.className = "duel-fin";
+      zr.innerHTML = `<div class="jeu-victoire"><div class="jv-titre">${res.titre}</div>${res.finish ? `<p>💀 Coup de grâce : <b>${esc(res.finish)}</b></p>` : ""}
+        <div class="rangee centre">${salle ? "" : `<button class="btn btn-or" id="duel-revanche">🔁 Revanche</button>`}<button class="btn" id="duel-retour">👥 Changer de combattants</button></div></div>`;
+      z.appendChild(zr);
+      const rv = $("#duel-revanche"); if (rv) rv.onclick = () => lancer();
+      $("#duel-retour").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
+    };
+
+    /* ----- en ligne : salle avec un lien ----- */
+    const creerSalle = () => {
+      const code = Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[b % 32]).join("");
+      ouvrirSalle(code, "hote");
+    };
+    const ouvrirSalle = (code, role) => {
+      if (!estMembre()) { z.innerHTML = `<p class="note">Connecte-toi avec un compte membre pour jouer en ligne.</p>`; return; }
+      const lien = `${location.origin}${location.pathname}#/jeux/duel?salle=${code}`;
+      let monChoix = role === "hote" ? choix.p1 : choix.p2 && choix.p2 !== choix.p1 ? choix.p2 : choix.p1, pret = false, autre = null;
+      try { salle = api.salleDuel(code); } catch (e) { z.innerHTML = `<p class="note erreur-note">${esc(e.message)}</p>`; return; }
+      const dessinerSalle = () => {
+        const f = indexParId.get(monChoix), fa = autre && indexParId.get(autre.fiche);
+        z.innerHTML = `<div class="duel-choix">
+          <h2>🌐 Salle ${esc(code)}</h2>
+          ${role === "hote" ? `<p>Envoie ce lien à ton adversaire :</p><div class="rangee"><input readonly value="${esc(lien)}" class="lien-salle"><button class="btn petit btn-or" id="copier-lien">📋 Copier</button>${navigator.share ? `<button class="btn petit" id="partager-lien">📤 Partager</button>` : ""}<button class="btn petit btn-discord" id="defi-discord">📣 Défier sur Discord</button></div>` : ""}
+          <div class="duel-vs">
+            <div class="dc-cote"><div class="dc-label">Toi</div><div id="ap1"></div><div class="dc-nom">${esc(f.titre)}</div>${pret ? `<div class="dc-pret">✅ Prêt</div>` : `<button class="btn petit" data-changer>Changer</button>`}</div>
+            <div class="dc-vs-mot">VS</div>
+            <div class="dc-cote"><div class="dc-label">${autre ? esc(autre.pseudo) : "En attente…"}</div>${fa ? `<div id="ap2"></div><div class="dc-nom">${esc(fa.titre)}</div>${autre.pret ? `<div class="dc-pret">✅ Prêt</div>` : ""}` : `<div class="dc-mystere">⏳</div>`}</div>
+          </div>
+          <div class="rangee centre">${pret ? `<p>En attente de l'adversaire…</p>` : `<button class="btn btn-or large" id="je-suis-pret">✅ Je suis prêt</button>`}<button class="btn petit" id="quitter-salle">Quitter</button></div>
+          <div id="duel-liste"></div></div>`;
+        $("#ap1").appendChild(apercu(f, 0));
+        if ($("#ap2")) $("#ap2").appendChild(apercu(fa, 1));
+        const cp = $("#copier-lien"); if (cp) cp.onclick = () => copier(lien);
+        const pa = $("#partager-lien"); if (pa) pa.onclick = () => navigator.share({ title: "Duel sur Aetheria", text: `Je te défie au Duel d'Aetheria avec ${f.titre} !`, url: lien }).catch(() => {});
+        const dc = $("#defi-discord"); if (dc) dc.onclick = async () => { try { await api.ia("discord", { type: "jeu", salon: "des", titre: `🥊 ${moiPseudo()} lance un défi au Duel !`, texte: `${f.titre} attend un adversaire.\nRejoins le combat : ${lien}` }); toast("Défi envoyé sur Discord !"); } catch (e) { toast(e.message, "erreur"); } };
+        const ch = $("[data-changer]", z); if (ch) ch.onclick = () => {
+          const zl = $("#duel-liste");
+          zl.innerHTML = `<div class="grille-duel">${persos.map((p) => `<button class="perso-duel ${monChoix === p.id ? "actif" : ""}" data-p="${esc(p.id)}">${vignette(p)}<span>${esc(p.titre)}</span></button>`).join("")}</div>`;
+          $$("[data-p]", zl).forEach((b) => (b.onclick = () => { monChoix = b.dataset.p; annoncer(); dessinerSalle(); }));
+        };
+        const jp = $("#je-suis-pret"); if (jp) jp.onclick = () => { pret = true; annoncer(); dessinerSalle(); verifier(); };
+        $("#quitter-salle").onclick = () => { salle.unsubscribe(); salle = null; history.replaceState(null, "", "#/jeux/duel"); ecranChoix(); };
+      };
+      const annoncer = () => salle && salle.track({ pseudo: moiPseudo(), fiche: monChoix, pret, role });
+      const verifier = () => {
+        if (role !== "hote" || !pret || !autre || !autre.pret) return;
+        salle.send({ type: "broadcast", event: "debut", payload: { p1: monChoix, p2: autre.fiche } });
+        lancer({ p1: monChoix, p2: autre.fiche, mode: "ligne", salle, role: "hote" });
+      };
+      salle.on("presence", { event: "sync" }, () => {
+        const etat = salle.presenceState(), autres = Object.entries(etat).filter(([k]) => k !== ((api.moi || {}).user || {}).id).map(([, v]) => v[v.length - 1]);
+        const avant = autre; autre = autres[0] || null;
+        if (partie && avant && !autre) { toast("Ton adversaire s'est déconnecté.", "erreur"); partie.arreter(); finPartie({ titre: "🔌 Adversaire déconnecté" }); return; }
+        if (!partie) { dessinerSalle(); verifier(); }
+      });
+      salle.on("broadcast", { event: "debut" }, ({ payload }) => { if (role === "invite") lancer({ p1: payload.p1, p2: payload.p2, mode: "ligne", salle, role: "invite" }); });
+      salle.subscribe((s) => { if (s === "SUBSCRIBED") annoncer(); if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") toast("Connexion à la salle impossible. Réessaie.", "erreur"); });
+      dessinerSalle();
+    };
+    const moiPseudo = () => ((moi() && moi().profil && moi().profil.pseudo) || "Un joueur");
+
+    if (codeSalle) ouvrirSalle(codeSalle.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8), "invite");
+    else ecranChoix();
+  };
+
+  /* ---------- la partie elle-même ---------- */
+  function demarrerPartie(canvas, c1, c2, opts) {
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = W_D * dpr; canvas.height = H_D * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const J = [creerCombattant(c1, 0), creerCombattant(c2, 1)];
+    const invite = opts.mode === "ligne" && opts.role === "invite";
+    const moiIdx = invite ? 1 : 0;
+    const etat = { round: 1, chrono: 60 * 60, phase: "intro", phaseT: 0, gel: 0, ralenti: 0, secousse: 0, flash: 0, banniere: null, projectiles: [], fini: false, acheve: null, finish: null };
+    const parts = [], textes = [], evts = [];
+    let vivante = true, acc = 0, dernier = performance.now(), t0 = performance.now();
+    // ---- commandes ----
+    const cmd = [{ g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0 }, { g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0 }];
+    const deuxJoueurs = opts.mode === "deux";
+    const TOUCHES1 = deuxJoueurs ? { KeyA: "g", KeyQ: "g", KeyD: "d", KeyW: "h", KeyZ: "h", KeyS: "b", KeyF: "coup", KeyG: "fort", KeyH: "spe", KeyT: "sup" }
+      : { ArrowLeft: "g", KeyA: "g", KeyQ: "g", ArrowRight: "d", KeyD: "d", ArrowUp: "h", KeyW: "h", KeyZ: "h", Space: "h", ArrowDown: "b", KeyS: "b", KeyJ: "coup", KeyX: "coup", KeyK: "fort", KeyC: "fort", KeyL: "spe", KeyV: "spe", KeyI: "sup", KeyB: "sup" };
+    const TOUCHES2 = { ArrowLeft: "g", ArrowRight: "d", ArrowUp: "h", ArrowDown: "b", Digit1: "coup", Numpad1: "coup", Digit2: "fort", Numpad2: "fort", Digit3: "spe", Numpad3: "spe", Digit0: "sup", Numpad0: "sup" };
+    const presser = (i, k, v) => { if (["coup", "fort", "spe", "sup"].includes(k)) { if (v) cmd[i][k] = 1; } else cmd[i][k] = v; if (invite) envoyerEntree(); };
+    const clavier = (e, v) => {
+      if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+      const k1 = TOUCHES1[e.code], k2 = deuxJoueurs ? TOUCHES2[e.code] : null;
+      if (k1 || k2) { e.preventDefault(); if (e.repeat) return; }
+      if (k1) presser(moiIdx, k1, v); if (k2) presser(1, k2, v);
+    };
+    const kd = (e) => clavier(e, 1), ku = (e) => clavier(e, 0);
+    window.addEventListener("keydown", kd); window.addEventListener("keyup", ku);
+    const manette = document.getElementById("manette");
+    if (manette) $$("[data-k]", manette).forEach((b) => {
+      const k = b.dataset.k;
+      const on = (e) => { e.preventDefault(); b.classList.add("appuye"); try { b.setPointerCapture(e.pointerId); } catch (_) {} presser(moiIdx, k, 1); };
+      const off = (e) => { e.preventDefault(); b.classList.remove("appuye"); presser(moiIdx, k, 0); };
+      b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off); b.addEventListener("pointercancel", off); b.addEventListener("lostpointercapture", off);
+      b.addEventListener("contextmenu", (e) => e.preventDefault());
+    });
+    // ---- réseau ----
+    const salle = opts.salle;
+    let derniereEntree = 0, instantane = null, envoiEtat = 0;
+    function envoyerEntree() { if (!salle) return; const now = performance.now(); if (now - derniereEntree < 25) return; derniereEntree = now; salle.send({ type: "broadcast", event: "entree", payload: { ...cmd[1] } }); cmd[1].coup = cmd[1].fort = cmd[1].spe = cmd[1].sup = 0; }
+    if (salle) {
+      if (!invite) salle.on("broadcast", { event: "entree" }, ({ payload }) => { for (const k of ["g", "d", "h", "b"]) cmd[1][k] = payload[k] ? 1 : 0; for (const k of ["coup", "fort", "spe", "sup"]) if (payload[k]) cmd[1][k] = 1; });
+      else salle.on("broadcast", { event: "etat" }, ({ payload }) => { instantane = payload; (payload.evts || []).forEach(jouerEvt); });
+      if (invite) var battement = setInterval(() => vivante && salle && salle.send({ type: "broadcast", event: "entree", payload: { g: cmd[1].g, d: cmd[1].d, h: cmd[1].h, b: cmd[1].b } }), 150);
+    }
+    // ---- outils ----
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const auSol = (p) => p.y >= SOL - 0.5;
+    const evt = (e) => { if (salle && !invite) evts.push(e); jouerEvt(e); };
+    function jouerEvt(e) {
+      if (e.k === "impact") { eclat(e.x, e.y, e.el, e.fort ? 1.4 : 1); nombre(e.x, e.y - 20, e.txt, e.fort ? "#ffd84a" : "#ff6a6a", e.fort); if (e.fort) etat.secousse = Math.max(etat.secousse, 8); }
+      else if (e.k === "garde") { anneau(e.x, e.y, "#9adcff", 30); nombre(e.x, e.y - 20, "Garde", "#9adcff"); }
+      else if (e.k === "banniere") etat.banniere = { txt: e.txt, sous: e.sous || "", vie: e.vie || 1.4, age: 0, couleur: e.couleur || "#f5d08a" };
+      else if (e.k === "flash") etat.flash = Math.max(etat.flash, e.v || 0.6);
+      else if (e.k === "finish") finishEffet(e);
+      else if (e.k === "lancer") for (let i = 0; i < 10; i++) ajouter({ x: e.x, y: e.y, vx: rnd(-60, 60), vy: rnd(-80, 20), couleur: (ELEMENTS[e.el] || ELEMENTS.physique).c1, taille: rnd(2, 5), vie: 0.5 });
+    }
+    function ajouter(p) { if (parts.length < 600) parts.push({ vx: 0, vy: 0, g: 0, taille: 3, vie: 0.6, age: 0, add: true, forme: "rond", rot: 0, vr: 0, ...p }); }
+    function anneau(x, y, couleur, rmax) { parts.push({ x, y, anneau: true, r: 4, rmax, vie: 0.35, age: 0, couleur }); }
+    function eclat(x, y, el, force = 1) {
+      const E2 = ELEMENTS[el] || ELEMENTS.physique;
+      for (let i = 0; i < 22 * force; i++) {
+        const a = rnd(0, 6.28), v = rnd(60, 220) * force, p = { x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, couleur: Math.random() < 0.5 ? E2.c1 : E2.c2, taille: rnd(2, 5), vie: rnd(0.3, 0.7) };
+        if (el === "sang" || el === "eau") Object.assign(p, { g: 500, add: el === "eau", forme: "goutte" });
+        else if (el === "feu") Object.assign(p, { g: -200, taille: rnd(3, 7) });
+        else if (el === "glace") Object.assign(p, { forme: "eclat", add: false, vr: rnd(-8, 8) });
+        else if (el === "ombre") Object.assign(p, { forme: "fumee", add: false, taille: rnd(8, 14), vx: p.vx * 0.4, vy: p.vy * 0.4 });
+        else if (el === "arcane" || el === "lumiere") Object.assign(p, { forme: "etoile", vr: rnd(-6, 6) });
+        else Object.assign(p, { forme: "trait", rot: a, vie: 0.25 });
+        ajouter(p);
+      }
+      anneau(x, y, E2.glow, 50 * force);
+    }
+    function nombre(x, y, txt, couleur, gros) { textes.push({ x: x + rnd(-6, 6), y, txt, couleur, gros, age: 0, vie: 1 }); }
+
+    // ---- simulation (60 images/s) ----
+    const debutRound = () => {
+      J.forEach((p, i) => Object.assign(p, { x: i ? 460 : 180, y: SOL, vx: 0, vy: 0, face: i ? -1 : 1, pv: p.pvMax, pvAff: p.pvMax, etat: "garde", t: 0, coup: null, stun: 0, invuln: 0, recharge: 0 }));
+      etat.projectiles = []; etat.chrono = 60 * 60; etat.phase = "intro"; etat.phaseT = 0; etat.acheve = null; etat.finish = null;
+      evt({ k: "banniere", txt: `Round ${etat.round}`, sous: `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.3 });
+    };
+    function changerEtat(p, e) { p.etat = e; p.t = 0; }
+    function attaquer(p, nom) { p.coup = { ...COUPS[nom], nom }; p.touche = false; changerEtat(p, "attaque"); }
+    function ia(p, o) {
+      const n = { facile: [26, 0.15, 0.25], normal: [14, 0.45, 0.5], difficile: [7, 0.75, 0.8] }[opts.niveau] || [14, 0.45, 0.5];
+      const c = cmd[p.cote];
+      c.g = c.d = c.h = c.b = 0;
+      if (etat.acheve) { if (etat.acheve.gagnant === p.cote && etat.acheve.t < 200) c.sup = 1; return; }
+      p.iaT = (p.iaT || 0) - 1;
+      const dist = Math.abs(o.x - p.x), devant = Math.sign(o.x - p.x) || 1;
+      // se protéger si l'adversaire attaque
+      if ((o.etat === "attaque" || etat.projectiles.some((q) => q.camp !== p.cote && Math.abs(q.x - p.x) < 160)) && Math.random() < n[1] * 0.25) { if (devant > 0) c.g = 1; else c.d = 1; if (o.coup && o.coup.bas) c.b = 1; return; }
+      if (p.iaT > 0) { if (p.iaPlan === "avance") { if (devant > 0) c.d = 1; else c.g = 1; } if (p.iaPlan === "recule") { if (devant > 0) c.g = 1; else c.d = 1; } return; }
+      p.iaT = n[0] + Math.floor(Math.random() * n[0]);
+      if (p.super >= 100 && dist < 300 && Math.random() < n[2]) { c.sup = 1; return; }
+      if (dist > 200) { p.iaPlan = Math.random() < 0.35 && p.recharge <= 0 ? "spe" : "avance"; if (p.iaPlan === "spe") c.spe = 1; return; }
+      if (dist > 95) { p.iaPlan = Math.random() < 0.2 ? "saut" : "avance"; if (p.iaPlan === "saut") { c.h = 1; if (devant > 0) c.d = 1; else c.g = 1; } return; }
+      const r = Math.random();
+      p.iaPlan = "frappe";
+      if (r < 0.35) c.coup = 1; else if (r < 0.6) c.fort = 1; else if (r < 0.72) { c.b = 1; c.fort = 1; } else if (r < 0.85) p.iaPlan = "recule"; else { c.h = 1; c.coup = 1; }
+    }
+    function pas() {
+      if (etat.gel > 0) { etat.gel--; return; }
+      etat.phaseT++;
+      if (etat.phase === "intro") { if (etat.phaseT === 70) evt({ k: "banniere", txt: "COMBAT !", vie: 0.8, couleur: "#ff6a4a" }); if (etat.phaseT > 90) etat.phase = "combat"; }
+      if (etat.phase === "combat" && --etat.chrono <= 0) finRound(null);
+      if (opts.mode === "ordi") ia(J[1], J[0]);
+      // coup de grâce : Super pendant que l'adversaire est sonné (quel que soit le mouvement en cours)
+      if (etat.acheve && !etat.finish && cmd[etat.acheve.gagnant].sup) { const g = J[etat.acheve.gagnant]; lancerFinish(g, J[1 - etat.acheve.gagnant]); }
+      J.forEach((p, i) => majCombattant(p, J[1 - i], cmd[i]));
+      // séparer les corps
+      const dx = J[1].x - J[0].x;
+      if (Math.abs(dx) < 46 && Math.abs(J[0].y - J[1].y) < 80) { const push = (46 - Math.abs(dx)) / 2 * Math.sign(dx || 1); J[0].x -= push; J[1].x += push; }
+      J.forEach((p) => (p.x = Math.max(34, Math.min(W_D - 34, p.x))));
+      // projectiles
+      for (let i = etat.projectiles.length - 1; i >= 0; i--) {
+        const q = etat.projectiles[i]; q.x += q.vx; q.age++;
+        const cible = J[1 - q.camp];
+        const autre = etat.projectiles.find((o) => o !== q && o.camp !== q.camp && Math.abs(o.x - q.x) < 24);
+        if (autre) { evt({ k: "impact", x: q.x, y: q.y, el: q.el, txt: "", fort: false }); etat.projectiles.splice(etat.projectiles.indexOf(autre), 1); etat.projectiles.splice(etat.projectiles.indexOf(q), 1); i = etat.projectiles.length; continue; }
+        if (Math.abs(cible.x - q.x) < 30 && cible.y > SOL - 120 && cible.invuln <= 0 && cible.etat !== "ko") { toucher(J[q.camp], cible, { dmg: q.dmg, stun: 18, recul: 7, gain: 10, el: q.el, fort: true }, q.x); etat.projectiles.splice(i, 1); continue; }
+        if (q.x < -40 || q.x > W_D + 40) etat.projectiles.splice(i, 1);
+      }
+      cmd.forEach((c) => (c.coup = c.fort = c.spe = c.sup = 0));
+      if (etat.acheve) { etat.acheve.t--; if (etat.acheve.t <= 0 && !etat.finish) finRound(etat.acheve.gagnant, true); }
+    }
+    function majCombattant(p, o, c) {
+      p.t++; if (p.invuln > 0) p.invuln--; if (p.recharge > 0) p.recharge--;
+      const actif = etat.phase === "combat" && !etat.fini;
+      const versO = Math.sign(o.x - p.x) || p.face;
+      const arriere = (versO > 0 && c.g) || (versO < 0 && c.d);
+      // gravité
+      if (!auSol(p) || p.vy < 0) { p.vy += 0.75; p.y += p.vy; p.x += p.vx; if (p.y >= SOL) { p.y = SOL; p.vy = 0; p.vx = 0; if (p.etat === "saut" || p.etat === "attaque" && p.coup && p.coup.haut) changerEtat(p, "garde"); if (p.etat === "envol") changerEtat(p, "aterre"); } }
+      switch (p.etat) {
+        case "ko": return;
+        case "sonne": return;
+        case "victoire": return;
+        case "touche": p.x += p.recul || 0; p.recul *= 0.85; if (p.t >= p.stun) changerEtat(p, "garde"); return;
+        case "garde_coup": p.x += p.recul || 0; p.recul *= 0.8; if (p.t >= p.stun) changerEtat(p, "garde"); return;
+        case "envol": return;
+        case "aterre": if (p.t > 36) { changerEtat(p, "garde"); p.invuln = 24; } return;
+        case "magie": if (p.t === 12) { etat.projectiles.push({ x: p.x + p.face * 40, y: SOL - 86, vx: p.face * 6.5, camp: p.cote, el: p.c.element, dmg: Math.round(76 * p.attMul), age: 0 }); evt({ k: "lancer", x: p.x + p.face * 40, y: SOL - 86, el: p.c.element }); } if (p.t > 30) changerEtat(p, "garde"); return;
+        case "super": superCoup(p, o); return;
+        case "finish": return;
+        case "attaque": {
+          const k = p.coup;
+          if (p.t >= k.debut && p.t < k.debut + k.actif && !p.touche) {
+            const dx = (o.x - p.x) * p.face;
+            const portee = dx > 0 && dx < k.portee + 18 && Math.abs((o.y - (k.haut ? 30 : 0)) - p.y) < 90;
+            const saute = o.y < SOL - 40;
+            if (portee && !(k.bas && saute) && o.invuln <= 0 && !["ko", "envol"].includes(o.etat)) { p.touche = true; toucher(p, o, { ...k, el: k.nom === "fort" ? p.c.element : "physique" }, o.x - p.face * 18); }
+          }
+          if (p.t >= k.debut + k.actif + k.fin && (auSol(p) || !k.haut)) changerEtat(p, auSol(p) ? (c.b ? "accroupi" : "garde") : "saut");
+          return;
+        }
+      }
+      if (!actif) { if (auSol(p)) changerEtat(p, p.etat === "garde" ? "garde" : "garde"); return; }
+      // achever l'adversaire sonné
+      if (etat.acheve && etat.acheve.gagnant === p.cote && c.sup && !etat.finish) { lancerFinish(p, o); return; }
+      if (etat.acheve) { if (auSol(p)) changerEtat(p, "garde"); return; }
+      if (auSol(p) && ["garde", "marche", "accroupi", "bloque"].includes(p.etat)) {
+        p.face = versO;
+        if (c.sup && p.super >= 100) { p.super = 0; changerEtat(p, "super"); return; }
+        if (c.spe && p.recharge <= 0) { p.recharge = 70; changerEtat(p, "magie"); return; }
+        if (c.coup) { attaquer(p, c.b ? "bas" : "coup"); return; }
+        if (c.fort) { attaquer(p, c.b ? "balayage" : "fort"); return; }
+        if (c.h) { p.vy = -14.5; p.vx = (c.d ? 3.6 : c.g ? -3.6 : 0) * p.vitesse; p.y -= 1; changerEtat(p, "saut"); return; }
+        if (c.b) { if (p.etat !== "accroupi") changerEtat(p, "accroupi"); p.bloque = arriere; return; }
+        p.bloque = arriere;
+        if (c.g || c.d) { p.x += (c.d ? 1 : -1) * (arriere ? 2.6 : 3.4) * p.vitesse; if (p.etat !== "marche") changerEtat(p, "marche"); }
+        else if (p.etat !== "garde") changerEtat(p, "garde");
+      } else if (p.etat === "saut" && (c.coup || c.fort)) attaquer(p, "aerien");
+    }
+    function toucher(a, d, k, xImpact) {
+      if (["sonne", "ko"].includes(d.etat) || etat.acheve) return;
+      const y = d.y - (k.bas ? 30 : 92);
+      const garde = d.bloque && auSol(d) && ["garde", "marche", "accroupi", "garde_coup"].includes(d.etat) && !(k.bas && d.etat !== "accroupi") && !(k.haut && d.etat === "accroupi");
+      if (garde) {
+        const chip = Math.round(k.dmg * a.attMul * 0.12);
+        d.pv = Math.max(1, d.pv - chip); d.recul = -d.face * 3.5; d.stun = 10; changerEtat(d, "garde_coup");
+        a.super = Math.min(100, a.super + k.gain * 0.5); d.super = Math.min(100, d.super + 4);
+        evt({ k: "garde", x: xImpact, y }); etat.gel = 3; return;
+      }
+      const dmg = Math.round(k.dmg * a.attMul * (1 - d.defRed));
+      d.pv = Math.max(0, d.pv - dmg); d.blanc = 1;
+      a.super = Math.min(100, a.super + k.gain); d.super = Math.min(100, d.super + 5);
+      evt({ k: "impact", x: xImpact, y, el: k.el || "physique", txt: "-" + dmg, fort: dmg > 80 });
+      etat.gel = dmg > 80 ? 7 : 4;
+      if (d.pv <= 0) { ko(a, d); return; }
+      if (k.chute || !auSol(d)) { d.vy = -7; d.vx = -d.face * 3; d.y -= 1; changerEtat(d, "envol"); }
+      else { d.stun = k.stun; d.recul = -d.face * k.recul * 0.7; changerEtat(d, "touche"); }
+    }
+    function superCoup(p, o) {
+      if (p.t === 1) { etat.gel = 30; evt({ k: "banniere", txt: p.c.super, sous: `SUPER — ${p.c.nom}`, vie: 1.6, couleur: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow }); evt({ k: "flash", v: 0.5 }); }
+      if (p.t >= 8 && p.t <= 40 && p.t % 8 === 0) {
+        const devant = (o.x - p.x) * p.face > 0;
+        if (devant && o.invuln <= 0 && !["ko"].includes(o.etat)) toucher(p, o, { dmg: 52, stun: 20, recul: 4, gain: 0, el: p.c.element, fort: true }, o.x - p.face * 10);
+      }
+      if (p.t > 54) changerEtat(p, "garde");
+    }
+    function ko(a, d) {
+      const decisif = a.gagnes + 1 >= 2;
+      if (decisif && opts.mode !== "aucun") {
+        // ACHÈVE-LE !
+        d.pv = 0; changerEtat(d, "sonne"); etat.acheve = { gagnant: a.cote, t: 60 * 4 };
+        evt({ k: "banniere", txt: "ACHÈVE-LE !", sous: "Appuie sur Super", vie: 2.4, couleur: "#ff2a3a" });
+        etat.ralenti = 30;
+        return;
+      }
+      changerEtat(d, "ko"); d.vy = -8; d.vx = -d.face * 4; d.y -= 1;
+      etat.ralenti = 70; evt({ k: "banniere", txt: "K.O.", vie: 1.6, couleur: "#ff3a3a" });
+      setTimeout(() => finRound(a.cote), 1700);
+    }
+    function lancerFinish(p, o) {
+      const NOMS_FINISH = { sang: "Festin écarlate", feu: "Bûcher infernal", glace: "Tombeau de glace", foudre: "Jugement de la foudre", lumiere: "Colonne céleste", ombre: "Étreinte du néant", nature: "Étreinte des ronces", poison: "Dernier venin", eau: "Abysse sans fond", vent: "Ouragan final", terre: "Tombe de pierre", arcane: "Sceau final", physique: "Coup fatal" };
+      etat.finish = { t: 0, el: p.c.element, nom: p.c.finish || NOMS_FINISH[p.c.element] || "Coup de grâce" };
+      changerEtat(p, "finish"); p.face = Math.sign(o.x - p.x) || p.face;
+      evt({ k: "finish", camp: p.cote, el: p.c.element, x: o.x, nom: etat.finish.nom });
+      evt({ k: "banniere", txt: etat.finish.nom, sous: "COUP DE GRÂCE", vie: 3, couleur: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow });
+      setTimeout(() => { changerEtat(o, "ko"); o.vy = -6; o.vx = -o.face * 3; o.y -= 1; }, 1800);
+      setTimeout(() => finRound(p.cote, false, true), 3600);
+    }
+    function finishEffet(e) {
+      const E2 = ELEMENTS[e.el] || ELEMENTS.physique, x = e.x, base = SOL;
+      etat.finishFx = { el: e.el, x, age: 0, vie: 3.2 };
+      for (let k = 0; k < 6; k++) setTimeout(() => {
+        if (!vivante) return;
+        if (e.el === "sang") for (let i = 0; i < 30; i++) { const a = rnd(0, 6.28), r = rnd(10, 60); ajouter({ x: x + Math.cos(a) * r, y: base - 90 + Math.sin(a) * r, vx: -Math.sin(a) * 120, vy: Math.cos(a) * 120 - 40, couleur: i % 2 ? E2.c1 : E2.c2, forme: "goutte", g: 200, taille: rnd(3, 6), vie: 1, add: false }); }
+        else if (e.el === "lumiere") for (let i = 0; i < 30; i++) ajouter({ x: x + rnd(-30, 30), y: rnd(0, base), vy: rnd(200, 400), couleur: i % 2 ? "#fff6d0" : "#ffe58a", forme: "trait", rot: 1.57, taille: rnd(3, 6), vie: 0.6 });
+        else if (e.el === "arcane") for (let i = 0; i < 18; i++) { const a = rnd(0, 6.28); ajouter({ x: x + Math.cos(a) * 80, y: base - 90 + Math.sin(a) * 50, vx: -Math.cos(a) * 140, vy: -Math.sin(a) * 90, couleur: i % 3 ? "#f4ead0" : "#c0102a", forme: "carte", vr: rnd(-10, 10), taille: 6, vie: 0.8, add: false }); }
+        else eclat(x + rnd(-40, 40), base - rnd(40, 140), e.el, 1.6);
+        etat.secousse = 10; evt({ k: "flash", v: 0.3 });
+      }, k * 420);
+    }
+    function finRound(gagnant, sansFinish, avecFinish) {
+      if (etat.fini || etat.phase === "entreRounds") return;
+      if (gagnant === null) { gagnant = J[0].pv === J[1].pv ? -1 : J[0].pv > J[1].pv ? 0 : 1; }
+      if (gagnant >= 0) { J[gagnant].gagnes++; changerEtat(J[gagnant], "victoire"); if (sansFinish) { changerEtat(J[1 - gagnant], "ko"); } }
+      etat.phase = "entreRounds";
+      const fin = J.some((p) => p.gagnes >= 2);
+      if (!fin) { evt({ k: "banniere", txt: gagnant < 0 ? "Égalité" : `${J[gagnant].c.nom} gagne le round`, vie: 1.8 }); setTimeout(() => { if (!vivante) return; etat.round++; debutRound(); }, 2200); return; }
+      etat.fini = true;
+      const g = J[0].gagnes >= 2 ? 0 : 1;
+      evt({ k: "banniere", txt: `${J[g].c.nom} gagne !`, sous: avecFinish ? "par coup de grâce" : "", vie: 3, couleur: "#f5d08a" });
+      setTimeout(() => { if (vivante) opts.fin({ titre: g === moiIdx || opts.mode === "deux" ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…`, finish: avecFinish ? etat.finish.nom : "" }); }, 2600);
+    }
+
+    // ---- état réseau (l'hôte envoie, l'invité affiche) ----
+    const exporter = () => ({
+      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: p.pv, super: Math.round(p.super), gagnes: p.gagnes, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
+      pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: q.y, el: q.el, camp: q.camp })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
+      evts: evts.splice(0),
+    });
+    function importer(s) {
+      s.j.forEach((q, i) => { const p = J[i]; p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, gagnes: q.gagnes, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
+      etat.projectiles = s.pr; etat.chrono = s.ch; etat.round = s.r; etat.acheve = s.ac ? {} : null;
+      if (s.fi && !etat.fini) { etat.fini = true; const g = J[0].gagnes >= 2 ? 0 : 1; setTimeout(() => vivante && opts.fin({ titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
+    }
+
+    // ---- dessin ----
+    function poseDe(p, t) {
+      const P = COMBATTANT.POSES;
+      switch (p.etat) {
+        case "marche": return { nom: "marche", art: COMBATTANT.marche(p.t * 0.22) };
+        case "accroupi": return { nom: "garde", art: p.bloque ? Object.assign({}, P.accroupi, { bdA: -150, bdB: 150 }) : P.accroupi, bas: true };
+        case "saut": return { nom: "garde", art: P.saut };
+        case "attaque": { const k = p.coup || {}; const ph = Math.min(1, p.t / Math.max(1, k.debut || 4)); const art = COMBATTANT.melanger(P.garde, P[k.pose] || P.poing, ph); return { nom: k.pose === "pied" || k.pose === "balayage" || k.pose === "aerien" ? "pied" : "poing", art, bas: k.pose === "balayage" }; }
+        case "magie": case "super": return { nom: "magie", art: P.special };
+        case "finish": return { nom: "finish", art: P.finish };
+        case "touche": case "garde_coup": return { nom: p.etat === "garde_coup" ? "garde" : "touche", art: p.etat === "garde_coup" ? P.bloc : P.touche };
+        case "envol": case "aterre": case "ko": return { nom: "touche", art: P.touche, chute: true };
+        case "sonne": return { nom: "touche", art: Object.assign({}, P.touche, { hy: 10, tronc: -14 + Math.sin(t * 3) * 10, tete: 24, bdA: 20, bgA: 30, jdA: 20, jdB: -40, jgA: -20, jgB: -30 }) };
+        case "victoire": return { nom: "finish", art: P.victoire };
+        default: return { nom: "garde", art: p.bloque && (p.etat === "garde") ? P.bloc : Object.assign({}, P.garde, { hy: Math.sin(t * 2.4 + p.phase) * 1.3 }) };
+      }
+    }
+    function dessinerCombattant(p, t) {
+      const ps = poseDe(p, t);
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.beginPath(); ctx.ellipse(p.x, SOL + 2, 34 * Math.max(0.5, 1 - (SOL - p.y) / 300), 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.translate(p.x, p.y);
+      if (ps.chute) { const k = p.etat === "ko" ? Math.min(1, p.t / 18) : p.etat === "aterre" ? 1 - Math.min(1, p.t / 30) * 0.7 : 0.5; ctx.rotate(-p.face * k * 1.35); }
+      if (p.invuln > 0 && p.etat === "garde" && Math.floor(p.invuln / 3) % 2) ctx.globalAlpha = 0.5;
+      ctx.scale(p.face, 1);
+      const pl = p.c.planche;
+      if (pl) {
+        const fr = pl[ps.nom] || pl.garde, hh = (ps.bas ? 120 : 172) * (p.c.app.taille || 1), ww = (hh * fr.img.width) / fr.img.height;
+        const lean = p.etat === "attaque" ? 0.06 : p.etat === "touche" ? -0.12 : 0;
+        ctx.rotate(lean);
+        ctx.drawImage(fr.img, -ww / 2, -hh + (p.etat === "garde" ? Math.sin(t * 2.4 + p.phase) * 1.5 : 0), ww, hh);
+        if (p.blanc > 0) { ctx.globalAlpha = p.blanc; ctx.drawImage(fr.blanc, -ww / 2, -hh, ww, hh); ctx.globalAlpha = 1; }
+      } else {
+        ctx.scale(1.12, 1.12);
+        COMBATTANT.dessiner(ctx, p.c.app, ps.art, t, p.etat === "victoire" ? "sourire" : null);
+      }
+      ctx.restore();
+      if (!pl && p.blanc > 0) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = p.blanc * 0.5; const g = ctx.createRadialGradient(p.x, p.y - 90, 4, p.x, p.y - 90, 70); g.addColorStop(0, "#fff"); g.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = g; ctx.fillRect(p.x - 70, p.y - 170, 140, 170); ctx.restore(); }
+      p.blanc = Math.max(0, p.blanc - 0.09);
+      // garde : bouclier hexagonal
+      if (p.bloque && ["garde", "garde_coup", "accroupi"].includes(p.etat) && p.etat !== "marche") { ctx.save(); ctx.globalAlpha = p.etat === "garde_coup" ? 0.8 : 0.25; ctx.strokeStyle = "#9adcff"; ctx.lineWidth = 2; ctx.beginPath(); const cx = p.x + p.face * 30, cy = p.y - (p.etat === "accroupi" ? 50 : 90); for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + 0.52; ctx.lineTo(cx + Math.cos(a) * 14, cy + Math.sin(a) * 38); } ctx.closePath(); ctx.stroke(); ctx.restore(); }
+      if (p.etat === "sonne") for (let i = 0; i < 4; i++) { const a = t * 4 + i * 1.57; ctx.fillStyle = "#fff2a0"; ctx.font = "14px sans-serif"; ctx.fillText("★", p.x + Math.cos(a) * 24 - 6, p.y - 168 + Math.sin(a) * 6); }
+      // aura de magie pendant le super
+      if (p.etat === "super" || p.etat === "finish") { const E2 = ELEMENTS[p.c.element] || ELEMENTS.physique; ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.35 + Math.sin(t * 12) * 0.15; const g = ctx.createRadialGradient(p.x, p.y - 80, 10, p.x, p.y - 80, 110); g.addColorStop(0, E2.glow); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(p.x - 120, p.y - 200, 240, 220); ctx.restore(); }
+    }
+    function fond(t) {
+      const g = ctx.createLinearGradient(0, 0, 0, H_D); g.addColorStop(0, "#120a22"); g.addColorStop(0.62, "#3a1a30"); g.addColorStop(0.64, "#1c1320"); g.addColorStop(1, "#0a0710");
+      ctx.fillStyle = g; ctx.fillRect(-20, -20, W_D + 40, H_D + 40);
+      ctx.fillStyle = "#a01020"; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(520, 70, 34, 0, 7); ctx.fill(); ctx.globalAlpha = 0.15; ctx.beginPath(); ctx.arc(520, 70, 60, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = "#1a0e1c"; for (let i = 0; i < 9; i++) { const x = i * 80 - 10, h = 70 + (i % 3) * 34; ctx.fillRect(x, 230 - h, 28, h); ctx.beginPath(); ctx.moveTo(x - 4, 230 - h); ctx.lineTo(x + 14, 230 - h - 34); ctx.lineTo(x + 32, 230 - h); ctx.fill(); }
+      ctx.strokeStyle = "rgba(227,184,102,0.14)"; ctx.lineWidth = 1; for (let i = -6; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(W_D / 2 + i * 40, 230); ctx.lineTo(W_D / 2 + i * 120, H_D); ctx.stroke(); }
+      for (let i = 0; i < 20; i++) { const x = (i * 97 + t * 10 * ((i % 3) + 1)) % W_D, y = (i * 41 + Math.sin(t + i) * 8) % 230; ctx.fillStyle = `rgba(245,208,138,${0.15 + (i % 4) * 0.05})`; ctx.fillRect(x, y, 1.6, 1.6); }
+      if (etat.finishFx) { const f = etat.finishFx; f.age += 1 / 60; const E2 = ELEMENTS[f.el] || ELEMENTS.physique; ctx.save(); ctx.globalAlpha = Math.min(0.55, f.age) * (f.age > f.vie - 0.5 ? (f.vie - f.age) * 2 : 1); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W_D, H_D); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = E2.glow; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(f.x, SOL, 70 + Math.sin(f.age * 4) * 6, 18, 0, 0, 7); ctx.stroke(); if (f.el === "lumiere") { const gg = ctx.createLinearGradient(f.x - 40, 0, f.x + 40, 0); gg.addColorStop(0, "rgba(0,0,0,0)"); gg.addColorStop(0.5, "rgba(255,240,180,0.8)"); gg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = gg; ctx.fillRect(f.x - 40, 0, 80, SOL); } ctx.restore(); if (f.age > f.vie) etat.finishFx = null; }
+    }
+    function hud(t) {
+      J.forEach((p, i) => {
+        const x = i ? W_D - 24 - 250 : 24, w = 250;
+        p.pvAff += (p.pv - p.pvAff) * 0.08;
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(x - 2, 14, w + 4, 16);
+        const k1 = p.pvAff / p.pvMax, k2 = p.pv / p.pvMax;
+        ctx.fillStyle = "#ffef9a"; ctx.fillRect(i ? x + w * (1 - k1) : x, 16, w * k1, 12);
+        ctx.fillStyle = k2 < 0.25 ? "#e04040" : "#5fd18a"; ctx.fillRect(i ? x + w * (1 - k2) : x, 16, w * k2, 12);
+        ctx.font = "600 12px system-ui, sans-serif"; ctx.fillStyle = "#f2ecdc"; ctx.textAlign = i ? "right" : "left"; ctx.shadowColor = "#000"; ctx.shadowBlur = 3;
+        ctx.fillText(p.c.nom, i ? x + w : x, 44); ctx.shadowBlur = 0;
+        for (let r = 0; r < 2; r++) { ctx.fillStyle = r < p.gagnes ? "#f5d08a" : "rgba(255,255,255,0.15)"; ctx.beginPath(); ctx.arc(i ? x + w - 8 - r * 14 - ctx.measureText(p.c.nom).width - 10 : x + ctx.measureText(p.c.nom).width + 14 + r * 14, 40, 4.5, 0, 7); ctx.fill(); }
+        // jauge de super
+        const sy = H_D - 18, sw = 160, sx = i ? W_D - 24 - sw : 24;
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(sx - 2, sy - 2, sw + 4, 10);
+        const E2 = ELEMENTS[p.c.element] || ELEMENTS.physique;
+        ctx.fillStyle = p.super >= 100 ? `rgba(255,255,255,${0.7 + Math.sin(t * 10) * 0.3})` : E2.glow; ctx.fillRect(i ? sx + sw * (1 - p.super / 100) : sx, sy, sw * p.super / 100, 6);
+        ctx.font = "700 10px system-ui"; ctx.fillStyle = p.super >= 100 ? "#fff" : "#c8c0b0"; ctx.fillText(p.super >= 100 ? "SUPER PRÊT" : "Super", i ? sx + sw : sx, sy - 5);
+      });
+      ctx.textAlign = "center"; ctx.font = "700 24px Georgia, serif"; ctx.fillStyle = "#f5d08a"; ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
+      ctx.fillText(String(Math.max(0, Math.ceil(etat.chrono / 60))), W_D / 2, 32); ctx.shadowBlur = 0;
+      if (etat.banniere) {
+        const b = etat.banniere; b.age += 1 / 60; const k = b.age / b.vie;
+        if (k >= 1) etat.banniere = null;
+        else {
+          const a = k < 0.12 ? k / 0.12 : k > 0.82 ? (1 - k) / 0.18 : 1, s = 1 + (k < 0.12 ? (0.12 - k) * 3 : 0);
+          ctx.save(); ctx.globalAlpha = a; ctx.translate(W_D / 2, 150); ctx.scale(s, s);
+          ctx.font = "900 40px Georgia, serif"; ctx.lineWidth = 6; ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.strokeText(b.txt, 0, 0); ctx.fillStyle = b.couleur; ctx.shadowColor = b.couleur; ctx.shadowBlur = 16; ctx.fillText(b.txt, 0, 0); ctx.shadowBlur = 0;
+          if (b.sous) { ctx.font = "600 14px system-ui"; ctx.fillStyle = "#e8e0d0"; ctx.fillText(b.sous, 0, 26); }
+          ctx.restore();
+        }
+      }
+    }
+    function dessinerParts(dt) {
+      ctx.save();
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]; p.age += dt;
+        if (p.age >= p.vie) { parts.splice(i, 1); continue; }
+        const k = 1 - p.age / p.vie;
+        if (p.anneau) { const r = p.r + (p.rmax - p.r) * (1 - k); ctx.globalAlpha = k; ctx.strokeStyle = p.couleur; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(p.x, p.y, r, r * 0.7, 0, 0, 7); ctx.stroke(); continue; }
+        p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+        ctx.globalAlpha = k; ctx.globalCompositeOperation = p.add ? "lighter" : "source-over"; ctx.fillStyle = p.couleur; ctx.strokeStyle = p.couleur;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); const t = p.taille;
+        if (p.forme === "goutte") { ctx.beginPath(); ctx.arc(0, 0, t * 0.7, 0, 7); ctx.fill(); }
+        else if (p.forme === "eclat") { ctx.beginPath(); ctx.moveTo(0, -t * 1.4); ctx.lineTo(t * 0.5, 0); ctx.lineTo(0, t * 1.4); ctx.lineTo(-t * 0.5, 0); ctx.fill(); }
+        else if (p.forme === "fumee") { ctx.globalAlpha = k * 0.5; ctx.beginPath(); ctx.arc(0, 0, t * (2 - k), 0, 7); ctx.fill(); }
+        else if (p.forme === "etoile") { ctx.beginPath(); for (let j = 0; j < 8; j++) { const r = j % 2 ? t * 0.4 : t; ctx.lineTo(Math.cos(j * 0.785) * r, Math.sin(j * 0.785) * r); } ctx.fill(); }
+        else if (p.forme === "trait") { ctx.lineWidth = Math.max(1, t * 0.6); ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(-t * 3, 0); ctx.lineTo(t * 3, 0); ctx.stroke(); }
+        else if (p.forme === "carte") { ctx.fillRect(-4, -6, 8, 12); ctx.strokeStyle = "#1a1018"; ctx.lineWidth = 0.8; ctx.strokeRect(-4, -6, 8, 12); }
+        else { ctx.beginPath(); ctx.arc(0, 0, t, 0, 7); ctx.fill(); }
+        ctx.restore();
+      }
+      ctx.restore();
+      textes.forEach((z) => { z.age += dt; const k = z.age / z.vie; ctx.save(); ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - 0.6) / 0.4); ctx.font = `800 ${z.gros ? 20 : 15}px system-ui`; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.strokeText(z.txt, z.x, z.y - k * 30); ctx.fillStyle = z.couleur; ctx.fillText(z.txt, z.x, z.y - k * 30); ctx.restore(); });
+      for (let i = textes.length - 1; i >= 0; i--) if (textes[i].age > textes[i].vie) textes.splice(i, 1);
+    }
+    function dessinerProjectiles(t) {
+      etat.projectiles.forEach((q) => {
+        const E2 = ELEMENTS[q.el] || ELEMENTS.physique;
+        if (Math.random() < 0.8) ajouter({ x: q.x + rnd(-6, 6), y: q.y + rnd(-6, 6), vx: -Math.sign(q.vx || (q.camp ? -1 : 1)) * rnd(10, 40), vy: rnd(-20, 20), couleur: Math.random() < 0.5 ? E2.c1 : E2.c2, taille: rnd(2, 5), vie: 0.35, forme: q.el === "sang" ? "goutte" : q.el === "glace" ? "eclat" : q.el === "ombre" ? "fumee" : "rond", add: !["ombre", "glace"].includes(q.el) });
+        ctx.save(); ctx.globalCompositeOperation = "lighter"; const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, 22); g.addColorStop(0, "#fff"); g.addColorStop(0.35, E2.c1); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, 22 + Math.sin(t * 20) * 2, 0, 7); ctx.fill(); ctx.restore();
+      });
+    }
+    function image(now) {
+      if (!vivante) return;
+      if (!document.body.contains(canvas)) { arreter(); return; }
+      let dt = Math.min(0.1, (now - dernier) / 1000); dernier = now;
+      if (!invite) {
+        acc += dt * 1000 * (etat.ralenti > 0 ? 0.35 : 1);
+        while (acc >= 16.67) { pas(); acc -= 16.67; if (etat.ralenti > 0) etat.ralenti--; }
+        if (salle && now - envoiEtat > 33) { envoiEtat = now; salle.send({ type: "broadcast", event: "etat", payload: exporter() }); }
+      } else if (instantane) { importer(instantane); instantane = null; }
+      const t = (now - t0) / 1000;
+      ctx.save();
+      if (etat.secousse > 0.3) { ctx.translate(rnd(-etat.secousse, etat.secousse), rnd(-etat.secousse, etat.secousse)); etat.secousse *= 0.85; }
+      fond(t);
+      [...J].sort((a, b) => (a.etat === "attaque" ? 1 : 0) - (b.etat === "attaque" ? 1 : 0)).forEach((p) => dessinerCombattant(p, t));
+      dessinerProjectiles(t);
+      dessinerParts(dt);
+      ctx.restore();
+      hud(t);
+      if (etat.flash > 0.01) { ctx.fillStyle = `rgba(255,255,255,${etat.flash})`; ctx.fillRect(0, 0, W_D, H_D); etat.flash *= 0.85; }
+      requestAnimationFrame(image);
+    }
+    function arreter() { vivante = false; if (typeof battement !== "undefined") clearInterval(battement); window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); }
+    if (!invite) debutRound();
+    requestAnimationFrame(image);
+    return { arreter, _etat: etat, _J: J, _cmd: cmd };
   }
 
   pages.jeux.rpg = () => enTete("⚔️", "Aetheria Tactics", "Collectionne les personnages, monte ton équipe de 5 et affronte des équipes de plus en plus fortes.") + `<div id="rpg-zone"><p class="discret">Chargement du jeu…</p></div>`;

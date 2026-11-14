@@ -286,6 +286,22 @@
       erreur(error);
     }
 
+    /* ---- Jeu de combat (Duel) ---- */
+    async duelPersos() {
+      const { data, error } = await this.sb.from("duel_persos").select("*");
+      if (error) return [];
+      return data;
+    }
+    async sauverDuelPerso(fiche_id, champs) {
+      const { data, error } = await this.sb.from("duel_persos").upsert({ fiche_id, ...champs, maj_le: new Date().toISOString() }, { onConflict: "fiche_id" }).select().single();
+      if (error && /duel_persos/.test(error.message || "")) throw new Error("Le jeu de combat n'est pas encore installé : relance le fichier schema.sql dans Supabase.");
+      erreur(error);
+      return data;
+    }
+    // salle de combat en ligne (Supabase Realtime)
+    salleDuel(code) { return this.sb.channel("duel-" + code, { config: { broadcast: { self: false, ack: false }, presence: { key: this.moi.user.id } } }); }
+    get enLigne() { return true; }
+
     /* ---- Jeu RPG ---- */
     async rpgPersos() {
       const { data, error } = await this.sb.from("rpg_persos").select("*");
@@ -503,6 +519,10 @@
     async listerLancers(limite = 30) { return (this._lire().lancers || []).slice(0, limite); }
     async supprimerLancer(id) { const s = this._lire(); s.lancers = (s.lancers || []).filter((l) => l.id !== id); this._ecrire(); }
 
+    async duelPersos() { return this._lire().duel_persos || []; }
+    async sauverDuelPerso(fiche_id, champs) { const s = this._lire(); s.duel_persos = (s.duel_persos || []).filter((d) => d.fiche_id !== fiche_id); const d = { fiche_id, ...champs }; s.duel_persos.push(d); this._ecrire(); return d; }
+    salleDuel() { throw new Error("Le mode en ligne n'est pas disponible en démo."); }
+    get enLigne() { return false; }
     /* Jeu RPG (démo : tout en local, même logique que le serveur) */
     _rpg() { const s = this._lire(); s.rpg = s.rpg || { persos: [], collection: [], profil: null }; return s; }
     async rpgPersos() { return this._rpg().rpg.persos.filter((p) => this._lire().fiches.some((f) => f.id === p.fiche_id)); }

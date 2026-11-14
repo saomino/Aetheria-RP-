@@ -335,6 +335,33 @@ function nettoyerCompetences(liste, role) {
   return out;
 }
 
+const CONSIGNE_APPARENCE = (titre, avecImage) => `${avecImage ? "Regarde l'IMAGE du personnage « " + titre + " » (et lis sa fiche)" : "Lis la fiche du personnage « " + titre + " »"} et décris son APPARENCE pour le dessiner en petit combattant 2D vu de profil, dans un jeu de combat.
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour. Couleurs en hexadécimal "#rrggbb". Mets seulement les champs utiles (n'invente pas d'ailes, cornes, etc. absentes) :
+{"femme":true/false,"peau":"#…","cheveux":"#…","longueur":0 (rasé/très court) à 3 (très long),"coiffure":"lisse"|"ebouriffe"|"chignon","boucle":true si bouclés,"meche":"#…" (mèche d'une autre couleur),"meche2":"#…","yeux":"#…","yeux2":"#…" (si yeux vairons),"yeuxBrillants":true si les yeux luisent,
+"barbe":"#…","barbeCourte":true,"monocle":true,"levres":"#…" (rouge à lèvres foncé),"maquillage":true,"crocs":true,"marques":"#…" (tatouages/marques sur le visage),"losange":"#…" (maquillage de bouffon),
+"oreilles":"pointues"|"nageoire","chat":true (oreilles de chat),"cornes":"oni"|"belier","couleurCornes":"#…","couronne":"#…","gemme":"#…","aureole":true,"bouffon":["#…","#…"] (chapeau de bouffon),"lunettes":true (lunettes d'aviateur sur le front),
+"ailes":"plumes"|"chauve","ailesNb":2 ou 6,"couleurAiles":"#…","couleurAiles2":"#…" (si les 2 ailes sont différentes),"veinesAiles":"#…","queue":"#…",
+"haut":"#…" (vêtement du torse),"torseNu":true,"tatouage":"#…","armure":"#…","damier":"#…","jabot":true,"chaines":"#…","collier":"#…","fourrure":"#…","manteau":"#…" (long manteau/cape ouverte),"manteauLong":true,"doublure":"#…" (bordure dorée/argentée…),"col":true,"manches":"#…","brasNus":true,"gants":"#…",
+"robe":"#…" (robe/jupe longue),"robeMotif":"#…","pantalon":"#…","bottes":"#…","bottesHautes":true,"jambieres":"#…","ceinture":"#…",
+"arme":"epee"|"epee_sang"|"epee_noire"|"faux"|"lance"|"trident"|"baton"|"canne"|"livre"|"cartes"|"griffes" (ou rien),"mainMagique":true si la magie sort de ses mains,"aura":"#…" (couleur de sa magie),"carrure":0 (fin) à 2 (massif),"taille":0.9 à 1.15,
+"finish":"nom court et stylé de son coup de grâce (25 caractères max), d'après sa magie"}`;
+const CHAMPS_APPARENCE = ["femme", "peau", "cheveux", "longueur", "coiffure", "boucle", "meche", "meche2", "mecheDevant", "yeux", "yeux2", "yeuxBrillants", "barbe", "barbeCourte", "monocle", "levres", "maquillage", "crocs", "marques", "losange", "oreilles", "chat", "chatInterieur", "cornes", "couleurCornes", "couronne", "gemme", "aureole", "bouffon", "lunettes", "ailes", "ailesNb", "couleurAiles", "couleurAiles2", "veinesAiles", "queue", "haut", "torseNu", "tatouage", "armure", "damier", "jabot", "chaines", "collier", "fourrure", "manteau", "manteauLong", "doublure", "col", "manches", "brasNus", "gants", "robe", "robeMotif", "pantalon", "bottes", "bottesHautes", "jambieres", "ceinture", "arme", "mainMagique", "aura", "carrure", "taille"];
+function nettoyerApparence(o) {
+  const a = {}, coul = (v) => (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v.trim()) ? v.trim().toLowerCase() : null);
+  for (const k of CHAMPS_APPARENCE) {
+    const v = o && o[k];
+    if (v === undefined || v === null || v === false || v === "") continue;
+    if (k === "bouffon") { if (Array.isArray(v) && v.length >= 2 && coul(v[0]) && coul(v[1])) a.bouffon = [coul(v[0]), coul(v[1])]; continue; }
+    if (["longueur", "ailesNb", "carrure", "taille"].includes(k)) { const n = Number(v); if (Number.isFinite(n)) a[k] = k === "longueur" ? Math.max(0, Math.min(3, Math.round(n))) : k === "ailesNb" ? (n >= 4 ? 6 : 2) : k === "carrure" ? Math.max(0, Math.min(2, n)) : Math.max(0.85, Math.min(1.2, n)); continue; }
+    if (v === true) { a[k] = true; continue; }
+    const c = coul(v);
+    if (c) { a[k] = c; continue; }
+    const choix = { coiffure: ["lisse", "ebouriffe", "chignon"], oreilles: ["pointues", "nageoire"], cornes: ["oni", "belier"], ailes: ["plumes", "chauve"], arme: ["epee", "epee_sang", "epee_noire", "faux", "lance", "trident", "baton", "canne", "livre", "cartes", "griffes"] }[k];
+    if (choix && choix.includes(String(v))) a[k] = String(v);
+  }
+  return a;
+}
+
 // Récupère le JSON dans la réponse de l'IA (même entouré de texte ou de ```)
 function extraireJSON(t) {
   const m = String(t).match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -360,7 +387,8 @@ async function fetchLimite(url, options, ms) {
 // IA de secours d'une autre marque (facultatif) : IA_SECOURS_FOURNISSEUR, IA_SECOURS_CLE, IA_SECOURS_MODELE
 const SECOURS_F = (Deno.env.get("IA_SECOURS_FOURNISSEUR") || "").toLowerCase().trim();
 const SECOURS_CLE = nettoyerCle(Deno.env.get("IA_SECOURS_CLE"));
-const SECOURS_MODELE = (Deno.env.get("IA_SECOURS_MODELE") || (SECOURS_F === "gemini" ? "gemini-flash-latest" : "")).trim();
+// modèle par défaut si IA_SECOURS_MODELE n'est pas rempli
+const SECOURS_MODELE = (Deno.env.get("IA_SECOURS_MODELE") || ({ gemini: "gemini-flash-latest", claude: "claude-sonnet-5-5", anthropic: "claude-sonnet-5-5", xai: "grok-4.3", grok: "grok-4.3" }[SECOURS_F] || "")).trim();
 const BUDGET_TOTAL = 110000;   // la fonction Supabase est coupée vers 150 s : on garde de la marge
 const BUDGET_ESSAI = 40000;    // un modèle qui ne répond pas en 40 s est abandonné
 
@@ -368,7 +396,7 @@ const BUDGET_ESSAI = 40000;    // un modèle qui ne répond pas en 40 s est aban
 function masquerCles(t) {
   let x = String(t || "");
   for (const k of [CLE, SECOURS_CLE]) if (k && k.length > 8) x = x.split(k).join("***");
-  return x.replace(/\b(sk-[A-Za-z0-9_\-]{6})[A-Za-z0-9_\-]+/g, "$1***").replace(/\bAIza[0-9A-Za-z_\-]{10,}/g, "AIza***").replace(/\bxai-[A-Za-z0-9]{6,}/g, "xai-***").replace(/Bearer\s+\S+/g, "Bearer ***");
+  return x.replace(/\b(sk-[A-Za-z0-9_\-]{6})[A-Za-z0-9_\-]+/g, "$1***").replace(/\bAIza[0-9A-Za-z_\-]{10,}/g, "AIza***").replace(/\bxai-[A-Za-z0-9]{6,}/g, "xai-***").replace(/\bsk-ant-[A-Za-z0-9_\-]{4,}/g, "sk-ant-***").replace(/Bearer\s+\S+/g, "Bearer ***");
 }
 async function appelerIA(systeme, messages) {
   if (!CLE) throw new ErreurIA("L'IA n'est pas encore configurée : il manque le secret IA_CLE dans Supabase.", 500);
@@ -402,7 +430,7 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
   if (fournisseur === "gemini") {
     const corps = (avecReflexion) => JSON.stringify({
       systemInstruction: { parts: [{ text: systeme }] },
-      contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+      contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [...(m.images || []).map((im) => ({ inline_data: { mime_type: im.mime, data: im.data } })), { text: m.content }] })),
       generationConfig: { temperature: 0.4, maxOutputTokens: 16384, ...(avecReflexion ? { thinkingConfig: { thinkingBudget: 512 } } : {}) },
     });
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modele)}:generateContent`;
@@ -419,11 +447,12 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
     if (!texte) throw Object.assign(new ErreurIA("L'IA n'a rien répondu (contenu peut-être bloqué par ses filtres).", 502), { code: 502 });
     return texte;
   }
+  if (fournisseur === "anthropic") fournisseur = "claude";
   if (fournisseur === "claude") {
     r = await fetchLimite("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": cle, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: modele, max_tokens: 8192, system: systeme, messages }),
+      body: JSON.stringify({ model: modele, max_tokens: 8192, system: systeme, messages: messages.map((m) => (m.images && m.images.length ? { role: m.role, content: [...m.images.map((im) => ({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } })), { type: "text", text: m.content }] } : { role: m.role, content: m.content })) }),
     }, delai);
     d = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (Claude) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
@@ -433,7 +462,7 @@ async function appelerModele(fournisseur, cle, modele, systeme, messages, delai)
   r = await fetchLimite(`${base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${cle}` },
-    body: JSON.stringify({ model: modele, messages: [{ role: "system", content: systeme }, ...messages] }),
+    body: JSON.stringify({ model: modele, messages: [{ role: "system", content: systeme }, ...messages.map((m) => (m.images && m.images.length ? { role: m.role, content: [...m.images.map((im) => ({ type: "image_url", image_url: { url: `data:${im.mime};base64,${im.data}` } })), { type: "text", text: m.content }] } : { role: m.role, content: m.content }))] }),
   }, delai);
   d = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new ErreurIA(`L'IA (${fournisseur}) a refusé la demande : ${(d.error && d.error.message) || r.status}`, 502), { code: r.status });
@@ -527,10 +556,10 @@ Deno.serve(async (req) => {
     const corps = await req.json().catch(() => ({}));
     const mode = corps.mode;
     if (mode === "discord") return await envoyerDiscord(profil, corps);
-    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues", "rpg"].includes(mode)) throw new ErreurIA("Mode inconnu.");
+    if (!["fiche", "global", "question", "des", "scenario", "creer", "corriger", "roues", "rpg", "apparence"].includes(mode)) throw new ErreurIA("Mode inconnu.");
 
     const [fiches, moments] = await Promise.all([
-      db("fiches?select=id,categorie,titre,resume,infos,contenu,annee&order=categorie,titre"),
+      db("fiches?select=id,categorie,titre,resume,infos,contenu,annee,image_url&order=categorie,titre"),
       db("moments?select=texte,quand,fiches&order=cree_le.desc&limit=300"),
     ]);
     if (!fiches.length) throw new ErreurIA("Le wiki est vide : il n'y a rien à analyser.");
@@ -567,6 +596,23 @@ Deno.serve(async (req) => {
         role: "user",
         content: `${contexteWiki(fiches, moments, { cibleId: cible.id })}\n\n# FICHE À CORRIGER (texte exact)\n${JSON.stringify(brut)}\n\n# CONSIGNE\n${CONSIGNE_CORRIGER(cible.titre, av && av[0] ? String(av[0].contenu).slice(0, 6000) : "")}`,
       }];
+    } else if (mode === "apparence") {
+      cible = fiches.find((x) => x.id === corps.fiche_id);
+      if (!cible) throw new ErreurIA("Fiche introuvable.", 404);
+      // on joint l'image de la fiche (les IA savent regarder une image)
+      let images = [];
+      if (/^https:\/\//.test(cible.image_url || "")) {
+        try {
+          const ri = await fetchLimite(cible.image_url, {}, 15000);
+          const mime = (ri.headers.get("content-type") || "image/jpeg").split(";")[0];
+          const buf = new Uint8Array(await ri.arrayBuffer());
+          if (ri.ok && /^image\//.test(mime) && buf.length < 6_000_000) {
+            let bin = ""; for (let i = 0; i < buf.length; i += 32768) bin += String.fromCharCode(...buf.subarray(i, i + 32768));
+            images = [{ mime, data: btoa(bin) }];
+          }
+        } catch (_) { images = []; }
+      }
+      messages = [{ role: "user", images, content: `# FICHE DU PERSONNAGE\n${ficheTexte(cible, true, 20000)}\n\n# CONSIGNE\n${CONSIGNE_APPARENCE(cible.titre, images.length > 0)}` }];
     } else if (mode === "rpg") {
       const ids = (Array.isArray(corps.fiche_ids) ? corps.fiche_ids : []).filter(Boolean).slice(0, 10);
       var cibles = fiches.filter((f) => ids.includes(f.id) && f.categorie === "personnages");
@@ -637,6 +683,10 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (mode === "apparence") {
+      const o = extraireJSON(texte) || {};
+      return reponse({ apparence: nettoyerApparence(o), finish: String(o.finish || "").trim().slice(0, 40), restant, modele: rep.modele });
+    }
     if (mode === "rpg") {
       let liste = extraireJSON(texte);
       if (!Array.isArray(liste)) liste = liste && Array.isArray(liste.personnages) ? liste.personnages : [liste];
