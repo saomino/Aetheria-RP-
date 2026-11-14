@@ -194,7 +194,10 @@
     ctx.restore();
   }
 
-  function dessiner(ctx, st, p, temps, expression) {
+  const DEFAUTS = { peau: "#e8c8b0", cheveux: "#2a2030", haut: "#3a2a4a", pantalon: "#1a1420", bottes: "#100a0e" };
+  function dessiner(ctx, st0, p, temps, expression) {
+    const st = Object.assign({}, DEFAUTS, st0);
+    for (const k in DEFAUTS) if (!st[k]) st[k] = DEFAUTS[k];
     const k = st.taille || 1, F = !!st.femme;
     ctx.save(); ctx.scale(k, k);
     const hx = 0, hy = -(L.cuisse + L.tibia) + p.hy;

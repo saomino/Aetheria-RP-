@@ -3300,8 +3300,17 @@
       }
       ctx.restore();
     }
+    let erreurBoucle = null;
     function image(now) {
       if (!vivante) return;
+      try { imageSure(now); }
+      catch (e) {
+        if (!erreurBoucle) { erreurBoucle = e.message || String(e); console.error("Duel", e); }
+        try { for (let k = 0; k < 8; k++) ctx.restore(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.font = "11px system-ui"; ctx.fillStyle = "#ff8a8a"; ctx.textAlign = "left"; ctx.fillText("⚠ " + erreurBoucle.slice(0, 100), 8, H_D - 32); } catch (_) {}
+        requestAnimationFrame(image);
+      }
+    }
+    function imageSure(now) {
       if (!document.body.contains(canvas)) { vivante = false; return; }
       const dt = Math.min(0.05, (now - dernier) / 1000); dernier = now;
       const t = (now - t0) / 1000;
@@ -3705,7 +3714,8 @@
   // ---- données d'un combattant ----
   async function combattantDe(f, duelData, rpData) {
     const dd = duelData.find((d) => d.fiche_id === f.id) || {};
-    const app = Object.keys(dd.apparence || {}).length ? dd.apparence : apparenceAuto(f);
+    const auto = apparenceAuto(f), ia = dd.apparence || {};
+    const app = Object.keys(ia).length ? { ...auto, cornes: undefined, ailes: undefined, aureole: undefined, chat: undefined, crocs: undefined, oreilles: undefined, couronne: undefined, queue: undefined, armure: undefined, arme: undefined, ...ia } : auto;
     const comp = (rpData.find((p) => p.fiche_id === f.id) || competencesLocales(f)).competences || [];
     const el = (comp.find((c) => c.element && c.element !== "physique") || {}).element || elementDeFiche(f);
     const x = forces(f);
@@ -3964,7 +3974,8 @@
     const TOUCHES1 = deuxJoueurs ? { KeyA: "g", KeyQ: "g", KeyD: "d", KeyW: "h", KeyZ: "h", KeyS: "b", KeyF: "coup", KeyG: "fort", KeyH: "spe", KeyT: "sup" }
       : { ArrowLeft: "g", KeyA: "g", KeyQ: "g", ArrowRight: "d", KeyD: "d", ArrowUp: "h", KeyW: "h", KeyZ: "h", Space: "h", ArrowDown: "b", KeyS: "b", KeyJ: "coup", KeyX: "coup", KeyK: "fort", KeyC: "fort", KeyL: "spe", KeyV: "spe", KeyI: "sup", KeyB: "sup" };
     const TOUCHES2 = { ArrowLeft: "g", ArrowRight: "d", ArrowUp: "h", ArrowDown: "b", Digit1: "coup", Numpad1: "coup", Digit2: "fort", Numpad2: "fort", Digit3: "spe", Numpad3: "spe", Digit0: "sup", Numpad0: "sup" };
-    const presser = (i, k, v) => { if (["coup", "fort", "spe", "sup"].includes(k)) { if (v) cmd[i][k] = 1; } else cmd[i][k] = v; if (invite) envoyerEntree(); };
+    // un appui très court (tap) compte quand même : on le garde jusqu'à l'image suivante
+    const presser = (i, k, v) => { if (["coup", "fort", "spe", "sup"].includes(k)) { if (v) cmd[i][k] = 1; } else { cmd[i][k] = v; if (v) cmd[i]["tap_" + k] = 1; } if (invite) envoyerEntree(); };
     const clavier = (e, v) => {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
       const k1 = TOUCHES1[e.code], k2 = deuxJoueurs ? TOUCHES2[e.code] : null;
@@ -3984,9 +3995,9 @@
     // ---- réseau ----
     const salle = opts.salle;
     let derniereEntree = 0, instantane = null, envoiEtat = 0;
-    function envoyerEntree() { if (!salle) return; const now = performance.now(); if (now - derniereEntree < 25) return; derniereEntree = now; salle.send({ type: "broadcast", event: "entree", payload: { ...cmd[1] } }); cmd[1].coup = cmd[1].fort = cmd[1].spe = cmd[1].sup = 0; }
+    function envoyerEntree() { if (!salle) return; const now = performance.now(); if (now - derniereEntree < 25 && !cmd[1].coup && !cmd[1].fort && !cmd[1].spe && !cmd[1].sup && !cmd[1].tap_h) return; derniereEntree = now; salle.send({ type: "broadcast", event: "entree", payload: { ...cmd[1] } }); cmd[1].coup = cmd[1].fort = cmd[1].spe = cmd[1].sup = cmd[1].tap_h = cmd[1].tap_b = cmd[1].tap_g = cmd[1].tap_d = 0; }
     if (salle) {
-      if (!invite) salle.on("broadcast", { event: "entree" }, ({ payload }) => { for (const k of ["g", "d", "h", "b"]) cmd[1][k] = payload[k] ? 1 : 0; for (const k of ["coup", "fort", "spe", "sup"]) if (payload[k]) cmd[1][k] = 1; });
+      if (!invite) salle.on("broadcast", { event: "entree" }, ({ payload }) => { for (const k of ["g", "d", "h", "b"]) cmd[1][k] = payload[k] ? 1 : 0; for (const k of ["coup", "fort", "spe", "sup", "tap_h", "tap_b", "tap_g", "tap_d"]) if (payload[k]) cmd[1][k] = 1; });
       else salle.on("broadcast", { event: "etat" }, ({ payload }) => { instantane = payload; (payload.evts || []).forEach(jouerEvt); });
       if (invite) var battement = setInterval(() => vivante && salle && salle.send({ type: "broadcast", event: "entree", payload: { g: cmd[1].g, d: cmd[1].d, h: cmd[1].h, b: cmd[1].b } }), 150);
     }
@@ -4068,10 +4079,11 @@
         if (Math.abs(cible.x - q.x) < 30 && cible.y > SOL - 120 && cible.invuln <= 0 && cible.etat !== "ko") { toucher(J[q.camp], cible, { dmg: q.dmg, stun: 18, recul: 7, gain: 10, el: q.el, fort: true }, q.x); etat.projectiles.splice(i, 1); continue; }
         if (q.x < -40 || q.x > W_D + 40) etat.projectiles.splice(i, 1);
       }
-      cmd.forEach((c) => (c.coup = c.fort = c.spe = c.sup = 0));
+      cmd.forEach((c) => (c.coup = c.fort = c.spe = c.sup = c.tap_h = c.tap_b = c.tap_g = c.tap_d = 0));
       if (etat.acheve) { etat.acheve.t--; if (etat.acheve.t <= 0 && !etat.finish) finRound(etat.acheve.gagnant, true); }
     }
-    function majCombattant(p, o, c) {
+    function majCombattant(p, o, c0) {
+      const c = Object.assign({}, c0, { h: c0.h || c0.tap_h, b: c0.b || c0.tap_b, g: c0.g || c0.tap_g, d: c0.d || c0.tap_d });
       p.t++; if (p.invuln > 0) p.invuln--; if (p.recharge > 0) p.recharge--;
       const actif = etat.phase === "combat" && !etat.fini;
       const versO = Math.sign(o.x - p.x) || p.face;
