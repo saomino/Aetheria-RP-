@@ -331,7 +331,7 @@
       if (error && !/duplicate|unique/i.test(error.message || "")) erreur(error);
     }
     async listerScores(depuis) {
-      const { data, error } = await this.sb.from("jeux_scores").select("jeu,user_id,jour,score,cree_le").gte("jour", depuis).order("cree_le", { ascending: false }).limit(5000);
+      const { data, error } = await this.sb.from("jeux_scores").select("jeu,user_id,jour,score,details,cree_le").gte("jour", depuis).order("cree_le", { ascending: false }).limit(5000);
       if (error) return [];
       return data;
     }

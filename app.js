@@ -2392,6 +2392,8 @@
         ${tableau("🕵️ Qui suis-je ? (30 jours)", somme("qui"), () => "points")}
         ${tableau("🃏 Bataille de cartes (30 jours)", somme("cartes"), (v) => "victoire" + (v > 1 ? "s" : ""))}
         ${tableau("🏆 Pronostics du tournoi (30 jours)", somme("tournoi"), () => "bons pronostics")}
+        ${tableau("🥊 Duel en ligne (30 jours)", somme("duel_ligne"), (v) => "victoire" + (v > 1 ? "s" : ""))}
+        ${tableau("🕹️ Arcade (meilleur score)", (() => { const m = new Map(); scores.filter((x) => x.jeu === "arcade").forEach((x) => { const v = (x.details && x.details.score) || x.score * 100; if (!m.has(x.user_id) || m.get(x.user_id) < v) m.set(x.user_id, v); }); return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10); })(), () => "points")}
       </div>`;
   };
   pages.jeux.apres = (arg) => { if (arg && pages.jeux[arg] && pages.jeux[arg].apres) pages.jeux[arg].apres(); };
@@ -3604,6 +3606,89 @@
     }
   }
 
+  /* ---------- Sons et musique du Duel (synthétisés : aucun fichier à télécharger) ---------- */
+  const SON = (() => {
+    let ac = null, maitre = null, musique = null, coupe = !!lireLS("aetheria_duel_muet", false), voixOk = true;
+    const init = () => { if (ac) return ac; try { ac = new (window.AudioContext || window.webkitAudioContext)(); maitre = ac.createGain(); maitre.gain.value = 0.5; maitre.connect(ac.destination); } catch (e) { ac = null; } return ac; };
+    const bruit = (duree) => { const n = Math.max(1, Math.floor(ac.sampleRate * duree)), b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; const s = ac.createBufferSource(); s.buffer = b; return s; };
+    const env = (g, t, a, d, v) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, v), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
+    function jouer(nom, force = 1) {
+      if (coupe || !init()) return;
+      try {
+        if (ac.state === "suspended") ac.resume();
+        const t = ac.currentTime, g = ac.createGain(); g.connect(maitre);
+        const osc = (type, f1, f2, duree, v) => { const o = ac.createOscillator(), go = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f1, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t + duree); o.connect(go); go.connect(maitre); env(go, t, 0.005, duree, v); o.start(t); o.stop(t + duree + 0.05); };
+        const souffle = (freq, q, duree, v) => { const s = bruit(duree), f = ac.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q; s.connect(f); f.connect(g); env(g, t, 0.004, duree, v); s.start(t); };
+        switch (nom) {
+          case "coup": souffle(1800, 1.2, 0.09, 0.55 * force); osc("square", 180, 60, 0.08, 0.15); break;
+          case "fort": souffle(800, 0.9, 0.2, 0.8 * force); osc("sawtooth", 150, 40, 0.18, 0.25); break;
+          case "garde": souffle(3200, 4, 0.08, 0.35); osc("triangle", 900, 700, 0.07, 0.12); break;
+          case "saut": osc("sine", 280, 520, 0.12, 0.1); break;
+          case "dash": souffle(2600, 0.7, 0.15, 0.25); break;
+          case "magie": osc("sawtooth", 220, 880, 0.35, 0.14); souffle(1500, 1, 0.3, 0.12); break;
+          case "signature": osc("sawtooth", 160, 1400, 0.5, 0.2); souffle(900, 0.6, 0.5, 0.25); break;
+          case "super": osc("sawtooth", 110, 1200, 0.9, 0.28); souffle(600, 0.5, 0.9, 0.25); break;
+          case "ko": osc("sawtooth", 220, 30, 1.2, 0.4); souffle(300, 0.4, 1.2, 0.45); break;
+          case "combo": osc("square", 600 + force * 60, 900 + force * 80, 0.09, 0.08); break;
+          case "tag": osc("triangle", 500, 1000, 0.15, 0.15); break;
+          case "ding": osc("triangle", 1320, 1320, 0.45, 0.2); break;
+        }
+      } catch (e) {}
+    }
+    function voix(txt) {
+      if (coupe || !voixOk || !window.speechSynthesis) return;
+      try { const u = new SpeechSynthesisUtterance(txt); u.lang = "fr-FR"; u.rate = 0.95; u.pitch = 0.55; u.volume = 1; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { voixOk = false; }
+    }
+    // musique : une boucle par arène (basse, arpège, percussions)
+    const GAMMES = { cathedrale: [0, 3, 7, 10, 12], foret: [0, 2, 3, 7, 10], celeste: [0, 4, 7, 11, 14], abysses: [0, 3, 5, 10, 12], enfers: [0, 1, 5, 7, 8], neige: [0, 2, 7, 9, 14], trone: [0, 3, 7, 8, 12] };
+    const BASES = { cathedrale: 110, foret: 98, celeste: 131, abysses: 87, enfers: 82, neige: 117, trone: 104 };
+    function lancerMusique(arene) {
+      arreterMusique();
+      if (coupe || !init()) return;
+      try {
+        if (ac.state === "suspended") ac.resume();
+        const gm = ac.createGain(); gm.gain.value = 0.15; gm.connect(maitre);
+        const gamme = GAMMES[arene] || GAMMES.cathedrale, base = BASES[arene] || 110, tempo = arene === "enfers" ? 0.15 : arene === "celeste" || arene === "neige" ? 0.23 : 0.19;
+        let pas = 0, prochain = ac.currentTime + 0.15;
+        const note = (f, t, duree, type, v) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.value = f; o.connect(g); g.connect(gm); env(g, t, 0.01, duree, v); o.start(t); o.stop(t + duree + 0.05); };
+        const tambour = (t, grave) => { const s = bruit(0.12), f = ac.createBiquadFilter(), g = ac.createGain(); f.type = grave ? "lowpass" : "highpass"; f.frequency.value = grave ? 140 : 6000; s.connect(f); f.connect(g); g.connect(gm); env(g, t, 0.002, grave ? 0.12 : 0.04, grave ? 1 : 0.22); s.start(t); };
+        const progression = [0, 0, 3, 2];
+        const minuteur = setInterval(() => {
+          try {
+            while (prochain < ac.currentTime + 0.3) {
+              const deg = progression[Math.floor(pas / 16) % 4], t = prochain;
+              const f0 = base * Math.pow(2, gamme[deg % gamme.length] / 12);
+              if (pas % 4 === 0) note(f0 / 2, t, tempo * 3.6, "triangle", 0.55);
+              note(f0 * 2 * Math.pow(2, gamme[(pas * 3 + deg) % gamme.length] / 12), t, tempo * 0.9, "square", 0.05);
+              if (pas % 8 === 0 || (arene === "enfers" && pas % 4 === 2)) tambour(t, true);
+              if (pas % 2 === 1) tambour(t, false);
+              pas++; prochain += tempo;
+            }
+          } catch (e) {}
+        }, 80);
+        musique = { gm, minuteur };
+      } catch (e) {}
+    }
+    function arreterMusique() { if (!musique) return; clearInterval(musique.minuteur); const g = musique.gm; try { g.gain.setTargetAtTime(0, ac.currentTime, 0.15); } catch (e) {} setTimeout(() => { try { g.disconnect(); } catch (e) {} }, 800); musique = null; }
+    return {
+      jouer, voix, lancerMusique, arreterMusique, init,
+      get coupe() { return coupe; },
+      basculer(arene) { coupe = !coupe; ecrireLS("aetheria_duel_muet", coupe); if (coupe) { arreterMusique(); if (window.speechSynthesis) speechSynthesis.cancel(); } else lancerMusique(arene); return coupe; },
+    };
+  })();
+
+  // ---- coups signature (↓ ↘ → + Spécial) ----
+  const SIGNATURES = {
+    eventail: ["Éventail de cartes", "3 projectiles en éventail"], teleport: ["Pas de l'ombre", "se téléporte derrière l'adversaire et frappe"],
+    vague: ["Lame de fond", "une vague rase le sol (à sauter)"], pluie: ["Pluie céleste", "des projectiles tombent du ciel sur l'adversaire"],
+    colonne: ["Pilier infernal", "un pilier jaillit sous l'adversaire"], charge: ["Charge foudroyante", "fonce à travers l'écran"],
+  };
+  function signatureDe(app, element) {
+    if (app && app.sig && SIGNATURES[app.sig]) return app.sig;
+    if (app && app.arme === "cartes") return "eventail";
+    return { sang: "teleport", ombre: "teleport", eau: "vague", glace: "vague", nature: "vague", poison: "vague", lumiere: "pluie", foudre: "pluie", arcane: "pluie", vent: "charge", feu: "colonne", terre: "colonne" }[element] || "charge";
+  }
+
   /* =====================================================================
      DUEL — jeu de combat façon Street Fighter
      ===================================================================== */
@@ -3724,6 +3809,8 @@
       special: (comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || { nom: "Attaque spéciale" }).nom,
       super: (comp.find((c) => c.cible === "tous_ennemis") || comp[2] || { nom: "Super" }).nom,
       finish: dd.finish_nom || "", planche: await chargerPlanche(dd.planche_url), planche_url: dd.planche_url || null,
+      sig: signatureDe(app, ELEMENTS[el] ? el : "physique"),
+      sigNom: (app.sigNom || "").trim() || (comp.find((c) => c.type === "degats" && c.puissance >= 3) || {}).nom || SIGNATURES[signatureDe(app, ELEMENTS[el] ? el : "physique")][0],
     };
   }
 
@@ -3742,7 +3829,8 @@
       c, x: cote === 0 ? 180 : 460, y: SOL, vx: 0, vy: 0, face: cote === 0 ? 1 : -1, cote,
       pvMax: Math.round(1000 + x.defense * 9 + x.soutien * 4), pv: 0, pvAff: 0, super: 0,
       attMul: 1 + x.attaque / 55, defRed: Math.min(0.32, x.defense / 110), vitesse: 1 + Math.min(0.25, x.soutien / 120),
-      etat: "garde", t: 0, coup: null, touche: false, stun: 0, invuln: 0, blanc: 0, recharge: 0, gagnes: 0, phase: Math.random() * 6,
+      etat: "garde", t: 0, coup: null, touche: false, stun: 0, invuln: 0, blanc: 0, recharge: 0, sigRecharge: 0, gagnes: 0, phase: Math.random() * 6,
+      hist: [], tapsAvant: [], combo: 0, comboDmg: 0, comboAff: 0, comboT: 0, tagCd: 0,
     };
   }
 
@@ -3755,9 +3843,12 @@
     const params = new URLSearchParams((location.hash.split("?")[1] || ""));
     const codeSalle = params.get("salle");
     const lieux = [...indexParId.values()].filter((f) => f.categorie === "monde").sort((a, b) => a.titre.localeCompare(b.titre, "fr"));
-    let choix = { arene: lireLS("aetheria_duel_arene", "hasard"), p1: lireLS("aetheria_duel_p1", null), p2: lireLS("aetheria_duel_p2", null), mode: lireLS("aetheria_duel_mode", "ordi"), niveau: lireLS("aetheria_duel_niveau", "normal") };
+    let choix = { arene: lireLS("aetheria_duel_arene", "hasard"), p1: lireLS("aetheria_duel_p1", null), p2: lireLS("aetheria_duel_p2", null), p1b: lireLS("aetheria_duel_p1b", null), p2b: lireLS("aetheria_duel_p2b", null), mode: lireLS("aetheria_duel_mode", "ordi"), niveau: lireLS("aetheria_duel_niveau", "normal"), duo: !!lireLS("aetheria_duel_duo", false), mannequin: lireLS("aetheria_duel_mannequin", "immobile") };
     if (!persos.some((f) => f.id === choix.p1)) choix.p1 = persos[0].id;
     if (!persos.some((f) => f.id === choix.p2)) choix.p2 = persos[persos.length > 1 ? 1 : 0].id;
+    if (!persos.some((f) => f.id === choix.p1b)) choix.p1b = persos[Math.min(2, persos.length - 1)].id;
+    if (!persos.some((f) => f.id === choix.p2b)) choix.p2b = persos[Math.min(3, persos.length - 1)].id;
+    const duoPossible = () => ["ordi", "deux", "ligne"].includes(choix.mode);
     let partie = null, salle = null;
 
     /* ----- écran de sélection ----- */
@@ -3782,35 +3873,49 @@
       if (partie) partie.arreter(); partie = null;
       const f1 = indexParId.get(choix.p1), f2 = indexParId.get(choix.p2);
       const enLigneOk = api.enLigne && estMembre();
+      const duo = choix.duo && duoPossible() && choix.mode !== "ligne";
       z.innerHTML = `
         <div class="duel-choix">
-          <div class="duel-vs">
-            <div class="dc-cote"><div class="dc-label">Joueur 1</div><div id="ap1"></div><div class="dc-nom">${esc(f1.titre)}</div><button class="btn petit" data-changer="p1">Changer</button></div>
-            <div class="dc-vs-mot">VS</div>
-            <div class="dc-cote"><div class="dc-label">${choix.mode === "deux" ? "Joueur 2" : choix.mode === "ligne" ? "Ton ami" : "Ordinateur"}</div>${choix.mode === "ligne" ? `<div class="dc-mystere">?</div><div class="dc-nom">Il choisira</div>` : `<div id="ap2"></div><div class="dc-nom">${esc(f2.titre)}</div><button class="btn petit" data-changer="p2">Changer</button>`}</div>
+          <div class="modes onglets-roue modes-duel">
+            ${[["ordi", "🤖 Contre l'ordi"], ["arcade", "🕹️ Arcade"], ["deux", "👥 2 joueurs"], ["ligne", "🌐 En ligne"], ["entrainement", "🎯 Entraînement"]].map(([m, n]) => `<button class="mode ${choix.mode === m ? "actif" : ""}" data-mode="${m}" ${m === "ligne" && !enLigneOk ? "disabled" : ""}>${n}</button>`).join("")}
           </div>
+          <div class="duel-vs">
+            <div class="dc-cote"><div class="dc-label">${choix.mode === "deux" ? "Joueur 1" : "Toi"}</div><div class="dc-paire"><div id="ap1"></div>${duo ? `<div id="ap1b" class="ap-partenaire"></div>` : ""}</div><div class="dc-nom">${esc(f1.titre)}${duo ? ` <small>&amp; ${esc(indexParId.get(choix.p1b).titre)}</small>` : ""}</div><div class="rangee centre"><button class="btn petit" data-changer="p1">Changer</button>${duo ? `<button class="btn petit" data-changer="p1b">Partenaire</button>` : ""}</div></div>
+            <div class="dc-vs-mot">VS</div>
+            <div class="dc-cote"><div class="dc-label">${{ deux: "Joueur 2", ligne: "Ton ami", arcade: "6 adversaires", entrainement: "Mannequin" }[choix.mode] || "Ordinateur"}</div>${choix.mode === "ligne" ? `<div class="dc-mystere">?</div><div class="dc-nom">Il choisira</div>` : choix.mode === "arcade" ? `<div class="dc-mystere">⚔️</div><div class="dc-nom">De plus en plus forts… jusqu'au boss</div>` : `<div class="dc-paire"><div id="ap2"></div>${duo ? `<div id="ap2b" class="ap-partenaire"></div>` : ""}</div><div class="dc-nom">${esc(f2.titre)}${duo ? ` <small>&amp; ${esc(indexParId.get(choix.p2b).titre)}</small>` : ""}</div><div class="rangee centre"><button class="btn petit" data-changer="p2">Changer</button>${duo ? `<button class="btn petit" data-changer="p2b">Partenaire</button>` : ""}</div>`}</div>
+          </div>
+          ${duoPossible() ? `<label class="ea-ligne duo-case"><input type="checkbox" id="duel-duo" ${choix.duo ? "checked" : ""}> 👥 Duo : 2 contre 2 avec relais (touche U / bouton ⇄)</label>` : ""}
+          ${choix.mode === "entrainement" ? `<label class="champ-court centre">Mannequin<select id="duel-mannequin"><option value="immobile" ${choix.mannequin === "immobile" ? "selected" : ""}>Immobile</option><option value="garde" ${choix.mannequin === "garde" ? "selected" : ""}>Se protège</option></select></label>` : ""}
           <label class="champ-court centre">🗺️ Arène<select id="duel-arene">
             <option value="hasard" ${choix.arene === "hasard" ? "selected" : ""}>🎲 Au hasard</option>
             ${Object.entries(ARENES).map(([k, a]) => `<option value="${k}" ${choix.arene === k ? "selected" : ""}>${a.ic} ${esc(a.nom)}</option>`).join("")}
             ${lieux.length ? `<optgroup label="Lieux du wiki">${lieux.map((f) => `<option value="lieu:${esc(f.id)}" ${choix.arene === "lieu:" + f.id ? "selected" : ""}>📍 ${esc(f.titre)}</option>`).join("")}</optgroup>` : ""}
           </select></label>
-          <div class="modes onglets-roue">
-            ${[["ordi", "🤖 Contre l'ordi"], ["deux", "👥 2 joueurs (clavier)"], ["ligne", "🌐 En ligne"]].map(([m, n]) => `<button class="mode ${choix.mode === m ? "actif" : ""}" data-mode="${m}" ${m === "ligne" && !enLigneOk ? "disabled" : ""}>${n}</button>`).join("")}
-          </div>
           ${choix.mode === "ordi" ? `<div class="rangee centre">${[["facile", "Facile"], ["normal", "Normal"], ["difficile", "Difficile"]].map(([n, l]) => `<button class="btn petit ${choix.niveau === n ? "btn-or" : ""}" data-niveau="${n}">${l}</button>`).join("")}</div>` : ""}
-          ${choix.mode === "deux" ? `<p class="discret petit-texte centre">J1 : Z/Q/S/D (ou W/A) + F coup, G fort, H spécial, T super — J2 : flèches + 1 coup, 2 fort, 3 spécial, 0 super.</p>` : ""}
-          <div class="rangee centre"><button class="btn btn-or large" id="duel-go">${choix.mode === "ligne" ? "🌐 Créer le défi" : "⚔️ Combattre"}</button></div>
+          ${choix.mode === "deux" ? `<p class="discret petit-texte centre">J1 : Z/Q/S/D (ou W/A) + F coup, G fort, H spécial, T super, R signature, Y relais — J2 : flèches + 1 coup, 2 fort, 3 spécial, 0 super, 4 signature, 5 relais.</p>` : ""}
+          <div class="rangee centre"><button class="btn btn-or large" id="duel-go">${{ ligne: "🌐 Créer le défi", arcade: "🕹️ Commencer l'Arcade", entrainement: "🎯 S'entraîner" }[choix.mode] || "⚔️ Combattre"}</button><button class="btn petit" id="duel-classement">🏅 Classement</button></div>
+          <div id="duel-classement-zone"></div>
           <div id="duel-liste"></div>
           ${estMembre() ? `<details class="duel-reglages"><summary>🎨 Apparence de ${esc(f1.titre)} dans le jeu</summary><div id="duel-apparence"></div></details>` : ""}
-          <p class="discret petit-texte">Ordi : flèches ou ZQSD pour bouger, J coup, K fort, L spécial, I super. Téléphone : manette à l'écran (mets-toi à l'horizontale). Recule pour te protéger. Au dernier round, quand l'adversaire est sonné, appuie sur Super pour son <b>coup de grâce</b>.</p>
+          <details class="duel-aide"><summary>🎮 Commandes et combos</summary><ul class="petit-texte">
+            <li><b>Ordi</b> : flèches ou ZQSD pour bouger · J coup · K fort · L spécial · I super · O signature · U relais (duo). <b>Téléphone</b> : manette à l'écran (mets-toi à l'horizontale, bouton ⛶).</li>
+            <li><b>Garde</b> : recule (accroupi pour les coups bas). <b>Ruée</b> : avant, avant.</li>
+            <li><b>Combo</b> : Coup → Coup → Fort → Spécial, en enchaînant pendant que ça touche. Plus le combo est long, plus le compteur monte (les dégâts baissent un peu à chaque coup).</li>
+            <li><b>Signature</b> : ↓ ↘ → + Spécial (ou O / bouton ★). Chaque personnage a la sienne : éventail de cartes, téléportation, vague, pluie céleste, pilier, charge…</li>
+            <li><b>Coup de grâce</b> : quand l'adversaire est sonné à la fin, appuie sur Super.</li></ul></details>
         </div>`;
       $("#ap1").appendChild(apercu(f1, 0));
       if ($("#ap2")) $("#ap2").appendChild(apercu(f2, 1));
+      if ($("#ap1b")) $("#ap1b").appendChild(apercu(indexParId.get(choix.p1b), 0));
+      if ($("#ap2b")) $("#ap2b").appendChild(apercu(indexParId.get(choix.p2b), 1));
+      const dc = $("#duel-duo"); if (dc) dc.onchange = () => { choix.duo = dc.checked; ecrireLS("aetheria_duel_duo", choix.duo); ecranChoix(); };
+      const mq = $("#duel-mannequin"); if (mq) mq.onchange = () => { choix.mannequin = mq.value; ecrireLS("aetheria_duel_mannequin", choix.mannequin); };
+      $("#duel-classement").onclick = () => afficherClassement($("#duel-classement-zone"));
       $("#duel-arene").onchange = (e) => { choix.arene = e.target.value; ecrireLS("aetheria_duel_arene", choix.arene); };
       $$("[data-mode]", z).forEach((b) => (b.onclick = () => { choix.mode = b.dataset.mode; ecrireLS("aetheria_duel_mode", choix.mode); ecranChoix(); }));
       $$("[data-niveau]", z).forEach((b) => (b.onclick = () => { choix.niveau = b.dataset.niveau; ecrireLS("aetheria_duel_niveau", choix.niveau); ecranChoix(); }));
       $$("[data-changer]", z).forEach((b) => (b.onclick = () => liste(b.dataset.changer)));
-      $("#duel-go").onclick = () => (choix.mode === "ligne" ? creerSalle() : lancer());
+      $("#duel-go").onclick = () => { SON.init(); if (choix.mode === "ligne") creerSalle(); else if (choix.mode === "arcade") arcadeDebut(); else lancer(); };
       if ($("#duel-apparence")) editeurApparence($("#duel-apparence"), f1);
     };
     const liste = (qui) => {
@@ -3875,6 +3980,7 @@
       ["Tête", [["oreilles", "Oreilles", [":Normales", "pointues:Pointues (elfe)", "nageoire:Nageoires"]], ["chat", "Oreilles de chat", "b"], ["cornes", "Cornes", [":Aucune", "oni:Droites", "belier:Recourbées"]], ["couleurCornes", "Couleur des cornes", "c?"], ["couronne", "Couronne", "c?"], ["gemme", "Pierre de la couronne", "c?"], ["aureole", "Auréole", "b"], ["lunettes", "Lunettes d'aviateur", "b"]]],
       ["Tenue", [["haut", "Haut", "c"], ["torseNu", "Torse ouvert", "b"], ["tatouage", "Tatouage du torse", "c?"], ["armure", "Plastron", "c?"], ["manteau", "Manteau / cape", "c?"], ["manteauLong", "Manteau long", "b"], ["doublure", "Bordure", "c?"], ["robe", "Robe longue", "c?"], ["chaines", "Chaînes", "c?"], ["gants", "Gants", "c?"], ["pantalon", "Pantalon", "c"], ["bottes", "Bottes", "c"]]],
       ["Ailes et queue", [["ailes", "Ailes", [":Aucune", "plumes:Plumes", "chauve:Chauve-souris"]], ["ailesNb", "Nombre d'ailes", ["2:2", "6:6"]], ["couleurAiles", "Couleur des ailes", "c?"], ["veinesAiles", "Veines lumineuses", "c?"], ["queue", "Queue", "c?"]]],
+      ["Coup signature", [["sig", "Type", [":Selon sa magie", "eventail:Éventail de projectiles", "teleport:Téléportation + coup", "vague:Vague au sol", "pluie:Pluie du ciel", "colonne:Pilier sous l'adversaire", "charge:Charge"]], ["sigNom", "Nom", "t"]]],
       ["Combat", [["arme", "Arme", [":Aucune", "epee:Épée", "epee_sang:Épée de sang", "epee_noire:Épée noire", "faux:Faux", "lance:Lance", "trident:Trident", "baton:Bâton", "canne:Canne", "livre:Livre", "cartes:Cartes", "griffes:Griffes"]], ["aura", "Couleur de la magie", "c?"], ["mainMagique", "Magie dans la main", "b"]]],
     ];
     const versHex = (c) => { if (!c) return "#888888"; if (/^#[0-9a-f]{6}$/i.test(c)) return c; const m = /rgb\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return m ? "#" + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, "0")).join("") : "#888888"; };
@@ -3886,6 +3992,7 @@
         <canvas class="apercu-duel apercu-editeur" width="200" height="250"></canvas>
         <div class="ea-champs">${CHAMPS_EDIT.map(([titre, champs]) => `<fieldset><legend>${titre}</legend>${champs.map(([k, nom, type]) => {
           if (type === "b") return `<label class="ea-ligne"><input type="checkbox" data-ea="${k}" ${app[k] ? "checked" : ""}> ${nom}</label>`;
+          if (type === "t") return `<label class="ea-ligne">${nom}<input data-ea="${k}" maxlength="30" value="${esc(app[k] || "")}" placeholder="ex : Danse des cartes"></label>`;
           if (Array.isArray(type)) return `<label class="ea-ligne">${nom}<select data-ea="${k}">${type.map((o) => { const [v, l] = o.split(":"); return `<option value="${v}" ${String(app[k] ?? "") === v ? "selected" : ""}>${l}</option>`; }).join("")}</select></label>`;
           const opt = type === "c?";
           return `<label class="ea-ligne">${nom}${opt ? `<input type="checkbox" data-ea-actif="${k}" ${app[k] ? "checked" : ""} title="Activer">` : ""}<input type="color" data-ea="${k}" value="${versHex(app[k])}" ${opt && !app[k] ? "disabled" : ""}></label>`;
@@ -3919,34 +4026,51 @@
 
     /* ----- lancement ----- */
     const lancer = async (opts = {}) => {
+      const mode = opts.mode || choix.mode;
+      const duoActif = opts.duo !== undefined ? opts.duo : choix.duo && duoPossible() && mode !== "arcade" && mode !== "entrainement";
       const f1 = indexParId.get(opts.p1 || choix.p1), f2 = indexParId.get(opts.p2 || choix.p2);
       const [c1, c2] = await Promise.all([combattantDe(f1, duelData, rpData), combattantDe(f2, duelData, rpData)]);
+      let equipes = null;
+      if (duoActif) {
+        const [c1b, c2b] = await Promise.all([combattantDe(indexParId.get(opts.p1b || choix.p1b), duelData, rpData), combattantDe(indexParId.get(opts.p2b || choix.p2b), duelData, rpData)]);
+        equipes = [[c1, c1b], [c2, c2b]];
+      }
       z.innerHTML = `
         <div class="duel-cadre" id="duel-cadre">
           <canvas id="duel-canvas" width="${W_D}" height="${H_D}"></canvas>
           <div class="manette" id="manette">
             <div class="croix">${[["g", "◀"], ["h", "▲"], ["b", "▼"], ["d", "▶"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
-            <div class="boutons-combat">${[["coup", "Coup"], ["fort", "Fort"], ["spe", "Spé"], ["sup", "Super"]].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
+            <div class="boutons-combat">${[["coup", "Coup"], ["fort", "Fort"], ["spe", "Spé"], ["sup", "Super"], ["sig", "★"], ...(equipes ? [["tag", "⇄"]] : [])].map(([k, s]) => `<button data-k="${k}" class="mk mk-${k}">${s}</button>`).join("")}</div>
           </div>
           <button class="btn petit duel-plein" id="duel-plein" title="Plein écran">⛶</button>
+          <button class="btn petit duel-son" id="duel-son" title="Son">${SON.coupe ? "🔇" : "🔊"}</button>
         </div>
         <div class="rangee centre"><button class="btn petit" id="duel-quitter">↩ Quitter</button></div>`;
       const areneDe = (a) => { if (a === "hasard" || !a) { const l = Object.keys(ARENES); return l[Math.floor(Math.random() * l.length)]; } if (a.startsWith("lieu:")) { const f = indexParId.get(a.slice(5)); return f ? areneDeLieu(f) : "cathedrale"; } return ARENES[a] ? a : "cathedrale"; };
       const arene = opts.arene || areneDe(choix.arene);
       const lieu = !opts.arene && choix.arene.startsWith("lieu:") ? (indexParId.get(choix.arene.slice(5)) || {}).titre : opts.lieu;
-      partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { arene, lieu, mode: opts.mode || choix.mode, niveau: choix.niveau, salle: opts.salle || null, role: opts.role || "hote", fin: finPartie });
+      partie = window.__duel = demarrerPartie($("#duel-canvas"), c1, c2, { arene, lieu, mode, equipes, niveau: opts.niveau || choix.niveau, boss: opts.boss, mannequin: choix.mannequin, salle: opts.salle || null, role: opts.role || "hote", fin: opts.fin || finPartie });
+      $("#duel-son").onclick = () => { const m = partie.basculerSon(); $("#duel-son").textContent = m ? "🔇" : "🔊"; };
       $("#duel-quitter").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
       $("#duel-plein").onclick = async () => {
         const cadre = $("#duel-cadre");
         try { if (!document.fullscreenElement) { await cadre.requestFullscreen(); if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape").catch(() => {}); } else await document.exitFullscreen(); } catch (e) { cadre.classList.toggle("pseudo-plein"); }
       };
     };
+    const posterDiscord = async (titre, texte) => { try { await api.ia("discord", { type: "jeu", salon: "des", titre, texte }); toast("Résultat posté sur Discord !"); } catch (e) { toast(e.message, "erreur"); } };
     const finPartie = (res) => {
+      const mode = salle ? "ligne" : choix.mode;
+      if (res.gagne && res.moi && estMembre()) {
+        if (mode === "ordi") sauverScore("duel", 1, { perso: res.moi.f.id, contre: res.perdant && res.perdant.f.id, niveau: choix.niveau });
+        if (mode === "ligne") sauverScore("duel_ligne", 1, { perso: res.moi.f.id, contre: res.perdant && res.perdant.f.id });
+      }
       const zr = document.createElement("div");
       zr.className = "duel-fin";
+      const peutPoster = res.gagnant && ["ligne", "ordi", "deux"].includes(mode) && estMembre();
       zr.innerHTML = `<div class="jeu-victoire"><div class="jv-titre">${res.titre}</div>${res.finish ? `<p>💀 Coup de grâce : <b>${esc(res.finish)}</b></p>` : ""}
-        <div class="rangee centre">${salle ? "" : `<button class="btn btn-or" id="duel-revanche">🔁 Revanche</button>`}<button class="btn" id="duel-retour">👥 Changer de combattants</button></div></div>`;
+        <div class="rangee centre">${salle ? "" : `<button class="btn btn-or" id="duel-revanche">🔁 Revanche</button>`}${peutPoster ? `<button class="btn btn-discord" id="duel-poster">📣 Poster sur Discord</button>` : ""}<button class="btn" id="duel-retour">👥 Changer de combattants</button></div></div>`;
       z.appendChild(zr);
+      const pd = $("#duel-poster"); if (pd) pd.onclick = () => { pd.disabled = true; posterDiscord(`🥊 Duel : ${res.gagnant.nom} bat ${res.perdant.nom} !`, `${mode === "ligne" ? `Combat en ligne, gagné par ${res.gagne ? moiPseudo() : "son adversaire"}` : mode === "ordi" ? `${moiPseudo()} contre l'ordinateur (${choix.niveau})` : "À deux sur le même clavier"}${res.finish ? `\n💀 Coup de grâce : **${res.finish}**` : ""}`); };
       const rv = $("#duel-revanche"); if (rv) rv.onclick = () => lancer();
       $("#duel-retour").onclick = () => { if (salle) { salle.unsubscribe(); salle = null; } ecranChoix(); };
     };
@@ -3959,7 +4083,8 @@
     const ouvrirSalle = (code, role) => {
       if (!estMembre()) { z.innerHTML = `<p class="note">Connecte-toi avec un compte membre pour jouer en ligne.</p>`; return; }
       const lien = `${location.origin}${location.pathname}#/jeux/duel?salle=${code}`;
-      let monChoix = role === "hote" ? choix.p1 : choix.p2 && choix.p2 !== choix.p1 ? choix.p2 : choix.p1, pret = false, autre = null;
+      let monChoix = role === "hote" ? choix.p1 : choix.p2 && choix.p2 !== choix.p1 ? choix.p2 : choix.p1, monChoix2 = role === "hote" ? choix.p1b : choix.p2b, pret = false, autre = null;
+      const duoSalle = () => (role === "hote" ? !!choix.duo : !!(autre && autre.duo));
       try { salle = api.salleDuel(code); } catch (e) { z.innerHTML = `<p class="note erreur-note">${esc(e.message)}</p>`; return; }
       const dessinerSalle = () => {
         const f = indexParId.get(monChoix), fa = autre && indexParId.get(autre.fiche);
@@ -3967,14 +4092,17 @@
           <h2>🌐 Salle ${esc(code)}</h2>
           ${role === "hote" ? `<p>Envoie ce lien à ton adversaire :</p><div class="rangee"><input readonly value="${esc(lien)}" class="lien-salle"><button class="btn petit btn-or" id="copier-lien">📋 Copier</button>${navigator.share ? `<button class="btn petit" id="partager-lien">📤 Partager</button>` : ""}<button class="btn petit btn-discord" id="defi-discord">📣 Défier sur Discord</button></div>` : ""}
           <div class="duel-vs">
-            <div class="dc-cote"><div class="dc-label">Toi</div><div id="ap1"></div><div class="dc-nom">${esc(f.titre)}</div>${pret ? `<div class="dc-pret">✅ Prêt</div>` : `<button class="btn petit" data-changer>Changer</button>`}</div>
+            <div class="dc-cote"><div class="dc-label">Toi</div><div class="dc-paire"><div id="ap1"></div>${duoSalle() ? `<div id="ap1b" class="ap-partenaire"></div>` : ""}</div><div class="dc-nom">${esc(f.titre)}${duoSalle() ? ` <small>&amp; ${esc(indexParId.get(monChoix2).titre)}</small>` : ""}</div>${pret ? `<div class="dc-pret">✅ Prêt</div>` : `<div class="rangee centre"><button class="btn petit" data-changer>Changer</button>${duoSalle() ? `<button class="btn petit" data-changer2>Partenaire</button>` : ""}</div>`}</div>
             <div class="dc-vs-mot">VS</div>
-            <div class="dc-cote"><div class="dc-label">${autre ? esc(autre.pseudo) : "En attente…"}</div>${fa ? `<div id="ap2"></div><div class="dc-nom">${esc(fa.titre)}</div>${autre.pret ? `<div class="dc-pret">✅ Prêt</div>` : ""}` : `<div class="dc-mystere">⏳</div>`}</div>
+            <div class="dc-cote"><div class="dc-label">${autre ? esc(autre.pseudo) : "En attente…"}</div>${fa ? `<div class="dc-paire"><div id="ap2"></div>${duoSalle() && autre.fiche2 ? `<div id="ap2b" class="ap-partenaire"></div>` : ""}</div><div class="dc-nom">${esc(fa.titre)}${duoSalle() && autre.fiche2 && indexParId.get(autre.fiche2) ? ` <small>&amp; ${esc(indexParId.get(autre.fiche2).titre)}</small>` : ""}</div>${autre.pret ? `<div class="dc-pret">✅ Prêt</div>` : ""}` : `<div class="dc-mystere">⏳</div>`}</div>
           </div>
+          ${duoSalle() ? `<p class="discret petit-texte centre">👥 Combat en duo : 2 contre 2 avec relais.</p>` : ""}
           <div class="rangee centre">${pret ? `<p>En attente de l'adversaire…</p>` : `<button class="btn btn-or large" id="je-suis-pret">✅ Je suis prêt</button>`}<button class="btn petit" id="quitter-salle">Quitter</button></div>
           <div id="duel-liste"></div></div>`;
         $("#ap1").appendChild(apercu(f, 0));
         if ($("#ap2")) $("#ap2").appendChild(apercu(fa, 1));
+        if ($("#ap1b")) $("#ap1b").appendChild(apercu(indexParId.get(monChoix2), 0));
+        if ($("#ap2b") && indexParId.get(autre.fiche2)) $("#ap2b").appendChild(apercu(indexParId.get(autre.fiche2), 1));
         const cp = $("#copier-lien"); if (cp) cp.onclick = () => copier(lien);
         const pa = $("#partager-lien"); if (pa) pa.onclick = () => navigator.share({ title: "Duel sur Aetheria", text: `Je te défie au Duel d'Aetheria avec ${f.titre} !`, url: lien }).catch(() => {});
         const dc = $("#defi-discord"); if (dc) dc.onclick = async () => { try { await api.ia("discord", { type: "jeu", salon: "des", titre: `🥊 ${moiPseudo()} lance un défi au Duel !`, texte: `${f.titre} attend un adversaire.\nRejoins le combat : ${lien}` }); toast("Défi envoyé sur Discord !"); } catch (e) { toast(e.message, "erreur"); } };
@@ -3983,16 +4111,23 @@
           zl.innerHTML = `<div class="grille-duel">${persos.map((p) => `<button class="perso-duel ${monChoix === p.id ? "actif" : ""}" data-p="${esc(p.id)}">${vignette(p)}<span>${esc(p.titre)}</span></button>`).join("")}</div>`;
           $$("[data-p]", zl).forEach((b) => (b.onclick = () => { monChoix = b.dataset.p; annoncer(); dessinerSalle(); }));
         };
+        const ch2 = $("[data-changer2]", z); if (ch2) ch2.onclick = () => {
+          const zl = $("#duel-liste");
+          zl.innerHTML = `<div class="grille-duel">${persos.map((p) => `<button class="perso-duel ${monChoix2 === p.id ? "actif" : ""}" data-p="${esc(p.id)}">${vignette(p)}<span>${esc(p.titre)}</span></button>`).join("")}</div>`;
+          $$("[data-p]", zl).forEach((b) => (b.onclick = () => { monChoix2 = b.dataset.p; annoncer(); dessinerSalle(); }));
+        };
         const jp = $("#je-suis-pret"); if (jp) jp.onclick = () => { pret = true; annoncer(); dessinerSalle(); verifier(); };
         $("#quitter-salle").onclick = () => { salle.unsubscribe(); salle = null; history.replaceState(null, "", "#/jeux/duel"); ecranChoix(); };
       };
-      const annoncer = () => salle && salle.track({ pseudo: moiPseudo(), fiche: monChoix, pret, role });
+      const annoncer = () => salle && salle.track({ pseudo: moiPseudo(), fiche: monChoix, fiche2: monChoix2, duo: role === "hote" ? !!choix.duo : undefined, pret, role });
       const verifier = () => {
         if (role !== "hote" || !pret || !autre || !autre.pret) return;
         const ar = choix.arene.startsWith("lieu:") ? areneDeLieu(indexParId.get(choix.arene.slice(5)) || {}) : ARENES[choix.arene] ? choix.arene : Object.keys(ARENES)[Math.floor(Math.random() * Object.keys(ARENES).length)];
         const li = choix.arene.startsWith("lieu:") ? (indexParId.get(choix.arene.slice(5)) || {}).titre : null;
-        salle.send({ type: "broadcast", event: "debut", payload: { p1: monChoix, p2: autre.fiche, arene: ar, lieu: li } });
-        lancer({ p1: monChoix, p2: autre.fiche, mode: "ligne", salle, role: "hote", arene: ar, lieu: li });
+        const duoOk = !!choix.duo && !!autre.fiche2 && indexParId.has(autre.fiche2);
+        const pl = { p1: monChoix, p2: autre.fiche, p1b: monChoix2, p2b: autre.fiche2, duo: duoOk, arene: ar, lieu: li };
+        salle.send({ type: "broadcast", event: "debut", payload: pl });
+        lancer({ ...pl, mode: "ligne", salle, role: "hote" });
       };
       salle.on("presence", { event: "sync" }, () => {
         const etat = salle.presenceState(), autres = Object.entries(etat).filter(([k]) => k !== ((api.moi || {}).user || {}).id).map(([, v]) => v[v.length - 1]);
@@ -4000,11 +4135,98 @@
         if (partie && avant && !autre) { toast("Ton adversaire s'est déconnecté.", "erreur"); partie.arreter(); finPartie({ titre: "🔌 Adversaire déconnecté" }); return; }
         if (!partie) { dessinerSalle(); verifier(); }
       });
-      salle.on("broadcast", { event: "debut" }, ({ payload }) => { if (role === "invite") lancer({ p1: payload.p1, p2: payload.p2, mode: "ligne", salle, role: "invite", arene: payload.arene, lieu: payload.lieu }); });
+      salle.on("broadcast", { event: "debut" }, ({ payload }) => { if (role === "invite") lancer({ p1: payload.p1, p2: payload.p2, p1b: payload.p1b, p2b: payload.p2b, duo: !!payload.duo, mode: "ligne", salle, role: "invite", arene: payload.arene, lieu: payload.lieu }); });
       salle.subscribe((s) => { if (s === "SUBSCRIBED") annoncer(); if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") toast("Connexion à la salle impossible. Réessaie.", "erreur"); });
       dessinerSalle();
     };
     const moiPseudo = () => ((moi() && moi().profil && moi().profil.pseudo) || "Un joueur");
+
+    /* ----- mode Arcade : 6 combats de plus en plus durs, jusqu'au boss ----- */
+    let arcade = null;
+    const arcadeDebut = () => {
+      const moiF = indexParId.get(choix.p1);
+      const autres = persos.filter((f) => f.id !== moiF.id).sort((a, b) => puissance(a) - puissance(b));
+      if (!autres.length) return toast("Il faut au moins deux personnages.", "erreur");
+      const n = Math.min(6, autres.length), liste = [];
+      // adversaires répartis du plus faible au plus fort ; le dernier (boss) est le plus puissant
+      for (let i = 0; i < n - 1; i++) liste.push(autres[Math.floor((i * (autres.length - 1)) / Math.max(1, n - 1))]);
+      liste.push(autres[autres.length - 1]);
+      const vus = new Set(), propre = liste.filter((f) => !vus.has(f.id) && vus.add(f.id));
+      arcade = { liste: propre, i: 0, score: 0, debut: Date.now(), continues: 0, histoire: "" };
+      arcadeEcran();
+    };
+    const arcadeEcran = (message) => {
+      const a = arcade, moiF = indexParId.get(choix.p1), adv = a.liste[a.i], dernier = a.i === a.liste.length - 1;
+      const niveau = a.i < 2 ? "facile" : a.i < 4 ? "normal" : "difficile";
+      z.innerHTML = `<div class="duel-choix arcade">
+        <h2>🕹️ Arcade — combat ${a.i + 1}/${a.liste.length}${dernier ? " · <span class='rouge'>BOSS</span>" : ""}</h2>
+        ${message || ""}
+        <div class="arcade-echelle">${a.liste.map((f, k) => `<div class="ae-case ${k < a.i ? "battu" : k === a.i ? "actuel" : ""}">${vignette(f)}<span>${k === a.liste.length - 1 ? "👑 " : ""}${esc(f.titre)}</span></div>`).join("")}</div>
+        <div class="duel-vs"><div class="dc-cote"><div id="ap1"></div><div class="dc-nom">${esc(moiF.titre)}</div></div><div class="dc-vs-mot">VS</div><div class="dc-cote"><div id="ap2"></div><div class="dc-nom">${esc(adv.titre)}${dernier ? " 👑" : ""}</div></div></div>
+        <p class="centre">Score : <b>${a.score}</b> · niveau ${niveau}</p>
+        ${a.i === 0 ? `<div class="arcade-histoire" id="arcade-histoire"><p><i>${esc(moiF.titre)} part affronter les plus redoutables combattants d'Aetheria. Au bout du chemin l'attend ${esc(a.liste[a.liste.length - 1].titre)}…</i></p>${estMembre() ? `<button class="btn petit" id="arcade-ia">🤖 Écrire l'histoire avec l'IA</button>` : ""}</div>` : ""}
+        <div class="rangee centre"><button class="btn btn-or large" id="arcade-go">⚔️ Combattre</button><button class="btn petit" id="arcade-quitter">Abandonner</button></div></div>`;
+      $("#ap1").appendChild(apercu(moiF, 0)); $("#ap2").appendChild(apercu(adv, 1));
+      const bi = $("#arcade-ia"); if (bi) bi.onclick = async () => {
+        bi.disabled = true; const zh = $("#arcade-histoire"); const stop = attenteIA(zh, ["L'IA relit les fiches…", "Elle écrit l'histoire…"]);
+        try { const r = await avecDelai(api.ia("question", { question: `Écris en 6 à 8 lignes, de façon épique, l'introduction d'un mode Arcade de jeu de combat : ${moiF.titre} doit vaincre tour à tour ${a.liste.map((f) => f.titre).join(", ")} (le dernier est le boss final). Respecte leurs fiches et leurs relations si elles existent. Réponds seulement avec le texte.` })); stop(); a.histoire = r.texte; zh.innerHTML = `<div class="contenu ia-texte">${markdown(r.texte)}</div>`; }
+        catch (e) { stop(); zh.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; }
+      };
+      $("#arcade-go").onclick = () => lancer({ mode: "arcade", p2: adv.id, niveau, boss: dernier, duo: false, fin: arcadeFin });
+      $("#arcade-quitter").onclick = () => { arcade = null; ecranChoix(); };
+    };
+    const arcadeFin = (res) => {
+      const a = arcade; if (!a) return;
+      if (!res.gagne) {
+        const zr = document.createElement("div"); zr.className = "duel-fin";
+        zr.innerHTML = `<div class="jeu-defaite"><div class="jv-titre">💀 Défaite contre ${esc(res.gagnant.nom)}</div><p>Score : ${a.score}. Continuer coûte la moitié de ton score.</p>
+          <div class="rangee centre"><button class="btn btn-or" id="arcade-continue">🔁 Continuer</button><button class="btn" id="arcade-stop">Arrêter là</button></div></div>`;
+        z.appendChild(zr);
+        $("#arcade-continue").onclick = () => { a.score = Math.floor(a.score / 2); a.continues++; arcadeEcran(); };
+        $("#arcade-stop").onclick = () => arcadeTermine(false);
+        return;
+      }
+      const gain = 1000 + (res.chrono || 0) * 10 + Math.round((res.pv || 0) * 1000) + (res.parfait ? 2000 : 0) + (res.finish ? 1500 : 0) + (a.i === a.liste.length - 1 ? 3000 : 0);
+      a.score += gain; a.i++;
+      const detail = `<p class="centre">+${gain} points${res.parfait ? " · PARFAIT !" : ""}${res.finish ? " · coup de grâce" : ""}</p>`;
+      if (a.i >= a.liste.length) arcadeTermine(true, detail); else arcadeEcran(detail);
+    };
+    const arcadeTermine = (gagne, detail = "") => {
+      const a = arcade, moiF = indexParId.get(choix.p1), duree = Math.round((Date.now() - a.debut) / 1000);
+      if (gagne && estMembre()) sauverScore("arcade", Math.min(1000, Math.round(a.score / 100)), { perso: moiF.id, score: a.score, duree, continues: a.continues });
+      z.innerHTML = `<div class="duel-choix arcade"><div class="${gagne ? "jeu-victoire" : "jeu-defaite"}">
+        <div class="jv-titre">${gagne ? `👑 ${esc(moiF.titre)} a vaincu l'Arcade !` : "Arcade terminée"}</div>${detail}
+        <p>Score final : <b>${a.score}</b> · ${Math.floor(duree / 60)} min ${duree % 60} s${a.continues ? ` · ${a.continues} continue${a.continues > 1 ? "s" : ""}` : ""}</p>
+        <div id="arcade-fin-ia"></div>
+        <div class="rangee centre">${gagne && estMembre() ? `<button class="btn" id="arcade-fin-histoire">🤖 La fin de l'histoire</button><button class="btn btn-discord" id="arcade-poster">📣 Poster sur Discord</button>` : ""}<button class="btn btn-or" id="arcade-rejouer">🔁 Rejouer</button><button class="btn" id="arcade-retour">↩ Retour</button></div></div></div>`;
+      const bh = $("#arcade-fin-histoire"); if (bh) bh.onclick = async () => {
+        bh.disabled = true; const zh = $("#arcade-fin-ia"); const stop = attenteIA(zh, ["L'IA écrit la fin…"]);
+        try { const r = await avecDelai(api.ia("question", { question: `Écris en 6 à 8 lignes la fin épique du mode Arcade : ${moiF.titre} vient de vaincre ${a.liste.map((f) => f.titre).join(", ")}, et en dernier le boss ${a.liste[a.liste.length - 1].titre}. Que devient ${moiF.titre} ? Respecte sa fiche.${a.histoire ? " Voici l'introduction qui avait été écrite : " + a.histoire : ""} Réponds seulement avec le texte.` })); stop(); zh.innerHTML = `<div class="contenu ia-texte">${markdown(r.texte)}</div>`; }
+        catch (e) { stop(); zh.innerHTML = `<p class="note erreur-note">⚠️ ${esc(e.message)}</p>`; bh.disabled = false; }
+      };
+      const bp = $("#arcade-poster"); if (bp) bp.onclick = () => { bp.disabled = true; posterDiscord(`🕹️ ${moiPseudo()} a terminé l'Arcade avec ${moiF.titre} !`, `Score : **${a.score}** en ${Math.floor(duree / 60)} min ${duree % 60} s\nBoss vaincu : ${a.liste[a.liste.length - 1].titre}`); };
+      $("#arcade-rejouer").onclick = () => arcadeDebut();
+      $("#arcade-retour").onclick = () => { arcade = null; ecranChoix(); };
+    };
+
+    /* ----- classement du Duel ----- */
+    const afficherClassement = async (zc) => {
+      if (zc.innerHTML) { zc.innerHTML = ""; return; }
+      zc.innerHTML = `<p class="discret">Chargement…</p>`;
+      const depuis = jourLocal(new Date(Date.now() - 30 * 86400000));
+      const [scores, auteurs] = await Promise.all([api.listerScores(depuis).catch(() => []), auteursMap()]);
+      const pseudo = (id) => esc((auteurs.get(id) || {}).pseudo || "?");
+      const somme = (jeu) => { const m = new Map(); scores.filter((x) => x.jeu === jeu).forEach((x) => m.set(x.user_id, (m.get(x.user_id) || 0) + x.score)); return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10); };
+      const record = () => { const m = new Map(); scores.filter((x) => x.jeu === "arcade").forEach((x) => { const v = (x.details && x.details.score) || x.score * 100; if (!m.has(x.user_id) || m.get(x.user_id)[0] < v) m.set(x.user_id, [v, x.details && x.details.perso]); }); return [...m.entries()].sort((a, b) => b[1][0] - a[1][0]).slice(0, 10); };
+      const joues = (() => { const m = new Map(); scores.filter((x) => ["duel", "duel_ligne", "arcade"].includes(x.jeu) && x.details && x.details.perso).forEach((x) => m.set(x.details.perso, (m.get(x.details.perso) || 0) + 1)); return [...m.entries()].filter(([id]) => indexParId.has(id)).sort((a, b) => b[1] - a[1]).slice(0, 8); })();
+      const ligne = (l, f) => (l.length ? `<ol class="classement">${l.map((e, i) => `<li><span class="cl-rang">${["🥇", "🥈", "🥉"][i] || i + 1}</span>${f(e)}</li>`).join("")}</ol>` : `<p class="discret petit-texte">Personne pour l'instant.</p>`);
+      zc.innerHTML = `<div class="classements">
+        <div class="classement-bloc"><h3>🌐 Victoires en ligne (30 jours)</h3>${ligne(somme("duel_ligne"), ([id, v]) => `<span class="cl-nom">${pseudo(id)}</span><b>${v}</b>`)}</div>
+        <div class="classement-bloc"><h3>🕹️ Records de l'Arcade</h3>${ligne(record(), ([id, [v, p]]) => `<span class="cl-nom">${pseudo(id)}${p && indexParId.get(p) ? ` <small class="discret">(${esc(indexParId.get(p).titre)})</small>` : ""}</span><b>${v}</b>`)}</div>
+        <div class="classement-bloc"><h3>🤖 Victoires contre l'ordi (30 jours)</h3>${ligne(somme("duel"), ([id, v]) => `<span class="cl-nom">${pseudo(id)}</span><b>${v}</b>`)}</div>
+        <div class="classement-bloc"><h3>⭐ Personnages les plus joués</h3>${ligne(joues, ([id, v]) => `<span class="cl-nom">${esc(indexParId.get(id).titre)}</span><b>${v}</b> <small class="discret">victoire${v > 1 ? "s" : ""}</small>`)}</div>
+      </div>`;
+    };
 
     if (codeSalle) ouvrirSalle(codeSalle.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8), "invite");
     else ecranChoix();
@@ -4015,20 +4237,25 @@
     const ctx = canvas.getContext("2d");
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = W_D * dpr; canvas.height = H_D * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const J = [creerCombattant(c1, 0), creerCombattant(c2, 1)];
+    // en duo (2 contre 2), chaque camp a 2 combattants ; J[camp] = celui qui est sur le terrain
+    const equipes = opts.equipes ? opts.equipes.map((eq, side) => eq.map((c) => creerCombattant(c, side))) : [[creerCombattant(c1, 0)], [creerCombattant(c2, 1)]];
+    const J = [equipes[0][0], equipes[1][0]], actifs = [0, 0], duo = !!opts.equipes;
+    const ROUNDS = duo || opts.mode === "arcade" && opts.unRound ? 1 : 2;
+    const entrainement = opts.mode === "entrainement", contreOrdi = opts.mode === "ordi" || opts.mode === "arcade";
+    if (opts.boss) { const b = J[1]; b.pvMax = Math.round(b.pvMax * 1.4); b.attMul *= 1.15; b.boss = true; }
     const invite = opts.mode === "ligne" && opts.role === "invite";
     const moiIdx = invite ? 1 : 0;
-    const etat = { round: 1, chrono: 60 * 60, phase: "intro", phaseT: 0, gel: 0, ralenti: 0, secousse: 0, flash: 0, banniere: null, projectiles: [], fini: false, acheve: null, finish: null };
+    const etat = { victoires: [0, 0], round: 1, chrono: 60 * 60, phase: "intro", phaseT: 0, gel: 0, ralenti: 0, secousse: 0, flash: 0, banniere: null, projectiles: [], fini: false, acheve: null, finish: null };
     const parts = [], textes = [], evts = [];
     let vivante = true, acc = 0, dernier = performance.now(), t0 = performance.now();
     // ---- commandes ----
-    const cmd = [{ g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0 }, { g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0 }];
+    const cmd = [{ g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0, sig: 0, tag: 0 }, { g: 0, d: 0, h: 0, b: 0, coup: 0, fort: 0, spe: 0, sup: 0, sig: 0, tag: 0 }];
     const deuxJoueurs = opts.mode === "deux";
-    const TOUCHES1 = deuxJoueurs ? { KeyA: "g", KeyQ: "g", KeyD: "d", KeyW: "h", KeyZ: "h", KeyS: "b", KeyF: "coup", KeyG: "fort", KeyH: "spe", KeyT: "sup" }
-      : { ArrowLeft: "g", KeyA: "g", KeyQ: "g", ArrowRight: "d", KeyD: "d", ArrowUp: "h", KeyW: "h", KeyZ: "h", Space: "h", ArrowDown: "b", KeyS: "b", KeyJ: "coup", KeyX: "coup", KeyK: "fort", KeyC: "fort", KeyL: "spe", KeyV: "spe", KeyI: "sup", KeyB: "sup" };
-    const TOUCHES2 = { ArrowLeft: "g", ArrowRight: "d", ArrowUp: "h", ArrowDown: "b", Digit1: "coup", Numpad1: "coup", Digit2: "fort", Numpad2: "fort", Digit3: "spe", Numpad3: "spe", Digit0: "sup", Numpad0: "sup" };
+    const TOUCHES1 = deuxJoueurs ? { KeyA: "g", KeyQ: "g", KeyD: "d", KeyW: "h", KeyZ: "h", KeyS: "b", KeyF: "coup", KeyG: "fort", KeyH: "spe", KeyT: "sup", KeyR: "sig", KeyY: "tag" }
+      : { ArrowLeft: "g", KeyA: "g", KeyQ: "g", ArrowRight: "d", KeyD: "d", ArrowUp: "h", KeyW: "h", KeyZ: "h", Space: "h", ArrowDown: "b", KeyS: "b", KeyJ: "coup", KeyX: "coup", KeyK: "fort", KeyC: "fort", KeyL: "spe", KeyV: "spe", KeyI: "sup", KeyB: "sup", KeyO: "sig", KeyN: "sig", KeyU: "tag", KeyE: "tag" };
+    const TOUCHES2 = { ArrowLeft: "g", ArrowRight: "d", ArrowUp: "h", ArrowDown: "b", Digit1: "coup", Numpad1: "coup", Digit2: "fort", Numpad2: "fort", Digit3: "spe", Numpad3: "spe", Digit0: "sup", Numpad0: "sup", Digit4: "sig", Numpad4: "sig", Digit5: "tag", Numpad5: "tag" };
     // un appui très court (tap) compte quand même : on le garde jusqu'à l'image suivante
-    const presser = (i, k, v) => { if (["coup", "fort", "spe", "sup"].includes(k)) { if (v) cmd[i][k] = 1; } else { cmd[i][k] = v; if (v) cmd[i]["tap_" + k] = 1; } if (invite) envoyerEntree(); };
+    const presser = (i, k, v) => { if (v) SON.init(); if (["coup", "fort", "spe", "sup", "sig", "tag"].includes(k)) { if (v) cmd[i][k] = 1; } else { cmd[i][k] = v; if (v) cmd[i]["tap_" + k] = 1; } if (invite) envoyerEntree(); };
     const clavier = (e, v) => {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
       const k1 = TOUCHES1[e.code], k2 = deuxJoueurs ? TOUCHES2[e.code] : null;
@@ -4048,9 +4275,9 @@
     // ---- réseau ----
     const salle = opts.salle;
     let derniereEntree = 0, instantane = null, envoiEtat = 0;
-    function envoyerEntree() { if (!salle) return; const now = performance.now(); if (now - derniereEntree < 25 && !cmd[1].coup && !cmd[1].fort && !cmd[1].spe && !cmd[1].sup && !cmd[1].tap_h) return; derniereEntree = now; salle.send({ type: "broadcast", event: "entree", payload: { ...cmd[1] } }); cmd[1].coup = cmd[1].fort = cmd[1].spe = cmd[1].sup = cmd[1].tap_h = cmd[1].tap_b = cmd[1].tap_g = cmd[1].tap_d = 0; }
+    function envoyerEntree() { if (!salle) return; const now = performance.now(); if (now - derniereEntree < 25 && !cmd[1].coup && !cmd[1].fort && !cmd[1].spe && !cmd[1].sup && !cmd[1].sig && !cmd[1].tag && !cmd[1].tap_h && !cmd[1].tap_d && !cmd[1].tap_g) return; derniereEntree = now; salle.send({ type: "broadcast", event: "entree", payload: { ...cmd[1] } }); cmd[1].coup = cmd[1].fort = cmd[1].spe = cmd[1].sup = cmd[1].sig = cmd[1].tag = cmd[1].tap_h = cmd[1].tap_b = cmd[1].tap_g = cmd[1].tap_d = 0; }
     if (salle) {
-      if (!invite) salle.on("broadcast", { event: "entree" }, ({ payload }) => { for (const k of ["g", "d", "h", "b"]) cmd[1][k] = payload[k] ? 1 : 0; for (const k of ["coup", "fort", "spe", "sup", "tap_h", "tap_b", "tap_g", "tap_d"]) if (payload[k]) cmd[1][k] = 1; });
+      if (!invite) salle.on("broadcast", { event: "entree" }, ({ payload }) => { for (const k of ["g", "d", "h", "b"]) cmd[1][k] = payload[k] ? 1 : 0; for (const k of ["coup", "fort", "spe", "sup", "sig", "tag", "tap_h", "tap_b", "tap_g", "tap_d"]) if (payload[k]) cmd[1][k] = 1; });
       else salle.on("broadcast", { event: "etat" }, ({ payload }) => { instantane = payload; (payload.evts || []).forEach(jouerEvt); });
       if (invite) var battement = setInterval(() => vivante && salle && salle.send({ type: "broadcast", event: "entree", payload: { g: cmd[1].g, d: cmd[1].d, h: cmd[1].h, b: cmd[1].b } }), 150);
     }
@@ -4059,6 +4286,11 @@
     const auSol = (p) => p.y >= SOL - 0.5;
     const evt = (e) => { if (salle && !invite) evts.push(e); jouerEvt(e); };
     function jouerEvt(e) {
+      if (e.k === "impact") SON.jouer(e.fort ? "fort" : "coup"); else if (e.k === "garde") SON.jouer("garde"); else if (e.k === "lancer") SON.jouer("magie"); else if (e.k === "son") SON.jouer(e.n, e.f || 1); else if (e.k === "finish") SON.jouer("super");
+      if (e.k === "banniere") { const v = { "K.O.": "K.O. !", "COMBAT !": "Combat !", "ACHÈVE-LE !": "Achève-le !" }[e.txt] || (/^Round \d/.test(e.txt) ? e.txt : /gagne !$/.test(e.txt) ? e.txt : null); if (v) SON.voix(v); if (e.txt === "K.O.") SON.jouer("ko"); if (/^SUPER/.test(e.sous || "")) SON.jouer("super"); }
+      if (e.k === "fumee") { for (let i = 0; i < 26; i++) ajouter({ x: e.x + rnd(-20, 20), y: e.y + rnd(-60, 10), vx: rnd(-40, 40), vy: rnd(-60, -10), couleur: i % 2 ? "#2a1430" : "#5a2a6a", forme: "fumee", taille: rnd(8, 16), vie: rnd(0.4, 0.8), add: false }); anneau(e.x, e.y - 40, "#9a5cff", 40); }
+      if (e.k === "marque") { const E2 = ELEMENTS[e.el] || ELEMENTS.physique; anneau(e.x, SOL, E2.glow, 46); for (let i = 0; i < 10; i++) ajouter({ x: e.x + rnd(-30, 30), y: SOL - 2, vy: rnd(-40, -10), couleur: E2.c1, taille: rnd(2, 3), vie: 0.6 }); }
+      if (e.k === "pilier") { const E2 = ELEMENTS[e.el] || ELEMENTS.physique; for (let i = 0; i < 60; i++) ajouter({ x: e.x + rnd(-26, 26), y: SOL - rnd(0, 20), vx: rnd(-20, 20), vy: rnd(-520, -220), couleur: i % 3 ? E2.c1 : "#ffffff", taille: rnd(3, 7), vie: rnd(0.4, 0.8), forme: e.el === "terre" ? "roche" : "rond", g: e.el === "terre" ? 600 : 0, add: e.el !== "terre" }); etat.secousse = Math.max(etat.secousse, 7); }
       if (e.k === "impact") { eclat(e.x, e.y, e.el, e.fort ? 1.4 : 1); nombre(e.x, e.y - 20, e.txt, e.fort ? "#ffd84a" : "#ff6a6a", e.fort); if (e.fort) etat.secousse = Math.max(etat.secousse, 8); }
       else if (e.k === "garde") { anneau(e.x, e.y, "#9adcff", 30); nombre(e.x, e.y - 20, "Garde", "#9adcff"); }
       else if (e.k === "banniere") etat.banniere = { txt: e.txt, sous: e.sous || "", vie: e.vie || 1.4, age: 0, couleur: e.couleur || "#f5d08a" };
@@ -4086,7 +4318,7 @@
 
     // ---- simulation (60 images/s) ----
     const debutRound = () => {
-      J.forEach((p, i) => Object.assign(p, { x: i ? 460 : 180, y: SOL, vx: 0, vy: 0, face: i ? -1 : 1, pv: p.pvMax, pvAff: p.pvMax, etat: "garde", t: 0, coup: null, stun: 0, invuln: 0, recharge: 0 }));
+      equipes.forEach((eq, i) => { actifs[i] = 0; J[i] = eq[0]; eq.forEach((p) => Object.assign(p, { x: i ? 460 : 180, y: SOL, vx: 0, vy: 0, face: i ? -1 : 1, pv: p.pvMax, pvAff: p.pvMax, etat: "garde", t: 0, coup: null, stun: 0, invuln: 0, recharge: 0, sigRecharge: 0, combo: 0, comboT: 0, hist: [], tagCd: 0 })); });
       etat.projectiles = []; etat.chrono = 60 * 60; etat.phase = "intro"; etat.phaseT = 0; etat.acheve = null; etat.finish = null;
       evt({ k: "banniere", txt: `Round ${etat.round}`, sous: etat.round === 1 ? `📍 ${opts.lieu || (ARENES[opts.arene] || ARENES.cathedrale).nom}` : `${J[0].c.nom} contre ${J[1].c.nom}`, vie: 1.5 });
     };
@@ -4114,8 +4346,12 @@
       if (etat.gel > 0) { etat.gel--; return; }
       etat.phaseT++;
       if (etat.phase === "intro") { if (etat.phaseT === 70) evt({ k: "banniere", txt: "COMBAT !", vie: 0.8, couleur: "#ff6a4a" }); if (etat.phaseT > 90) etat.phase = "combat"; }
-      if (etat.phase === "combat" && --etat.chrono <= 0) finRound(null);
-      if (opts.mode === "ordi") ia(J[1], J[0]);
+      if (etat.phase === "combat" && !entrainement && --etat.chrono <= 0) finRound(null);
+      if (contreOrdi) ia(J[1], J[0]);
+      if (entrainement) mannequin(J[1], J[0]);
+      // relais (duo) : le partenaire qui attend récupère un peu de vie
+      if (duo) equipes.forEach((eq, side) => eq.forEach((p) => { if (p !== J[side] && p.pv > 0 && p.pv < p.pvMax && etat.phase === "combat") p.pv = Math.min(p.pvMax, p.pv + 0.35); }));
+      J.forEach((p) => { if (p.tagCd > 0) p.tagCd--; if (p.comboT > 0) p.comboT--; if (p.sigRecharge > 0) p.sigRecharge--; });
       // coup de grâce : Super pendant que l'adversaire est sonné (quel que soit le mouvement en cours)
       if (etat.acheve && !etat.finish && cmd[etat.acheve.gagnant].sup) { const g = J[etat.acheve.gagnant]; lancerFinish(g, J[1 - etat.acheve.gagnant]); }
       J.forEach((p, i) => majCombattant(p, J[1 - i], cmd[i]));
@@ -4125,14 +4361,16 @@
       J.forEach((p) => (p.x = Math.max(34, Math.min(W_D - 34, p.x))));
       // projectiles
       for (let i = etat.projectiles.length - 1; i >= 0; i--) {
-        const q = etat.projectiles[i]; q.x += q.vx; q.age++;
+        const q = etat.projectiles[i]; q.x += q.vx; q.y += q.vy || 0; q.age++;
         const cible = J[1 - q.camp];
-        const autre = etat.projectiles.find((o) => o !== q && o.camp !== q.camp && Math.abs(o.x - q.x) < 24);
+        if (q.y > SOL + 8) { evt({ k: "impact", x: q.x, y: SOL - 4, el: q.el, txt: "", fort: false }); etat.projectiles.splice(i, 1); continue; }
+        const autre = !q.vy && etat.projectiles.find((o) => o !== q && !o.vy && o.camp !== q.camp && Math.abs(o.x - q.x) < 24);
         if (autre) { evt({ k: "impact", x: q.x, y: q.y, el: q.el, txt: "", fort: false }); etat.projectiles.splice(etat.projectiles.indexOf(autre), 1); etat.projectiles.splice(etat.projectiles.indexOf(q), 1); i = etat.projectiles.length; continue; }
-        if (Math.abs(cible.x - q.x) < 30 && cible.y > SOL - 120 && cible.invuln <= 0 && cible.etat !== "ko") { toucher(J[q.camp], cible, { dmg: q.dmg, stun: 18, recul: 7, gain: 10, el: q.el, fort: true }, q.x); etat.projectiles.splice(i, 1); continue; }
+        const dy = cible.y - q.y;
+        if (Math.abs(cible.x - q.x) < (q.gros ? 40 : 30) && dy > -6 && dy < (q.bas ? 40 : 150) && cible.invuln <= 0 && !["ko", "sonne"].includes(cible.etat)) { toucher(J[q.camp], cible, { dmg: q.dmg, stun: 18, recul: 7, gain: 10, el: q.el, fort: true, bas: q.bas }, q.x); etat.projectiles.splice(i, 1); continue; }
         if (q.x < -40 || q.x > W_D + 40) etat.projectiles.splice(i, 1);
       }
-      cmd.forEach((c) => (c.coup = c.fort = c.spe = c.sup = c.tap_h = c.tap_b = c.tap_g = c.tap_d = 0));
+      cmd.forEach((c) => (c.coup = c.fort = c.spe = c.sup = c.sig = c.tag = c.tap_h = c.tap_b = c.tap_g = c.tap_d = 0));
       if (etat.acheve) { etat.acheve.t--; if (etat.acheve.t <= 0 && !etat.finish) finRound(etat.acheve.gagnant, true); }
     }
     function majCombattant(p, o, c0) {
@@ -4140,6 +4378,12 @@
       p.t++; if (p.invuln > 0) p.invuln--; if (p.recharge > 0) p.recharge--;
       const actif = etat.phase === "combat" && !etat.fini;
       const versO = Math.sign(o.x - p.x) || p.face;
+      // historique des directions (vers l'adversaire = « avant ») pour les manipulations ↓ ↘ →
+      const avant = (versO > 0 && c.d) || (versO < 0 && c.g), recule = (versO > 0 && c.g) || (versO < 0 && c.d);
+      p.hist.push((c.b ? "b" : "") + (avant ? "f" : recule ? "r" : "")); if (p.hist.length > 22) p.hist.shift();
+      if ((versO > 0 && c0.tap_d) || (versO < 0 && c0.tap_g)) { p.tapsAvant.push(etat.phaseT); p.tapsAvant = p.tapsAvant.filter((x) => etat.phaseT - x < 16); }
+      const quartDeCercle = () => { const h = p.hist; let i = h.length - 1, vu = 0; const ordre = ["f", "bf", "b"]; for (; i >= 0 && vu < 3; i--) if (h[i] === ordre[vu]) vu++; else if (vu === 0 && h[i] === "") continue; return vu >= 3; };
+      const demandeSig = c.sig || (c.spe && quartDeCercle());
       const arriere = (versO > 0 && c.g) || (versO < 0 && c.d);
       // gravité
       if (!auSol(p) || p.vy < 0) { p.vy += 0.75; p.y += p.vy; p.x += p.vx; if (p.y >= SOL) { p.y = SOL; p.vy = 0; p.vx = 0; if (p.etat === "saut" || p.etat === "attaque" && p.coup && p.coup.haut) changerEtat(p, "garde"); if (p.etat === "envol") changerEtat(p, "aterre"); } }
@@ -4153,6 +4397,9 @@
         case "aterre": if (p.t > 36) { changerEtat(p, "garde"); p.invuln = 24; } return;
         case "magie": if (p.t === 12) { etat.projectiles.push({ x: p.x + p.face * 40, y: SOL - 86, vx: p.face * 6.5, camp: p.cote, el: p.c.element, dmg: Math.round(76 * p.attMul), age: 0 }); evt({ k: "lancer", x: p.x + p.face * 40, y: SOL - 86, el: p.c.element }); } if (p.t > 30) changerEtat(p, "garde"); return;
         case "super": superCoup(p, o); return;
+        case "signature": majSignature(p, o); return;
+        case "dash": p.x += p.face * (p.t < 8 ? 8 : 3) * p.vitesse; if (p.t > 12) changerEtat(p, "garde"); return;
+        case "entree": if (auSol(p) && p.t > 4) changerEtat(p, "garde"); return;
         case "finish": return;
         case "attaque": {
           const k = p.coup;
@@ -4162,7 +4409,17 @@
             const saute = o.y < SOL - 40;
             if (portee && !(k.bas && saute) && o.invuln <= 0 && !["ko", "envol"].includes(o.etat)) { p.touche = true; toucher(p, o, { ...k, el: k.nom === "fort" ? p.c.element : "physique" }, o.x - p.face * 18); }
           }
-          if (p.t >= k.debut + k.actif + k.fin && (auSol(p) || !k.haut)) changerEtat(p, auSol(p) ? (c.b ? "accroupi" : "garde") : "saut");
+          // combos : un coup qui touche peut s'enchaîner (annulation) sur un coup plus fort
+          if (p.touche && auSol(p) && p.t >= k.debut + 1) {
+            if (["coup", "bas"].includes(k.nom) && c.fort) { attaquer(p, c.b ? "balayage" : "fort"); return; }
+            if (["coup", "bas"].includes(k.nom) && c.coup && (p.chaine || 0) < 2) { p.chaine = (p.chaine || 0) + 1; attaquer(p, c.b ? "bas" : "coup"); p.chaine = p.chaine; return; }
+            if (["coup", "bas", "fort"].includes(k.nom)) {
+              if (demandeSig && p.sigRecharge <= 0) { lancerSignature(p, o); return; }
+              if (c.spe && p.recharge <= 0) { p.recharge = 70; changerEtat(p, "magie"); return; }
+              if (c.sup && p.super >= 100) { p.super = 0; changerEtat(p, "super"); return; }
+            }
+          }
+          if (p.t >= k.debut + k.actif + k.fin && (auSol(p) || !k.haut)) { p.chaine = 0; changerEtat(p, auSol(p) ? (c.b ? "accroupi" : "garde") : "saut"); }
           return;
         }
       }
@@ -4172,11 +4429,14 @@
       if (etat.acheve) { if (auSol(p)) changerEtat(p, "garde"); return; }
       if (auSol(p) && ["garde", "marche", "accroupi", "bloque"].includes(p.etat)) {
         p.face = versO;
+        if (c.tag && duo && p.tagCd <= 0) { if (relais(p.cote)) return; }
         if (c.sup && p.super >= 100) { p.super = 0; changerEtat(p, "super"); return; }
+        if (demandeSig && p.sigRecharge <= 0) { lancerSignature(p, o); return; }
         if (c.spe && p.recharge <= 0) { p.recharge = 70; changerEtat(p, "magie"); return; }
+        if (p.tapsAvant.length >= 2 && !c.b) { p.tapsAvant = []; changerEtat(p, "dash"); evt({ k: "son", n: "dash" }); return; }
         if (c.coup) { attaquer(p, c.b ? "bas" : "coup"); return; }
         if (c.fort) { attaquer(p, c.b ? "balayage" : "fort"); return; }
-        if (c.h) { p.vy = -14.5; p.vx = (c.d ? 3.6 : c.g ? -3.6 : 0) * p.vitesse; p.y -= 1; changerEtat(p, "saut"); return; }
+        if (c.h) { p.vy = -14.5; p.vx = (c.d ? 3.6 : c.g ? -3.6 : 0) * p.vitesse; p.y -= 1; changerEtat(p, "saut"); evt({ k: "son", n: "saut" }); return; }
         if (c.b) { if (p.etat !== "accroupi") changerEtat(p, "accroupi"); p.bloque = arriere; return; }
         p.bloque = arriere;
         if (c.g || c.d) { p.x += (c.d ? 1 : -1) * (arriere ? 2.6 : 3.4) * p.vitesse; if (p.etat !== "marche") changerEtat(p, "marche"); }
@@ -4193,14 +4453,42 @@
         a.super = Math.min(100, a.super + k.gain * 0.5); d.super = Math.min(100, d.super + 4);
         evt({ k: "garde", x: xImpact, y }); etat.gel = 3; return;
       }
-      const dmg = Math.round(k.dmg * a.attMul * (1 - d.defRed));
+      const enchaine = ["touche", "envol"].includes(d.etat) || (d.etat === "aterre" && d.t < 6);
+      a.combo = enchaine && a.comboT > 0 ? a.combo + 1 : 1; if (a.combo === 1) a.comboDmg = 0;
+      const dmg = Math.round(k.dmg * a.attMul * (1 - d.defRed) * Math.max(0.45, 1 - 0.1 * (a.combo - 1)));
+      a.comboDmg += dmg; a.comboT = 70; a.comboAff = a.combo;
+      if (a.combo >= 2) evt({ k: "son", n: "combo", f: Math.min(8, a.combo) });
       d.pv = Math.max(0, d.pv - dmg); d.blanc = 1;
+      if (entrainement && d.cote === 1 && d.pv <= 0) d.pv = d.pvMax;
       a.super = Math.min(100, a.super + k.gain); d.super = Math.min(100, d.super + 5);
       evt({ k: "impact", x: xImpact, y, el: k.el || "physique", txt: "-" + dmg, fort: dmg > 80 });
       etat.gel = dmg > 80 ? 7 : 4;
       if (d.pv <= 0) { ko(a, d); return; }
       if (k.chute || !auSol(d)) { d.vy = -7; d.vx = -d.face * 3; d.y -= 1; changerEtat(d, "envol"); }
       else { d.stun = k.stun; d.recul = -d.face * k.recul * 0.7; changerEtat(d, "touche"); }
+    }
+    function lancerSignature(p, o) {
+      p.sigRecharge = 200; p.touche = false; p.face = Math.sign(o.x - p.x) || p.face; changerEtat(p, "signature");
+      evt({ k: "banniere", txt: p.c.sigNom, sous: "★ SIGNATURE", vie: 0.9, couleur: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow }); evt({ k: "son", n: "signature" });
+    }
+    function majSignature(p, o) {
+      const t = p.t, E = p.c.element, dmg = Math.round(92 * p.attMul);
+      const coup = (k) => { if (!p.touche && o.invuln <= 0 && !["ko", "sonne"].includes(o.etat)) { p.touche = true; toucher(p, o, { dmg, stun: 24, recul: 8, gain: 12, el: E, fort: true, ...k }, o.x - p.face * 14); } };
+      switch (p.c.sig) {
+        case "eventail": if (t === 10) [-1.4, 0, 1.4].forEach((vy) => etat.projectiles.push({ x: p.x + p.face * 40, y: SOL - 92, vx: p.face * 7.5, vy, camp: p.cote, el: E, dmg: Math.round(dmg * 0.45), age: 0, forme: "carte" })); if (t > 28) changerEtat(p, "garde"); break;
+        case "teleport": if (t === 1) { p.invuln = 28; evt({ k: "fumee", x: p.x, y: p.y }); } if (t === 12) { const dir = Math.sign(o.x - p.x) || 1; let nx = o.x + dir * 52; if (nx < 40 || nx > W_D - 40) nx = o.x - dir * 52; p.x = nx; p.face = Math.sign(o.x - p.x) || p.face; evt({ k: "fumee", x: p.x, y: p.y }); } if (t >= 16 && t <= 22 && Math.abs(o.x - p.x) < 95) coup({ chute: true }); if (t > 36) changerEtat(p, "garde"); break;
+        case "vague": if (t === 14) etat.projectiles.push({ x: p.x + p.face * 34, y: SOL - 20, vx: p.face * 5.5, vy: 0, camp: p.cote, el: E, dmg: Math.round(dmg * 0.85), age: 0, forme: "vague", gros: true, bas: true }); if (t > 32) changerEtat(p, "garde"); break;
+        case "pluie": if (t === 10) for (let i = 0; i < 5; i++) etat.projectiles.push({ x: o.x + (i - 2) * 26, y: -30 - i * 34, vx: 0, vy: 8, camp: p.cote, el: E, dmg: Math.round(dmg * 0.3), age: 0, forme: "pluie" }); if (t > 30) changerEtat(p, "garde"); break;
+        case "colonne": if (t === 6) { p.cibleX = o.x; evt({ k: "marque", x: o.x, el: E }); } if (t === 26) { evt({ k: "pilier", x: p.cibleX, el: E }); if (Math.abs(o.x - p.cibleX) < 44) coup({ chute: true, dmg: Math.round(dmg * 1.1) }); } if (t > 40) changerEtat(p, "garde"); break;
+        default: if (t >= 6 && t < 22) { p.x += p.face * 10 * p.vitesse; p.x = Math.max(34, Math.min(W_D - 34, p.x)); if (Math.abs(o.x - p.x) < 52) coup({ chute: true }); if (t % 2) ajouter({ x: p.x - p.face * 20, y: p.y - rnd(30, 120), vx: -p.face * 200, vy: 0, couleur: (ELEMENTS[E] || ELEMENTS.physique).c1, forme: "trait", taille: 4, vie: 0.25 }); } if (t > 30) changerEtat(p, "garde");
+      }
+    }
+    // mannequin d'entraînement : immobile, ou qui se protège
+    function mannequin(p, o) {
+      const c = cmd[1]; c.g = c.d = c.h = c.b = 0;
+      if (opts.mannequin === "garde") { if (o.x < p.x) c.d = 1; else c.g = 1; }
+      if (p.etat === "garde" && p.t > 90 && p.pv < p.pvMax) p.pv = p.pvMax;
+      J[0].super = Math.min(100, J[0].super + 0.25);
     }
     function superCoup(p, o) {
       if (p.t === 1) { etat.gel = 30; evt({ k: "banniere", txt: p.c.super, sous: `SUPER — ${p.c.nom}`, vie: 1.6, couleur: (ELEMENTS[p.c.element] || ELEMENTS.physique).glow }); evt({ k: "flash", v: 0.5 }); }
@@ -4210,8 +4498,24 @@
       }
       if (p.t > 54) changerEtat(p, "garde");
     }
+    function partenaireVivant(side) { return equipes[side].some((p) => p !== J[side] && p.pv > 0); }
+    function relais(side, force) {
+      const eq = equipes[side], idx = actifs[side], r = eq[1 - idx], old = J[side];
+      if (!r || r.pv <= 0) return false;
+      actifs[side] = 1 - idx; J[side] = r;
+      Object.assign(r, { x: Math.max(40, Math.min(W_D - 40, old.x)), y: SOL - 170, vy: 2, vx: 0, face: old.face, etat: "entree", t: 0, invuln: force ? 60 : 20, tagCd: 150, coup: null, stun: 0, combo: 0 });
+      old.etat = "attente"; old.tagCd = 150;
+      evt({ k: "banniere", txt: `⇄ ${r.c.nom}`, vie: 0.9, couleur: (ELEMENTS[r.c.element] || ELEMENTS.physique).glow }); evt({ k: "son", n: "tag" });
+      return true;
+    }
     function ko(a, d) {
-      const decisif = a.gagnes + 1 >= 2;
+      if (duo && partenaireVivant(d.cote)) {
+        changerEtat(d, "ko"); d.vy = -8; d.vx = -d.face * 4; d.y -= 1; etat.ralenti = 40;
+        evt({ k: "banniere", txt: `${d.c.nom} est K.O.`, vie: 1.2, couleur: "#ff6a6a" }); SON.jouer("ko");
+        setTimeout(() => { if (vivante && !etat.fini) relais(d.cote, true); }, 1100);
+        return;
+      }
+      const decisif = etat.victoires[a.cote] + 1 >= ROUNDS;
       if (decisif && opts.mode !== "aucun") {
         // ACHÈVE-LE !
         d.pv = 0; changerEtat(d, "sonne"); etat.acheve = { gagnant: a.cote, t: 60 * 4 };
@@ -4247,26 +4551,31 @@
     function finRound(gagnant, sansFinish, avecFinish) {
       if (etat.fini || etat.phase === "entreRounds") return;
       if (gagnant === null) { gagnant = J[0].pv === J[1].pv ? -1 : J[0].pv > J[1].pv ? 0 : 1; }
-      if (gagnant >= 0) { J[gagnant].gagnes++; changerEtat(J[gagnant], "victoire"); if (sansFinish) { changerEtat(J[1 - gagnant], "ko"); } }
+      if (gagnant >= 0) { etat.victoires[gagnant]++; changerEtat(J[gagnant], "victoire"); if (sansFinish) { changerEtat(J[1 - gagnant], "ko"); } }
       etat.phase = "entreRounds";
-      const fin = J.some((p) => p.gagnes >= 2);
+      const fin = etat.victoires.some((v) => v >= ROUNDS);
       if (!fin) { evt({ k: "banniere", txt: gagnant < 0 ? "Égalité" : `${J[gagnant].c.nom} gagne le round`, vie: 1.8 }); setTimeout(() => { if (!vivante) return; etat.round++; debutRound(); }, 2200); return; }
       etat.fini = true;
-      const g = J[0].gagnes >= 2 ? 0 : 1;
+      const g = etat.victoires[0] >= ROUNDS ? 0 : 1;
       evt({ k: "banniere", txt: `${J[g].c.nom} gagne !`, sous: avecFinish ? "par coup de grâce" : "", vie: 3, couleur: "#f5d08a" });
-      setTimeout(() => { if (vivante) opts.fin({ titre: g === moiIdx || opts.mode === "deux" ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…`, finish: avecFinish ? etat.finish.nom : "" }); }, 2600);
+      const res = { g, gagne: g === moiIdx, chrono: Math.ceil(etat.chrono / 60), pv: J[moiIdx].pv / J[moiIdx].pvMax, parfait: J[g].pv >= J[g].pvMax, finish: avecFinish ? etat.finish.nom : "", gagnant: J[g].c, perdant: J[1 - g].c, moi: J[moiIdx].c };
+      setTimeout(() => { if (vivante) opts.fin({ ...res, titre: g === moiIdx || opts.mode === "deux" ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }); }, 2600);
     }
 
     // ---- état réseau (l'hôte envoie, l'invité affiche) ----
     const exporter = () => ({
-      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: p.pv, super: Math.round(p.super), rc: p.recharge, gagnes: p.gagnes, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
-      pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: q.y, el: q.el, camp: q.camp })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
+      j: J.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), face: p.face, etat: p.etat, t: p.t, pv: Math.round(p.pv), super: Math.round(p.super), rc: p.recharge, sr: p.sigRecharge, co: p.comboT > 0 ? p.comboAff : 0, coup: p.coup && p.coup.pose, blanc: p.blanc > 0.5 ? 1 : 0, bloque: p.bloque ? 1 : 0 })),
+      v: etat.victoires, a: actifs.slice(), ep: equipes.map((eq) => eq.map((p) => Math.round(p.pv))),
+      pr: etat.projectiles.map((q) => ({ x: Math.round(q.x), y: Math.round(q.y), el: q.el, camp: q.camp, forme: q.forme, gros: q.gros, vx: q.vx, vy: q.vy })), ch: etat.chrono, r: etat.round, fi: etat.fini ? 1 : 0, ac: etat.acheve ? 1 : 0,
       evts: evts.splice(0),
     });
     function importer(s) {
-      s.j.forEach((q, i) => { const p = J[i]; p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, gagnes: q.gagnes, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
+      if (s.a) s.a.forEach((a, i) => { if (equipes[i][a] && actifs[i] !== a) { actifs[i] = a; J[i] = equipes[i][a]; } });
+      if (s.ep) s.ep.forEach((l, i) => l.forEach((pv, k) => { if (equipes[i][k]) equipes[i][k].pv = pv; }));
+      if (s.v) etat.victoires = s.v;
+      s.j.forEach((q, i) => { const p = J[i]; p.sigRecharge = q.sr || 0; if (q.co) { p.comboAff = q.co; p.comboT = 30; } p.x += (q.x - p.x) * 0.6; p.y += (q.y - p.y) * 0.6; Object.assign(p, { face: q.face, etat: q.etat, t: q.t, pv: q.pv, super: q.super, recharge: q.rc, bloque: q.bloque }); if (q.blanc) p.blanc = 1; p.coup = q.coup ? { pose: q.coup } : null; });
       etat.projectiles = s.pr; etat.chrono = s.ch; etat.round = s.r; etat.acheve = s.ac ? {} : null;
-      if (s.fi && !etat.fini) { etat.fini = true; const g = J[0].gagnes >= 2 ? 0 : 1; setTimeout(() => vivante && opts.fin({ titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
+      if (s.fi && !etat.fini) { etat.fini = true; const g = etat.victoires[0] >= ROUNDS ? 0 : 1; setTimeout(() => vivante && opts.fin({ g, gagne: g === moiIdx, gagnant: J[g].c, perdant: J[1 - g].c, moi: J[moiIdx].c, titre: g === moiIdx ? `🏆 ${J[g].c.nom} remporte le duel !` : `💀 ${J[g].c.nom} remporte le duel…` }), 2600); }
     }
 
     // ---- dessin ----
@@ -4278,7 +4587,9 @@
         case "accroupi": return { nom: "garde", art: p.bloque ? Object.assign({}, P.accroupi, { bdA: -150, bdB: 150 }) : P.accroupi, bas: true };
         case "saut": return { nom: "garde", art: P.saut };
         case "attaque": { const k = p.coup || {}; const ph = Math.min(1, p.t / Math.max(1, k.debut || 4)); const art = COMBATTANT.melanger(P.garde, P[k.pose] || P.poing, ph); return { nom: k.pose === "pied" || k.pose === "balayage" || k.pose === "aerien" ? "pied" : "poing", art, bas: k.pose === "balayage" }; }
-        case "magie": case "super": return { nom: "magie", art: P.special };
+        case "magie": case "super": case "signature": return { nom: "magie", art: P.special };
+        case "dash": return { nom: "marche", art: COMBATTANT.marche(p.t * 0.6) };
+        case "entree": return { nom: "garde", art: P.saut };
         case "finish": return { nom: "finish", art: P.finish };
         case "touche": case "garde_coup": return { nom: p.etat === "garde_coup" ? "garde" : "touche", art: p.etat === "garde_coup" ? P.bloc : P.touche };
         case "envol": case "aterre": case "ko": return { nom: "touche", art: P.touche, chute: true };
@@ -4354,7 +4665,7 @@
         ctx.fillStyle = k2 < 0.25 ? "#e04040" : "#5fd18a"; ctx.fillRect(i ? x + w * (1 - k2) : x, 16, w * k2, 12);
         ctx.font = "600 12px system-ui, sans-serif"; ctx.fillStyle = "#f2ecdc"; ctx.textAlign = i ? "right" : "left"; ctx.shadowColor = "#000"; ctx.shadowBlur = 3;
         ctx.fillText(p.c.nom, i ? x + w : x, 44); ctx.shadowBlur = 0;
-        for (let r = 0; r < 2; r++) { ctx.fillStyle = r < p.gagnes ? "#f5d08a" : "rgba(255,255,255,0.15)"; ctx.beginPath(); ctx.arc(i ? x + w - 8 - r * 14 - ctx.measureText(p.c.nom).width - 10 : x + ctx.measureText(p.c.nom).width + 14 + r * 14, 40, 4.5, 0, 7); ctx.fill(); }
+        for (let r = 0; r < ROUNDS; r++) { ctx.fillStyle = r < etat.victoires[i] ? "#f5d08a" : "rgba(255,255,255,0.15)"; ctx.beginPath(); ctx.arc(i ? x + w - 8 - r * 14 - ctx.measureText(p.c.nom).width - 10 : x + ctx.measureText(p.c.nom).width + 14 + r * 14, 40, 4.5, 0, 7); ctx.fill(); }
         // jauge de super
         const sy = H_D - 18, sw = 160, sx = i ? W_D - 24 - sw : 24;
         ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(sx - 2, sy - 2, sw + 4, 10);
@@ -4362,9 +4673,23 @@
         ctx.fillStyle = p.super >= 100 ? `rgba(255,255,255,${0.7 + Math.sin(t * 10) * 0.3})` : E2.glow; ctx.fillRect(i ? sx + sw * (1 - p.super / 100) : sx, sy, sw * p.super / 100, 6);
         ctx.font = "700 10px system-ui"; ctx.fillStyle = p.super >= 100 ? "#fff" : "#c8c0b0"; ctx.fillText(p.super >= 100 ? "SUPER PRÊT" : "Super", i ? sx + sw : sx, sy - 5);
         const pret = p.recharge <= 0; ctx.fillStyle = pret ? E2.glow : "rgba(255,255,255,0.25)"; ctx.textAlign = i ? "right" : "left"; ctx.fillText(pret ? "✦ Spécial" : `Spécial ${Math.ceil(p.recharge / 60)}s`, i ? sx - 8 : sx + sw + 8, sy + 5);
+        const sp = p.sigRecharge <= 0; ctx.fillStyle = sp ? "#ffe58a" : "rgba(255,255,255,0.25)"; ctx.fillText(sp ? "★ Signature" : `Signature ${Math.ceil(p.sigRecharge / 60)}s`, i ? sx - 8 : sx + sw + 8, sy - 8);
+        if (p.boss) { ctx.fillStyle = "#ff4a4a"; ctx.font = "800 11px system-ui"; ctx.fillText("BOSS", i ? x + w : x, 58); }
+        // duo : le partenaire en attente
+        if (duo) { const r = equipes[i].find((q) => q !== p); if (r) { const ry = 50, rw = 110, rx = i ? x + w - rw : x; ctx.globalAlpha = 0.85; ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(rx, ry + 12, rw, 6); ctx.fillStyle = r.pv > 0 ? "#7ab0e0" : "#5a2a2a"; ctx.fillRect(i ? rx + rw * (1 - r.pv / r.pvMax) : rx, ry + 12, rw * Math.max(0, r.pv / r.pvMax), 6); ctx.font = "600 10px system-ui"; ctx.fillStyle = "#c8d8f0"; ctx.fillText(`⇄ ${r.c.nom}${r.pv <= 0 ? " (K.O.)" : p.tagCd > 0 ? "" : " — relais prêt"}`, i ? x + w : x, ry + 30); ctx.globalAlpha = 1; } }
+        // compteur de combo
+        if (p.comboT > 0 && p.comboAff >= 2) { const a = Math.min(1, p.comboT / 20); ctx.save(); ctx.globalAlpha = a; ctx.textAlign = i ? "right" : "left"; ctx.font = "900 26px Georgia, serif"; ctx.lineWidth = 5; ctx.strokeStyle = "#000"; const tx = i ? W_D - 30 : 30, ty = 110; ctx.strokeText(`${p.comboAff} COUPS`, tx, ty); ctx.fillStyle = p.comboAff >= 5 ? "#ff5a3a" : "#ffd84a"; ctx.fillText(`${p.comboAff} COUPS`, tx, ty); ctx.font = "700 12px system-ui"; ctx.fillStyle = "#fff"; ctx.fillText(`${p.comboDmg || ""} dégâts`, tx, ty + 18); ctx.restore(); }
       });
+      if (entrainement) {
+        ctx.save(); ctx.fillStyle = "rgba(10,8,25,0.7)"; ctx.fillRect(W_D / 2 - 150, 52, 300, 70); ctx.textAlign = "center"; ctx.fillStyle = "#f5d08a"; ctx.font = "700 12px system-ui";
+        ctx.fillText(`ENTRAÎNEMENT — dernier combo : ${J[0].comboAff || 0} coups, ${J[0].comboDmg || 0} dégâts`, W_D / 2, 68);
+        ctx.font = "10px system-ui"; ctx.fillStyle = "#e0d8c8";
+        ctx.fillText("Combo : Coup → Coup → Fort → Spécial (enchaîne pendant que ça touche)", W_D / 2, 84);
+        ctx.fillText(`Signature (${J[0].c.sigNom}) : ↓ ↘ → + Spécial  ·  Ruée : → →`, W_D / 2, 98);
+        ctx.fillText("Super : jauge pleine + Super  ·  Garde : recule", W_D / 2, 112); ctx.restore();
+      }
       ctx.textAlign = "center"; ctx.font = "700 24px Georgia, serif"; ctx.fillStyle = "#f5d08a"; ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
-      ctx.fillText(String(Math.max(0, Math.ceil(etat.chrono / 60))), W_D / 2, 32); ctx.shadowBlur = 0;
+      ctx.fillText(entrainement ? "∞" : String(Math.max(0, Math.ceil(etat.chrono / 60))), W_D / 2, 32); ctx.shadowBlur = 0;
       if (etat.banniere) {
         const b = etat.banniere; b.age += 1 / 60; const k = b.age / b.vie;
         if (k >= 1) etat.banniere = null;
@@ -4392,6 +4717,7 @@
         else if (p.forme === "fumee") { ctx.globalAlpha = k * 0.5; ctx.beginPath(); ctx.arc(0, 0, t * (2 - k), 0, 7); ctx.fill(); }
         else if (p.forme === "etoile") { ctx.beginPath(); for (let j = 0; j < 8; j++) { const r = j % 2 ? t * 0.4 : t; ctx.lineTo(Math.cos(j * 0.785) * r, Math.sin(j * 0.785) * r); } ctx.fill(); }
         else if (p.forme === "trait") { ctx.lineWidth = Math.max(1, t * 0.6); ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(-t * 3, 0); ctx.lineTo(t * 3, 0); ctx.stroke(); }
+        else if (p.forme === "roche") ctx.fillRect(-t / 2, -t / 2, t, t);
         else if (p.forme === "carte") { ctx.fillRect(-4, -6, 8, 12); ctx.strokeStyle = "#1a1018"; ctx.lineWidth = 0.8; ctx.strokeRect(-4, -6, 8, 12); }
         else { ctx.beginPath(); ctx.arc(0, 0, t, 0, 7); ctx.fill(); }
         ctx.restore();
@@ -4403,6 +4729,9 @@
     function dessinerProjectiles(t) {
       etat.projectiles.forEach((q) => {
         const E2 = ELEMENTS[q.el] || ELEMENTS.physique;
+        if (q.forme === "carte") { ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(t * 14); ctx.fillStyle = "#f4ead0"; ctx.strokeStyle = "#1a1018"; ctx.lineWidth = 1; ctx.fillRect(-6, -9, 12, 18); ctx.strokeRect(-6, -9, 12, 18); ctx.fillStyle = "#c0102a"; ctx.font = "10px serif"; ctx.textAlign = "center"; ctx.fillText(["♠", "♥", "♦", "♣"][Math.floor(q.x / 30) % 4 >= 0 ? Math.floor(Math.abs(q.x) / 30) % 4 : 0], 0, 4); ctx.restore(); if (Math.random() < 0.4) ajouter({ x: q.x, y: q.y, vx: -q.vx * 5, vy: 0, couleur: E2.glow, taille: 2, vie: 0.3 }); return; }
+        if (q.forme === "vague") { ctx.save(); ctx.globalCompositeOperation = "lighter"; for (let k = 0; k < 3; k++) { ctx.globalAlpha = 0.5 - k * 0.12; ctx.fillStyle = k ? E2.c2 : E2.c1; ctx.beginPath(); ctx.ellipse(q.x - Math.sign(q.vx) * k * 14, SOL - 18 - k * 4, 34 - k * 6, 26 + Math.sin(t * 20 + k) * 4, 0, Math.PI, 0); ctx.fill(); } ctx.restore(); for (let k = 0; k < 2; k++) ajouter({ x: q.x + rnd(-20, 20), y: SOL - rnd(10, 40), vx: rnd(-30, 30), vy: rnd(-120, -40), g: 400, couleur: E2.c1, forme: "goutte", taille: rnd(2, 4), vie: 0.5 }); return; }
+        if (q.forme === "pluie") { ctx.save(); ctx.globalCompositeOperation = "lighter"; const g2 = ctx.createLinearGradient(q.x, q.y - 40, q.x, q.y); g2.addColorStop(0, "rgba(0,0,0,0)"); g2.addColorStop(1, E2.c1); ctx.strokeStyle = g2; ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(q.x, q.y - 40); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, 7); ctx.fill(); ctx.restore(); return; }
         if (Math.random() < 0.8) ajouter({ x: q.x + rnd(-6, 6), y: q.y + rnd(-6, 6), vx: -Math.sign(q.vx || (q.camp ? -1 : 1)) * rnd(10, 40), vy: rnd(-20, 20), couleur: Math.random() < 0.5 ? E2.c1 : E2.c2, taille: rnd(2, 5), vie: 0.35, forme: q.el === "sang" ? "goutte" : q.el === "glace" ? "eclat" : q.el === "ombre" ? "fumee" : "rond", add: !["ombre", "glace"].includes(q.el) });
         ctx.save(); ctx.globalCompositeOperation = "lighter"; const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, 22); g.addColorStop(0, "#fff"); g.addColorStop(0.35, E2.c1); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, 22 + Math.sin(t * 20) * 2, 0, 7); ctx.fill(); ctx.restore();
       });
@@ -4441,10 +4770,11 @@
       if (etat.flash > 0.01) { ctx.fillStyle = `rgba(255,255,255,${etat.flash})`; ctx.fillRect(0, 0, W_D, H_D); etat.flash *= 0.85; }
       requestAnimationFrame(image);
     }
-    function arreter() { vivante = false; if (typeof battement !== "undefined") clearInterval(battement); window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); }
+    function arreter() { vivante = false; SON.arreterMusique(); if (typeof battement !== "undefined") clearInterval(battement); window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); }
+    SON.lancerMusique(opts.arene || "cathedrale");
     if (!invite) debutRound();
     requestAnimationFrame(image);
-    return { arreter, _etat: etat, _J: J, _cmd: cmd };
+    return { arreter, _etat: etat, _J: J, _cmd: cmd, _equipes: equipes, basculerSon: () => SON.basculer(opts.arene || "cathedrale") };
   }
 
   pages.jeux.rpg = () => enTete("⚔️", "Aetheria Tactics", "Collectionne les personnages, monte ton équipe de 5 et affronte des équipes de plus en plus fortes.") + `<div id="rpg-zone"><p class="discret">Chargement du jeu…</p></div>`;

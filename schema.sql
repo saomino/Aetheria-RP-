@@ -424,6 +424,9 @@ create table if not exists public.jeux_scores (
   details  jsonb,
   cree_le  timestamptz not null default now()
 );
+-- nouveaux jeux : Duel (contre l'ordi, en ligne) et Arcade
+alter table public.jeux_scores drop constraint if exists jeux_scores_jeu_check;
+alter table public.jeux_scores add constraint jeux_scores_jeu_check check (jeu in ('aetherdle', 'qui', 'cartes', 'tournoi', 'duel', 'duel_ligne', 'arcade'));
 create unique index if not exists jeux_scores_aetherdle_unique on public.jeux_scores (user_id, jour) where jeu = 'aetherdle';
 create index if not exists jeux_scores_jeu_idx on public.jeux_scores (jeu, jour desc);
 alter table public.jeux_scores enable row level security;

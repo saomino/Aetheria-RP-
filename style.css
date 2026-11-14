@@ -793,3 +793,20 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 .ea-ligne input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var(--bord); border-radius: 6px; background: none; margin-left: auto; }
 .ea-ligne input[type=color]:disabled { opacity: 0.25; }
 .apercu-editeur { width: 170px; height: 212px; }
+/* ---------- Duel : modes, duo, arcade ---------- */
+.modes-duel { flex-wrap: wrap; }
+.dc-paire { display: flex; align-items: flex-end; justify-content: center; }
+.ap-partenaire .apercu-duel { width: 96px; height: 112px; opacity: 0.85; margin-left: -18px; }
+.duo-case { justify-content: center; }
+.duel-son { position: absolute; top: 40px; right: 46px; opacity: 0.75; }
+.mk-sig { background: rgba(200, 160, 40, 0.85); color: #fff; } .mk-tag { background: rgba(40, 120, 140, 0.85); color: #fff; }
+.boutons-combat { grid-template-columns: repeat(3, 58px) !important; }
+.duel-aide summary { cursor: pointer; color: var(--or); }
+.duel-aide ul { padding-left: 1.2em; }
+.arcade-echelle { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px; }
+.ae-case { flex: none; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 72px; font: 0.68rem system-ui, sans-serif; text-align: center; opacity: 0.55; }
+.ae-case .vignette { width: 48px; height: 48px; }
+.ae-case.actuel { opacity: 1; } .ae-case.actuel .vignette { box-shadow: 0 0 0 2px var(--or); }
+.ae-case.battu { opacity: 0.35; text-decoration: line-through; }
+.arcade-histoire { border: 1px solid var(--bord); border-radius: 10px; padding: 10px; background: var(--nuit-2); }
+.rouge { color: var(--rouge); }
