@@ -796,9 +796,9 @@ body { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 @media (orientation: landscape) {
   .duel-cadre.tactile:fullscreen, .duel-cadre.tactile.pseudo-plein { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); }
   .duel-cadre.tactile:fullscreen .manette, .duel-cadre.tactile.pseudo-plein .manette { display: contents; }
-  .duel-cadre.tactile:fullscreen #duel-canvas, .duel-cadre.tactile.pseudo-plein #duel-canvas { order: 1; flex: 0 1 auto; width: min(calc(100vw - 340px), calc((100dvh - 12px) * 16 / 9)); max-width: none; height: auto; margin: 0; }
-  .duel-cadre.tactile:fullscreen .stick, .duel-cadre.tactile.pseudo-plein .stick { order: 0; width: 132px; align-self: flex-end; margin-bottom: 10px; }
-  .duel-cadre.tactile:fullscreen .boutons-combat, .duel-cadre.tactile.pseudo-plein .boutons-combat { order: 2; width: 172px; align-self: flex-end; margin-bottom: 10px; }
+  .duel-cadre.tactile:fullscreen #duel-canvas, .duel-cadre.tactile.pseudo-plein #duel-canvas { order: 1; flex: 0 1 auto; min-width: 0; width: min(calc(100vw - 352px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), calc((100dvh - 12px) * 16 / 9)); max-width: none; height: auto; margin: 0; }
+  .duel-cadre.tactile:fullscreen .stick, .duel-cadre.tactile.pseudo-plein .stick { order: 0; flex: none; width: 132px; align-self: flex-end; margin-bottom: 10px; }
+  .duel-cadre.tactile:fullscreen .boutons-combat, .duel-cadre.tactile.pseudo-plein .boutons-combat { order: 2; flex: none; width: 172px; align-self: flex-end; margin-bottom: 10px; }
 }
 .duel-fin { margin-top: 10px; }
 .centre { text-align: center; }
