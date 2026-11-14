@@ -3830,17 +3830,35 @@
     const mix = (k, v) => "#" + [r, g, b].map((x) => Math.round(x + (v - x) * k).toString(16).padStart(2, "0")).join("");
     return { c1: mix(0.45, 255), c2: mix(0.55, 0), glow: "#" + m[1], nom: "finish" };
   }
-  function themeFinishDe(f, ulti, el) {
-    const tu = normal(ulti ? `${ulti.nom} ${ulti.description || ""}` : "");
+  function themeFinishDe(f, ulti, el, nomPerso) {
+    const tu = normal(`${nomPerso || ""} ${ulti ? `${ulti.nom} ${ulti.description || ""}` : ""}`);
     const iu = KITS_MAGIE.findIndex((k) => k.re.test(tu)); if (iu >= 0 && THEMES_KITS[iu]) return THEMES_KITS[iu];
     const mu = MOTS_FINISH.find(([, re]) => re.test(tu)); if (mu) return mu[0];
+    if (ulti && ulti.element && ulti.element !== "physique" && ELEMENTS[ulti.element]) return ulti.element;
     const t = normal(`${magieDe(f) || ""} ${(f.infos || []).filter((i) => /magie|pouvoir|capacit|\bdon\b|aptitude/.test(normal(i.cle))).map((i) => i.valeur).join(" ")}`);
     const i = KITS_MAGIE.findIndex((k) => k.re.test(t));
     return i >= 0 && THEMES_KITS[i] ? THEMES_KITS[i] : el;
   }
-  function couleurFinishDe(ulti) {
-    if (!ulti) return null;
-    for (const txt of [normal(ulti.nom), normal(ulti.description || "")]) { const c = COULEURS_FINISH.find(([re]) => re.test(txt)); if (c) return c[1]; }
+  const nomOption = (n) => String(n || "").replace(/:/g, " ").trim();
+  // rôle de chaque compétence dans le Duel (Spécial, Super)
+  const specialDe = (comp) => comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || null;
+  const superDe = (comp) => comp.find((c) => c.cible === "tous_ennemis") || comp[2] || null;
+  // compétence du coup de grâce : celle choisie dans l'éditeur ; sinon celle qui porte le nom tapé ;
+  // sinon la plus forte qui n'est ni l'attaque de base, ni le Spécial
+  function ultiDe(comp, app, nomPerso) {
+    const choisie = app && app.finComp && comp.find((c) => nomOption(c.nom) === app.finComp);
+    if (choisie) return choisie;
+    if (nomPerso && nomPerso.trim()) return comp.find((c) => normal(c.nom) === normal(nomPerso)) || null;
+    const avec = comp.map((c, i) => ({ c, i })), sp = specialDe(comp);
+    const essais = [avec.filter(({ c }) => c !== comp[0] && c !== sp), avec];
+    const l = essais.find((e) => e.length) || [];
+    const off = l.filter(({ c }) => ["degats", "etourdir", "affaiblir"].includes(c.type)), liste = off.length ? off : l;
+    liste.sort((a, b) => (b.c.puissance || 0) - (a.c.puissance || 0) || (b.c.recharge || 0) - (a.c.recharge || 0) || (b.c.cible === "tous_ennemis") - (a.c.cible === "tous_ennemis") || b.i - a.i);
+    return liste.length ? liste[0].c : null;
+  }
+  function couleurFinishDe(ulti, nomPerso) {
+    if (!ulti && !nomPerso) return null;
+    for (const txt of [normal(nomPerso || ""), normal(ulti ? ulti.nom : ""), normal(ulti ? ulti.description || "" : "")]) { const c = COULEURS_FINISH.find(([re]) => re.test(txt)); if (c) return c[1]; }
     return null;
   }
   async function combattantDe(f, duelData, rpData) {
@@ -3850,13 +3868,12 @@
     const comp = (rpData.find((p) => p.fiche_id === f.id) || competencesLocales(f)).competences || [];
     const el = (comp.find((c) => c.element && c.element !== "physique") || {}).element || elementDeFiche(f);
     const x = forces(f);
-    const offensives = comp.filter((c) => ["degats", "etourdir", "affaiblir"].includes(c.type));
-    const ulti = (offensives.length ? offensives : comp).slice().sort((a, b) => (b.puissance || 0) - (a.puissance || 0) || (b.description || "").length - (a.description || "").length)[0] || null;
+    const ulti = ultiDe(comp, app, dd.finish_nom);
     return {
-      f, nom: f.titre, app, ulti: ulti ? { nom: ulti.nom, description: ulti.description || "" } : null, theme: app.finTheme || themeFinishDe(f, ulti, ELEMENTS[el] ? el : "physique"),
-      palFinish: paletteDe(app.finCouleur) || paletteDe(couleurFinishDe(ulti)), element: ELEMENTS[el] ? el : "physique", stats: x,
-      special: (comp.find((c) => c.type === "degats" && c !== comp[0]) || comp[1] || { nom: "Attaque spéciale" }).nom,
-      super: (comp.find((c) => c.cible === "tous_ennemis") || comp[2] || { nom: "Super" }).nom,
+      f, nom: f.titre, app, ulti: ulti ? { nom: ulti.nom, description: ulti.description || "", element: ulti.element } : null, theme: app.finTheme || themeFinishDe(f, ulti, ELEMENTS[el] ? el : "physique", dd.finish_nom),
+      palFinish: paletteDe(app.finCouleur) || paletteDe(couleurFinishDe(ulti, dd.finish_nom)), element: ELEMENTS[el] ? el : "physique", stats: x,
+      special: (specialDe(comp) || { nom: "Attaque spéciale" }).nom,
+      super: (superDe(comp) || { nom: "Super" }).nom,
       finish: dd.finish_nom || "", planche: await chargerPlanche(dd.planche_url), planche_url: dd.planche_url || null,
       sig: signatureDe(app, ELEMENTS[el] ? el : "physique"),
       sigNom: (app.sigNom || "").trim() || (comp.find((c) => c.type === "degats" && c.puissance >= 3) || {}).nom || SIGNATURES[signatureDe(app, ELEMENTS[el] ? el : "physique")][0],
@@ -4039,19 +4056,30 @@
       ["Combat", [["arme", "Arme", [":Aucune", "epee:Épée", "epee_sang:Épée de sang", "epee_noire:Épée noire", "faux:Faux", "lance:Lance", "trident:Trident", "baton:Bâton", "canne:Canne", "livre:Livre", "cartes:Cartes", "griffes:Griffes"]], ["aura", "Couleur de la magie", "c?"], ["mainMagique", "Magie dans la main", "b"]]],
     ];
     const versHex = (c) => { if (!c) return "#888888"; if (/^#[0-9a-f]{6}$/i.test(c)) return c; const m = /rgb\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return m ? "#" + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, "0")).join("") : "#888888"; };
+    const compDe = (f) => ((rpData.find((p) => p.fiche_id === f.id) || competencesLocales(f)).competences || []);
+    const NOM_TYPE = { degats: "dégâts", etourdir: "étourdit", affaiblir: "affaiblit", soin: "soin", bouclier: "bouclier", provocation: "provocation" };
+    const champsEdit = (f) => CHAMPS_EDIT.map(([titre, champs]) => titre !== "Coup de grâce" ? [titre, champs] : [titre, [["finComp", "Compétence utilisée (jeu Tactics)", [":Automatique (la plus forte)", ...((cs) => cs.map((c) => `${nomOption(c.nom)}:${nomOption(c.nom)} — ${NOM_TYPE[c.type] || c.type}, puissance ${c.puissance || 1}${c === cs[0] ? " (attaque de base)" : c === specialDe(cs) ? " (déjà le Spécial)" : c === superDe(cs) ? " (déjà le Super)" : ""}`))(compDe(f))]], ...champs]]);
+    const NOMS_EFFETS = Object.fromEntries((CHAMPS_EDIT.find(([t]) => t === "Coup de grâce") || [0, [[0, 0, []]]])[1][0][2].map((o) => o.split(":")));
+    const resumeFinish = (f, app, dd) => {
+      const comp = compDe(f), u = ultiDe(comp, app, dd.finish_nom), el = elementDeFiche(f);
+      const th = app.finTheme || themeFinishDe(f, u, ELEMENTS[el] ? el : "physique", dd.finish_nom);
+      const coul = app.finCouleur || couleurFinishDe(u, dd.finish_nom);
+      const nom = (dd.finish_nom || "").trim() || (u && u.nom) || "Coup de grâce";
+      return `▶ Le coup de grâce sera : <b>${esc(nom)}</b> — effet <b>${esc(NOMS_EFFETS[th] || th)}</b>${coul ? ` <span style="display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;background:${esc(coul)}"></span>` : ", couleur de son élément"}${u && u.description ? `<br><i>${esc(u.description)}</i>` : !u && (dd.finish_nom || "").trim() ? "<br><i>Nom choisi à la main : l'effet et la couleur sont devinés d'après ce nom.</i>" : ""}`;
+    };
     const editeurDetaille = (zone, f, dd, sauver) => {
       const auto = apparenceAuto(f), ia = dd.apparence || {};
       const app = Object.keys(ia).length ? { ...auto, cornes: undefined, ailes: undefined, aureole: undefined, chat: undefined, crocs: undefined, oreilles: undefined, couronne: undefined, queue: undefined, armure: undefined, arme: undefined, ...ia } : { ...auto };
       Object.keys(app).forEach((k) => app[k] === undefined && delete app[k]);
       zone.innerHTML = `<div class="editeur-app">
         <canvas class="apercu-duel apercu-editeur" width="200" height="250"></canvas>
-        <div class="ea-champs">${CHAMPS_EDIT.map(([titre, champs]) => `<fieldset><legend>${titre}</legend>${champs.map(([k, nom, type]) => {
+        <div class="ea-champs">${champsEdit(f).map(([titre, champs]) => `<fieldset><legend>${titre}</legend>${champs.map(([k, nom, type]) => {
           if (type === "b") return `<label class="ea-ligne"><input type="checkbox" data-ea="${k}" ${app[k] ? "checked" : ""}> ${nom}</label>`;
           if (type === "t") return `<label class="ea-ligne">${nom}<input data-ea="${k}" maxlength="30" value="${esc(app[k] || "")}" placeholder="ex : Danse des cartes"></label>`;
           if (Array.isArray(type)) return `<label class="ea-ligne">${nom}<select data-ea="${k}">${type.map((o) => { const [v, l] = o.split(":"); return `<option value="${v}" ${String(app[k] ?? "") === v ? "selected" : ""}>${l}</option>`; }).join("")}</select></label>`;
           const opt = type === "c?";
           return `<label class="ea-ligne">${nom}${opt ? `<input type="checkbox" data-ea-actif="${k}" ${app[k] ? "checked" : ""} title="Activer">` : ""}<input type="color" data-ea="${k}" value="${versHex(app[k])}" ${opt && !app[k] ? "disabled" : ""}></label>`;
-        }).join("")}</fieldset>`).join("")}</div>
+        }).join("")}${titre === "Coup de grâce" ? `<p class="petit-texte" id="ea-finish"></p>` : ""}</fieldset>`).join("")}</div>
         <div class="rangee"><button class="btn btn-or" id="ea-sauver">💾 Enregistrer l'apparence</button><button class="btn petit" id="ea-auto">↺ Repartir de l'apparence devinée</button></div></div>`;
       // aperçu en direct (garde puis coup de poing, en boucle)
       const cv = $(".apercu-editeur", zone), cx = cv.getContext("2d"), t0 = performance.now();
@@ -4070,11 +4098,15 @@
         if (el.type === "checkbox") { if (el.checked) app[k] = true; else delete app[k]; }
         else if (el.tagName === "SELECT") { const v = el.value; if (v === "") delete app[k]; else app[k] = /^[\d.]+$/.test(v) ? Number(v) : v; }
         else app[k] = el.value;
+        majResume();
       }));
       $$("[data-ea-actif]", zone).forEach((el) => (el.onchange = () => {
         const k = el.dataset.eaActif, c = $(`[data-ea="${k}"]`, zone);
         c.disabled = !el.checked; if (el.checked) app[k] = c.value; else delete app[k];
+        majResume();
       }));
+      function majResume() { const r = $("#ea-finish", zone); if (r) try { r.innerHTML = resumeFinish(f, app, dd); } catch (e) { r.textContent = ""; } }
+      majResume();
       $("#ea-sauver", zone).onclick = () => { const a = {}; Object.entries(app).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") a[k] = v; }); sauver({ apparence: a }, "Apparence enregistrée !"); };
       $("#ea-auto", zone).onclick = () => { dd = { ...dd, apparence: {} }; editeurDetaille(zone, f, dd, sauver); };
     };
@@ -4763,7 +4795,8 @@
     function eclairCiel(x0, y0, x1, y1, graine, larg, col) {
       ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round"; ctx.lineJoin = "round";
       const n = 14, pts = []; for (let i = 0; i <= n; i++) { const q = i / n; pts.push([x0 + (x1 - x0) * q + (i && i < n ? (hasard(graine * 31 + i) - 0.5) * 10 * larg : 0), y0 + (y1 - y0) * q]); }
-      for (const [lw, c, blur, al] of [[larg * 3.2, col, 34, 0.55], [larg, "#ffffff", 12, 1]]) {
+      const coeur = (ELEMENTS[(etat.finishFx || {}).el] || {}).c1 || "#ffffff";
+      for (const [lw, c, blur, al] of [[larg * 3.6, col, 34, 0.7], [larg * 1.6, col, 14, 0.9], [larg * 0.7, coeur, 8, 1]]) {
         ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.shadowColor = col; ctx.shadowBlur = blur; ctx.globalAlpha = al;
         ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
         for (let b = 0; b < 3; b++) { const k = 3 + Math.floor(hasard(graine + b * 7) * 8); let [bx, by] = pts[k]; ctx.lineWidth = lw * 0.4; ctx.beginPath(); ctx.moveTo(bx, by); const sens = hasard(graine + b) > 0.5 ? 1 : -1; for (let j = 0; j < 4; j++) { bx += (hasard(graine + b * 13 + j) - 0.3) * 30 * sens; by += 20; ctx.lineTo(bx, by); } ctx.stroke(); }
