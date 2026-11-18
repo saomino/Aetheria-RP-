@@ -2752,7 +2752,8 @@
   /* ---------- Moteur de combat ---------- */
   function creerUnite(f, rp, etoiles, camp, ligne, mult = 1) {
     const x = forces(f), e = (1 + 0.08 * (etoiles - 1)) * mult;
-    const pvMax = Math.round((70 + x.defense * 4 + x.soutien * 1.5 + (rp.role === "defenseur" ? 50 : 0)) * e);
+    // les PV suivent la puissance du personnage (un légendaire encaisse bien plus qu'un commun)
+    const pvMax = Math.round((90 + x.defense * 6 + x.soutien * 2 + x.attaque * 1.5 + (rp.role === "defenseur" ? 60 : 0)) * e);
     return {
       uid: camp + ":" + f.id, f, nom: f.titre, camp, ligne, role: rp.role, etoiles,
       comp: rp.competences.map((c) => ({ ...c, attente: 0 })),
@@ -2783,7 +2784,8 @@
       if (["degats", "etourdir", "affaiblir"].includes(c.type)) {
         if (d === 1 && c.type === "degats") { log.push(`🎲1 — ${esc(t.nom)} esquive !`); evts.push({ t, kind: "esquive" }); return; }
         const coef = { degats: 1, etourdir: 0.6, affaiblir: 0.45 }[c.type] * (aoe ? 0.6 : 1);
-        let dmg = ((d + u.att) * 1.6 * m * coef + 2) * (u.renfort > 0 ? 1.3 : 1) * (u.faible > 0 ? 0.7 : 1) * (crit ? 1.5 : 1) * combat.fatigue - t.def * 0.35;
+        // le bonus d'attaque compte bien plus que le dé : un +25 frappe beaucoup plus fort qu'un +4
+        let dmg = ((d * 0.6 + u.att * 1.8 + 6) * m * coef + 2) * (u.renfort > 0 ? 1.3 : 1) * (u.faible > 0 ? 0.7 : 1) * (crit ? 1.5 : 1) * combat.fatigue - t.def * 0.5;
         dmg = Math.max(1, Math.round(dmg));
         const absorbe = Math.min(t.bouclier, dmg);
         t.bouclier -= absorbe; t.pv = Math.max(0, t.pv - (dmg - absorbe));
@@ -2794,18 +2796,18 @@
         log.push(txt);
         evts.push({ t, kind: "degats", valeur: dmg - absorbe, absorbe, crit, pv: t.pv, bouclier: t.bouclier, etourdi: t.etourdi > 0 && c.type === "etourdir", faible: c.type === "affaiblir" });
       } else if (c.type === "soin") {
-        const soin = Math.round((d * 0.7 + u.sou * 0.9 + 3) * m * (aoe ? 0.5 : 1) * (crit ? 1.5 : 1) / combat.fatigue);
+        const soin = Math.round((d * 0.5 + u.sou * 1.5 + 6) * m * (aoe ? 0.5 : 1) * (crit ? 1.5 : 1) / combat.fatigue);
         const avant = t.pv; t.pv = Math.min(t.pvMax, t.pv + soin);
         log.push(`🎲${d} → ${esc(t.nom)} +${t.pv - avant} PV`);
         evts.push({ t, kind: "soin", valeur: t.pv - avant, crit, pv: t.pv });
       } else if (c.type === "bouclier") {
-        const b = Math.round((d + u.sou * 0.6 + u.def * 0.6 + 4) * m * (aoe ? 0.6 : 1));
+        const b = Math.round((d * 0.6 + u.sou * 0.8 + u.def * 0.8 + 6) * m * (aoe ? 0.6 : 1));
         t.bouclier = Math.min(Math.round(t.pvMax * 0.6), t.bouclier + b);
         log.push(`🎲${d} → 🔰 ${esc(t.nom)} +${b} de bouclier`);
         evts.push({ t, kind: "bouclier", valeur: b, bouclier: t.bouclier });
       } else if (c.type === "provocation") {
         u.provoc = 2;
-        const b = Math.round((d + u.def) * 0.5 * m);
+        const b = Math.round((d * 0.6 + u.def) * 0.7 * m);
         u.bouclier = Math.min(Math.round(u.pvMax * 0.6), u.bouclier + b);
         log.push(`😤 attire tous les coups pendant 2 tours (+🔰${b})`);
         evts.push({ t: u, kind: "provocation", valeur: b, bouclier: u.bouclier });
